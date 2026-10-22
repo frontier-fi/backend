@@ -11,7 +11,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout Repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@v7
 
             - name: Use Bun
               uses: oven-sh/setup-bun@v2
@@ -22,9 +22,9 @@ jobs:
               run: bun install --frozen-lockfile
 
             - name: Create Release Pull Request
-              uses: changesets/action@v1
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              uses: changesets/action@v2
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Create publish to production Pull Request
               run: gh pr create -B v3-main -H v3-canary --title 'publish to prod' --body 'Created by Github action. Check CHANGELOG.md for more details.'

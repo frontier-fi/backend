@@ -2,8 +2,8 @@ version: '3'
 
 services:
     postgres:
-        container_name: balancer-backend
-        image: postgres:14-alpine
+        container_name: frontier-backend
+        image: postgres:17-alpine
         ports:
             - '5431:5432'
         environment:

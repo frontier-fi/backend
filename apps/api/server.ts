@@ -17,7 +17,6 @@ import { apolloSentryPlugin } from './apollo/sentry-plugin';
 
 const configureHelmet = (app: express.Express) => {
     app.use(helmet.dnsPrefetchControl());
-    app.use(helmet.expectCt());
     app.use(helmet.frameguard());
     app.use(helmet.hidePoweredBy());
     app.use(helmet.hsts());
@@ -26,7 +25,6 @@ const configureHelmet = (app: express.Express) => {
     app.use(helmet.originAgentCluster());
     app.use(helmet.permittedCrossDomainPolicies());
     app.use(helmet.referrerPolicy());
-    app.use(helmet.xssFilter());
 };
 
 const configureMiddlewares = (app: express.Express) => {
@@ -81,6 +79,6 @@ export const startApiServer = async () => {
 
     await configureApolloServer(httpServer, app);
 
-    await new Promise<void>((resolve) => httpServer.listen({ port: env.PORT }, resolve));
+    await new Promise<void>((resolve) => httpServer.listen({ port: env.PORT, host: '0.0.0.0' }, resolve));
     console.log(`🚀 Server ready at http://localhost:${env.PORT}/graphql`);
 };

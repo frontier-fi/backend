@@ -3,7 +3,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  previewFeatures = ["prismaSchemaFolder"]
   binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 

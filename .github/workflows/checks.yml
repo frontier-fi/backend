@@ -6,15 +6,22 @@ on:
 jobs:
     Build:
         runs-on: ubuntu-latest
+        env:
+            DATABASE_URL: postgresql://build:build@localhost:5432/build?schema=public
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v7
             - name: Use Bun
               uses: oven-sh/setup-bun@v2
               with:
                   bun-version: latest
             - name: Install deps
               run: bun install --frozen-lockfile
-            - name: Prisma Generate
-              run: bun prisma generate
+            - name: Generate GraphQL clients and API schema
+              env:
+                  PORT: 4000
+                  NODE_ENV: local
+                  DEPLOYMENT_ENV: canary
+                  ADMIN_API_KEY: ci
+              run: bun prisma generate && bun run generate
             - name: Run build
               run: bun run build
