@@ -1,7 +1,7 @@
 import { $Enums, PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
 import { AprHandler, PoolAPRData } from '../../types';
+import config from '../../../../config';
 import { chainIdToChain } from '../../../../config/chain-id-to-chain';
-import { AaveV3Plasma } from '@aave-dao/aave-address-book';
 import { env } from '../../../../apps/env';
 
 const opportunityUrl =
@@ -99,11 +99,14 @@ export class MerklAprHandler implements AprHandler {
 
     // for boosted pools, merkl doesnt forward the APR to the pools so we need to query merkl for any apr of any pool tokens (we limit to tokens that have underlying)
     private async findTokenOpportunities(pools: PoolAPRData[]) {
-        const aaveMarkets = [AaveV3Plasma];
-        const aaveMarketForChain = aaveMarkets.find((market) => chainIdToChain[market.CHAIN_ID] === pools[0].chain);
+        const chain = pools[0].chain;
+        const aaveMarkets = config[chain].aprHandlers.ybAprHandler?.aave?.markets ?? [];
+        const aaveMarketForChain = aaveMarkets.find((market) => chainIdToChain[market.CHAIN_ID] === chain);
         let aaveTokenMappings: Map<string, string>;
         if (aaveMarketForChain) {
-            aaveTokenMappings = await this.getTokenMappings(Object.values(aaveMarketForChain.ASSETS));
+            aaveTokenMappings = await this.getTokenMappings(
+                aaveMarketForChain.ASSETS ? Object.values(aaveMarketForChain.ASSETS) : [],
+            );
         } else {
             aaveTokenMappings = new Map<string, string>();
         }
