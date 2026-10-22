@@ -6,7 +6,7 @@ import { TokenYieldConfig } from './types';
 const fetchAndStoreAllYields = async () => {
     const configs = Object.fromEntries(
         Object.keys(config)
-            .map((chain) => [chain, config[chain as keyof typeof config].aprHandlers.ybAprHandler])
+            .map((chain) => [chain, config[chain].aprHandlers.ybAprHandler])
             .filter((c): c is [Chain, TokenYieldConfig] => !!c[1]),
     );
 

@@ -1,8 +1,9 @@
+import { Chain } from '@prisma/client';
 import { TokenYieldAprHandlers } from '../handlers';
 import cnfg from '../../../config';
 
 const main = async (_chain: string) => {
-    const chain = _chain as keyof typeof cnfg;
+    const chain = _chain as Chain;
     const config = cnfg[chain].aprHandlers.ybAprHandler;
     const handler = new TokenYieldAprHandlers(config!, chain);
 
