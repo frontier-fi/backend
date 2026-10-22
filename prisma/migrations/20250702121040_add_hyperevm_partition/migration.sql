@@ -1,1 +1,0 @@
-CREATE TABLE events_hyperevm PARTITION OF "PartitionedPoolEvent" FOR VALUES IN ('HYPEREVM');

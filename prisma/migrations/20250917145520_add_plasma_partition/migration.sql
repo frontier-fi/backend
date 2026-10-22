@@ -1,1 +1,0 @@
-CREATE TABLE events_plasma PARTITION OF "PartitionedPoolEvent" FOR VALUES IN ('PLASMA');

@@ -1,2 +1,0 @@
--- AlterEnum
-ALTER TYPE "PrismaPoolType" ADD VALUE 'QUANT_AMM_WEIGHTED';
