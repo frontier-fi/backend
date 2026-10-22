@@ -1,33 +1,28 @@
 import config from '../../config';
 import { chainIdToChain } from '../../config/chain-id-to-chain';
-import { SendMessageCommand, SendMessageCommandInput, SQSClient } from '@aws-sdk/client-sqs';
 import { env } from '../env';
 
-class WokerQueue {
-    constructor(private readonly client: SQSClient, private readonly queueUrl?: string) {}
+class WorkerQueue {
+    constructor(private readonly queueUrl?: string) {}
 
-    public async sendWithInterval(json: string, intervalMs: number, deDuplicationId?: string): Promise<void> {
+    public async sendWithInterval(json: string, intervalMs: number): Promise<void> {
         try {
             if (this.queueUrl === undefined) {
                 return;
             }
 
-            if (this.queueUrl.match(/localhost/)) {
-                await this.sendLocalMessage(json);
-            } else {
-                await this.sendMessage(json, deDuplicationId);
-            }
-            console.log(`Sent message to schedule job on queue ${this.queueUrl}: ${json}`);
+            await this.send(json);
+            console.log(`Sent job ${json}`);
         } catch (error) {
             console.error(error);
         } finally {
             setTimeout(() => {
-                this.sendWithInterval(json, intervalMs, deDuplicationId);
+                this.sendWithInterval(json, intervalMs);
             }, intervalMs);
         }
     }
 
-    public async sendLocalMessage(json: string): Promise<void> {
+    private async send(json: string): Promise<void> {
         if (this.queueUrl === undefined) {
             throw new Error('WORKER_QUEUE_URL is undefined');
         }
@@ -39,25 +34,14 @@ class WokerQueue {
             },
             body: json,
         });
-        
-        if (!response.ok) {
-            throw new Error(`Failed to send message: ${response.status} ${response.statusText}`);
-        }
-    }
 
-    public async sendMessage(json: string, deDuplicationId?: string, delaySeconds?: number): Promise<void> {
-        const input: SendMessageCommandInput = {
-            QueueUrl: this.queueUrl,
-            MessageBody: json,
-            MessageDeduplicationId: deDuplicationId,
-            DelaySeconds: delaySeconds,
-        };
-        const command = new SendMessageCommand(input);
-        await this.client.send(command);
+        if (!response.ok) {
+            throw new Error(`Failed to send job: ${response.status} ${response.statusText}`);
+        }
     }
 }
 
-const workerQueue = new WokerQueue(new SQSClient({}), env.WORKER_QUEUE_URL);
+const workerQueue = new WorkerQueue(env.WORKER_QUEUE_URL);
 
 export async function scheduleJobs(chainId: string): Promise<void> {
     for (const job of config[chainIdToChain[chainId]].workerJobs) {
