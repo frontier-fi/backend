@@ -1,10 +1,21 @@
 import { ContractFunctionParameters } from 'viem';
 import { Chain } from '@prisma/client';
+import config from '../../config';
 import { getViemClient, ViemClient } from '../sources/viem-client';
 import _ from 'lodash';
 import type { IMulticaller, Multicaller3Call } from './types';
 export type { IMulticaller, Multicaller3Call as ViemMulticallCall };
 import { mergeArraysById } from '../helper/merge-arrays-by-id';
+
+// Same CREATE2 address published in https://github.com/mds1/multicall deployments.json.
+const DEFAULT_MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
+
+function multicall3Address(client: ViemClient): `0x${string}` {
+    const chainId = client.chain?.id;
+    const network =
+        chainId === undefined ? undefined : Object.values(config).find((entry) => entry.chain.id === chainId);
+    return (network?.multicall3 ?? DEFAULT_MULTICALL3) as `0x${string}`;
+}
 
 /**
  * Wrapper for multicall that takes an array of calls and returns an object with the results mapped by the path
@@ -23,7 +34,7 @@ export async function multicallViem<T extends Record<string, any>>(
         contracts: calls,
         blockNumber,
         batchSize,
-        multicallAddress: '0xca11bde05977b3631167028862be2a173976ca11',
+        multicallAddress: multicall3Address(client),
     });
 
     const returnObject = {};
@@ -68,7 +79,12 @@ export class Multicaller3Viem implements IMulticaller {
     private client: ViemClient;
     private abi: ContractFunctionParameters['abi'];
 
-    constructor(chain: Chain, abi: any, private batchSize = 1024, private blockNumber?: bigint) {
+    constructor(
+        chain: Chain,
+        abi: any,
+        private batchSize = 1024,
+        private blockNumber?: bigint,
+    ) {
         this.client = getViemClient(chain);
         this.abi = abi;
     }
