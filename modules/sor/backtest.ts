@@ -7,7 +7,7 @@ import { prisma } from '../../prisma/prisma-client';
 // Configuration
 const CONFIG = {
     // chains: ['MAINNET', 'BASE', 'SONIC', 'GNOSIS'] as Chain[],
-    chains: ['GNOSIS'] as Chain[],
+    chains: ['SEPOLIA'] as Chain[],
     swapsCount: 100_000,
     logIndividualSwaps: false,
 };
