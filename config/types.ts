@@ -102,20 +102,6 @@ export interface NetworkData {
         excludedFarmIds: string[];
     };
     avgBlockSpeed: number;
-    datastudio?: {
-        [key in DeploymentEnv]: {
-            user: string;
-            sheetId: string;
-            compositionTabName: string;
-            databaseTabName: string;
-            emissionDataTabName: string;
-        };
-    };
-    monitoring: {
-        [key in DeploymentEnv]: {
-            alarmTopicArn: string;
-        };
-    };
     stakingServices: StakingServiceType[];
     workerJobs: WorkerJob[];
 }

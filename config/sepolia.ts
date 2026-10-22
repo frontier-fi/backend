@@ -81,30 +81,6 @@ export default <NetworkData>{
     multicall3: '0xca11bde05977b3631167028862be2a173976ca11',
     avgBlockSpeed: 1,
     aprHandlers: {},
-    datastudio: {
-        main: {
-            user: 'datafeed-service@datastudio-366113.iam.gserviceaccount.com',
-            sheetId: '11anHUEb9snGwvB-errb5HvO8TvoLTRJhkDdD80Gxw1Q',
-            databaseTabName: 'Database v2',
-            compositionTabName: 'Pool Composition v2',
-            emissionDataTabName: 'EmissionData',
-        },
-        canary: {
-            user: 'datafeed-service@datastudio-366113.iam.gserviceaccount.com',
-            sheetId: '1HnJOuRQXGy06tNgqjYMzQNIsaCSCC01Yxe_lZhXBDpY',
-            databaseTabName: 'Database v2',
-            compositionTabName: 'Pool Composition v2',
-            emissionDataTabName: 'EmissionData',
-        },
-    },
-    monitoring: {
-        main: {
-            alarmTopicArn: 'arn:aws:sns:ca-central-1:118697801881:api_alarms',
-        },
-        canary: {
-            alarmTopicArn: 'arn:aws:sns:eu-central-1:118697801881:api_alarms',
-        },
-    },
     stakingServices: ['gauge'],
     workerJobs: [...activeChainWorkerJobsGeneric, ...activeChainWorkerJobsV2, ...activeChainWorkerJobsV3, ...cowAmmWorkerJobs, ...quantAmmWorkerJobs],
 };
