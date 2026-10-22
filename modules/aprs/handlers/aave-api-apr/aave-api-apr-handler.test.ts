@@ -191,17 +191,14 @@ describe('AaveApiAprHandler', () => {
     });
 
     test('should handle non-mainnet chains', async () => {
-        // Create handler for Arbitrum
-        const arbitrumChainId = '42161';
-        const arbitrumHandler = new AaveApiAprHandler(arbitrumChainId, mockClient);
+        const sepoliaChainId = '11155111';
+        const sepoliaHandler = new AaveApiAprHandler(sepoliaChainId, mockClient);
 
-        // Mock pool for Arbitrum
-        const arbitrumPool = {
+        const sepoliaPool = {
             ...mockPool,
-            chain: Chain.ARBITRUM,
+            chain: Chain.SEPOLIA,
         } as unknown as PoolAPRData;
 
-        // Mock response for Arbitrum
         mockFetchIncentives.mockResolvedValue({
             ITKN: {
                 tokenInfo: {
@@ -223,19 +220,15 @@ describe('AaveApiAprHandler', () => {
             },
         });
 
-        // Prime incentives should NOT be called for non-mainnet chains
         mockFetchPrimeIncentives.mockResolvedValue({});
 
-        const aprItems = await arbitrumHandler.calculateAprForPools([arbitrumPool]);
+        const aprItems = await sepoliaHandler.calculateAprForPools([sepoliaPool]);
 
-        // Verify client methods were called correctly
-        expect(mockFetchIncentives).toHaveBeenCalledWith(42161);
-        // Prime incentives should not be called for Arbitrum
+        expect(mockFetchIncentives).toHaveBeenCalledWith(11155111);
         expect(mockFetchPrimeIncentives).not.toHaveBeenCalled();
 
-        // Should have one item
         expect(aprItems.length).toBe(1);
-        expect(aprItems[0].chain).toBe(Chain.ARBITRUM);
+        expect(aprItems[0].chain).toBe(Chain.SEPOLIA);
         expect(aprItems[0].rewardTokenSymbol).toBe('ARB');
 
         // Calculate expected APR: (apr / 100) * tokenShareOfPoolTvl

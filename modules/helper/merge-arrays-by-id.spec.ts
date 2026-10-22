@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { mergeArraysById } from './merge-arrays-by-id';
 import _ from 'lodash';
 
@@ -45,7 +45,7 @@ describe('mergeArraysById', () => {
     it('should overwrite with srcValue when merging an array of objects with ids and an array of numbers', () => {
         const objArray = { prop: { id: 1, name: 'Alice' } };
         const numArray = { prop: [1, 2, 3] };
-        const result = _.mergeWith(objArray, numArray, mergeArraysById);
+        const result = _.mergeWith(objArray, numArray, mergeArraysById) as { prop: number[] };
 
         expect(result.prop).toEqual([1, 2, 3]);
     });
@@ -53,7 +53,7 @@ describe('mergeArraysById', () => {
     it('should overwrite with srcValue when merging an array of objects with ids and a single string', () => {
         const objArray = { prop: { id: 1, name: 'Alice' } };
         const str = { prop: 'hello' };
-        const result = _.mergeWith(objArray, str, mergeArraysById);
+        const result = _.mergeWith(objArray, str, mergeArraysById) as { prop: string };
 
         expect(result.prop).toEqual('hello');
     });

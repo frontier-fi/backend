@@ -37,7 +37,11 @@ describe('sync pools debug', () => {
 
         const inserts = await addPools(pools, viemClient, vaultAddress, chain, latestBlock);
         await syncPools(
-            inserts.map(({ pool }) => pool),
+            inserts.map(({ pool }) => ({
+                ...pool,
+                version: pool.version ?? 1,
+                typeData: pool.typeData ?? {},
+            })),
             chain,
             vaultAddress,
             viemClient,

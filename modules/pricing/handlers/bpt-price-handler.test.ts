@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BptPriceHandler } from './bpt-price-handler';
 import { Chain } from '@prisma/client';
 import { TokenPriceData } from '../types';
 
 // Mock database functions
 const mockPrismaPool = {
-    findMany: mock(),
+    findMany: vi.fn(),
 };
 
 const mockDB = {
@@ -30,8 +30,8 @@ describe('BptPriceHandler', () => {
                 },
                 {
                     address: '0xbpt2',
-                    chain: Chain.ARBITRUM,
-                    types: ['PHANTOM_BPT'],
+                    chain: Chain.SEPOLIA,
+                    types: ['BPT'],
                 },
             ];
 
@@ -46,7 +46,7 @@ describe('BptPriceHandler', () => {
                 },
                 {
                     address: '0xbpt2',
-                    chain: Chain.ARBITRUM,
+                    chain: Chain.SEPOLIA,
                     dynamicData: {
                         totalLiquidity: 2000,
                         totalShares: '500', // 2000 / 500 = 4
@@ -68,7 +68,7 @@ describe('BptPriceHandler', () => {
             });
             expect(priceItems[1]).toEqual({
                 address: '0xbpt2',
-                chain: Chain.ARBITRUM,
+                chain: Chain.SEPOLIA,
                 price: 4,
                 updatedAt: expect.any(Date),
                 updatedBy: 'BptPriceHandlerService',
@@ -90,7 +90,7 @@ describe('BptPriceHandler', () => {
             expect(mockPrismaPool.findMany).not.toHaveBeenCalled();
         });
 
-        it('should only process BPT and PHANTOM_BPT tokens', async () => {
+        it('should only process BPT tokens', async () => {
             const tokens: TokenPriceData[] = [
                 {
                     address: '0xbpt1',
@@ -104,8 +104,8 @@ describe('BptPriceHandler', () => {
                 },
                 {
                     address: '0xbpt2',
-                    chain: Chain.ARBITRUM,
-                    types: ['PHANTOM_BPT'],
+                    chain: Chain.SEPOLIA,
+                    types: ['BPT'],
                 },
             ];
 
@@ -120,7 +120,7 @@ describe('BptPriceHandler', () => {
                 },
                 {
                     address: '0xbpt2',
-                    chain: Chain.ARBITRUM,
+                    chain: Chain.SEPOLIA,
                     dynamicData: {
                         totalLiquidity: 2000,
                         totalShares: '500',
@@ -145,7 +145,7 @@ describe('BptPriceHandler', () => {
                 },
                 {
                     address: '0xbpt2',
-                    chain: Chain.ARBITRUM,
+                    chain: Chain.SEPOLIA,
                     types: ['BPT'],
                 },
             ];
@@ -301,8 +301,8 @@ describe('BptPriceHandler', () => {
                 },
                 {
                     address: '0xbpt2',
-                    chain: Chain.ARBITRUM,
-                    types: ['PHANTOM_BPT'],
+                    chain: Chain.SEPOLIA,
+                    types: ['BPT'],
                 },
             ];
 
@@ -313,7 +313,7 @@ describe('BptPriceHandler', () => {
             expect(mockPrismaPool.findMany).toHaveBeenCalledWith({
                 where: {
                     dynamicData: { totalLiquidity: { gt: 0.1 } },
-                    chain: { in: [Chain.MAINNET, Chain.ARBITRUM] },
+                    chain: { in: [Chain.MAINNET, Chain.SEPOLIA] },
                 },
                 include: { dynamicData: true },
             });

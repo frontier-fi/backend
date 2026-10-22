@@ -1,20 +1,21 @@
-import { expect, test, describe, mock, beforeEach } from 'bun:test';
+import { expect, test, describe, vi, beforeEach } from 'vitest';
 import { blockNumbers } from './index';
 import { Chain } from '@prisma/client';
 
 describe('blockNumbers', () => {
     const mockEvents = {
-        $queryRawUnsafe: mock(() => {}),
+        getLatestEvent: vi.fn(async (): Promise<{ blockNumber: number } | null> => null),
+        getDailyBlockNumbers: vi.fn(async (): Promise<{ timestamp: number; number: number }[]> => []),
     };
 
     beforeEach(() => {
-        mockEvents.$queryRawUnsafe.mockReset();
+        mockEvents.getLatestEvent.mockReset();
+        mockEvents.getDailyBlockNumbers.mockReset();
     });
 
     describe('getBlock', () => {
         test('should return block number for given timestamp', async () => {
-            const mockEvent = [{ blockNumber: 12345 }];
-            mockEvents.$queryRawUnsafe.mockResolvedValue(mockEvent);
+            mockEvents.getLatestEvent.mockResolvedValue({ blockNumber: 12345 });
 
             const service = blockNumbers(mockEvents as any);
             const result = await service.getBlock(Chain.MAINNET, 1000);
@@ -23,7 +24,7 @@ describe('blockNumbers', () => {
         });
 
         test('should return undefined if no event found', async () => {
-            mockEvents.$queryRawUnsafe.mockResolvedValue([]);
+            mockEvents.getLatestEvent.mockResolvedValue(null);
 
             const service = blockNumbers(mockEvents as any);
             const result = await service.getBlock(Chain.MAINNET, 1000);
@@ -38,7 +39,7 @@ describe('blockNumbers', () => {
                 { timestamp: 1000, number: 12345 },
                 { timestamp: 2000, number: 12445 },
             ];
-            mockEvents.$queryRawUnsafe.mockResolvedValue(mockBlocks);
+            mockEvents.getDailyBlockNumbers.mockResolvedValue(mockBlocks);
 
             const service = blockNumbers(mockEvents as any);
             const result = await service.getDailyBlocks(Chain.MAINNET, 2);

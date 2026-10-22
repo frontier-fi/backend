@@ -10,6 +10,7 @@
         "start": "node dist/apps/main.js",
         "dev": "bun --hot run apps/main.ts",
         "build": "tsc -p tsconfig.build.json",
+        "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
         "cleanup-console": "find dist -type f -name \"*.js\" -exec sed -i '/console\\.time(\\(.*\\))\\;/d;/console\\.timeEnd(\\(.*\\))\\;/d' {} \\;",
         "generate": "graphql-codegen --config codegen.ts",
         "generate:api": "bun scripts/generate-api.ts",

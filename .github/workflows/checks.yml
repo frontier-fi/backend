@@ -25,3 +25,5 @@ jobs:
               run: bun prisma generate && bun run generate
             - name: Run build
               run: bun run build
+            - name: Typecheck tests
+              run: bun run typecheck:tests
