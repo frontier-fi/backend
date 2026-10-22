@@ -4,7 +4,7 @@
 generator client {
   provider = "prisma-client-js"
   previewFeatures = ["prismaSchemaFolder"]
-  binaryTargets = ["native", "linux-arm64-openssl-1.0.x"] //, "linux-arm64-openssl-3.0.x"]
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -13,30 +13,16 @@ datasource db {
 }
 
 enum Chain {
-    ARBITRUM
-    AVALANCHE
     BASE
-    FANTOM
-    GNOSIS
-    HYPEREVM
     MAINNET
-    MONAD
-    OPTIMISM
-    POLYGON
-    PLASMA
     SEPOLIA
-    ZKEVM
-    FRAXTAL
-    MODE
-    SONIC
-    XLAYER
 }
 
 model PrismaLastBlockSynced {
     @@id([category, chain])
 
     category            PrismaLastBlockSyncedCategory
-    chain               Chain       @default(MAINNET)
+    chain               Chain       @default(SEPOLIA)
     blockNumber         Int
 }
 

@@ -2,21 +2,7 @@ type Query
 type Mutation
 
 enum GqlChain {
-    ARBITRUM
-    AVALANCHE
     BASE
-    FANTOM
-    GNOSIS
-    HYPEREVM
     MAINNET
-    OPTIMISM
-    POLYGON
-    PLASMA
-    ZKEVM
     SEPOLIA
-    FRAXTAL
-    MODE
-    SONIC
-    XLAYER
-    MONAD
 }

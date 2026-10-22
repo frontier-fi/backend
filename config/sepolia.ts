@@ -43,10 +43,6 @@ export default <NetworkData>{
     bal: {
         address: '0xb19382073c7A0aDdbb56Ac6AF1808Fa49e377B75',
     },
-    // veBal: {
-    //     address: '0xc128a9954e6c874ea3d62ce62b468ba073093f25',
-    //     delegationProxy: '0x81cfae226343b24ba12ec6521db2c79e7aeeb310',
-    // },
     balancer: {
         v2: {
             vaultAddress: '0xba12222222228d8ba445958a75a0704d566bf2c8',
