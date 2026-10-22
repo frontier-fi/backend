@@ -1,4 +1,0 @@
-model PrismaFbeets {
-    id                  String              @id
-    ratio               String
-}

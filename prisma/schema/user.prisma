@@ -2,14 +2,9 @@ model PrismaUser {
     address                 String              @id
 
     userSnapshots           PrismaUserPoolBalanceSnapshot[]
-    relicSnapshots          PrismaUserRelicSnapshot[]
 
     walletBalances          PrismaUserWalletBalance[]
     stakedBalances          PrismaUserStakedBalance[]
-    
-    veBalBalance            PrismaVeBalUserBalance[]
-
-    veBalBalanceSnapshots   PrismaVeBalUserBalanceSnapshot[]
 }
 
 
@@ -75,9 +70,6 @@ model PrismaUserBalanceSyncStatus {
 enum PrismaUserBalanceType {
     WALLET
     STAKED
-    RELIQUARY
-    AURA
-    VEBAL
 }
 
 model PrismaUserPoolBalanceSnapshot {
@@ -94,39 +86,9 @@ model PrismaUserPoolBalanceSnapshot {
     pool                    PrismaPool?         @relation(fields:[poolId, chain], references:[id, chain])
 
     walletBalance           String
-    gaugeBalance            String
     farmBalance             String
     totalBalance            String
     percentShare            String
     totalValueUSD           String
     fees24h                 String
-}
-
-model PrismaUserRelicSnapshot {
-    @@id([id, chain])
-
-    id                      String
-    userAddress             String
-    user                    PrismaUser          @relation(fields:[userAddress], references: [address])
-    chain                   Chain               
-    timestamp               Int
-
-    relicId                 Int
-    farmId                  String
-    farm                    PrismaPoolStakingReliquaryFarm @relation(fields:[farmId, chain], references: [id, chain])
-    balance                 String
-    entryTimestamp          Int
-    level                   Int
-}
-
-model PrismaVeBalUserBalanceSnapshot {
-    @@id([userAddress, timestamp])
-    userAddress             String
-    user                    PrismaUser          @relation(fields:[userAddress], references: [address])
-    chain                   Chain               
-    timestamp               Int
-
-    bias                    String
-    slope                   String
-    balance                 String
 }

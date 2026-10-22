@@ -56,16 +56,7 @@ export function getHookState(pool: PrismaPoolAndHookWithDynamic): HookState | un
 
     switch (hookData.type) {
         case 'MEV_TAX':
-        case 'RECLAMM':
-        case 'FIXED_LBP':
             return undefined;
-        case 'AKRON': {
-            return {
-                weights: pool.tokens.map((token) => parseEther(token.weight as string)),
-                minimumSwapFeePercentage: parseEther(pool.dynamicData?.swapFee || '0'),
-                hookType: 'Akron',
-            };
-        }
         case 'EXIT_FEE': {
             // api for this hook is an Object with removeLiquidityFeePercentage key & fee as string
             const dynamicData = hookData.dynamicData as { removeLiquidityFeePercentage: string };

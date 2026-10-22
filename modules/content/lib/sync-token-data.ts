@@ -179,16 +179,7 @@ async function syncBPTTypes() {
         tokenAddress: pool.address,
     }));
 
-    const phantomBptTypes = pools
-        .filter((pool) => pool.type === 'COMPOSABLE_STABLE')
-        .map((pool) => ({
-            id: `${pool.address}-phantom-bpt`,
-            chain: pool.chain,
-            type: PrismaTokenTypeOption.PHANTOM_BPT,
-            tokenAddress: pool.address,
-        }));
-
-    await prisma.prismaTokenType.createMany({ skipDuplicates: true, data: [...bptTypes, ...phantomBptTypes] });
+    await prisma.prismaTokenType.createMany({ skipDuplicates: true, data: bptTypes });
 }
 
 function getTokensToSync(

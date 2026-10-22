@@ -245,7 +245,7 @@ async function calculatePoolSnapshots(
             },
             id: `${poolId}-${since}`,
             timestamp: since,
-            protocolVersion: poolsDynamicDataMap[poolId].pool.protocolVersion || 2,
+            protocolVersion: poolsDynamicDataMap[poolId].pool.protocolVersion,
             totalLiquidity: poolsDynamicDataMap[poolId].totalLiquidity || 0,
             totalShares: poolsDynamicDataMap[poolId].totalShares || '0',
             totalSharesNum: parseFloat(poolsDynamicDataMap[poolId].totalShares || '0'),
@@ -288,50 +288,18 @@ async function getTotalSharesAtBlocks(
         // Create a promise for each block in the batch
         const promises = batch.map(async (block) => {
             try {
-                if (pool.protocolVersion === 2 || pool.protocolVersion === 1) {
-                    let supplyFunction: 'getVirtualSupply' | 'getActualSupply' | 'totalSupply' = 'totalSupply';
+                const result = await client.readContract({
+                    address: config[pool.chain].balancer.v3.vaultAddress as `0x${string}`,
+                    abi: parseAbi(['function totalSupply(address) view returns (uint256)']),
+                    functionName: 'totalSupply',
+                    blockNumber: BigInt(block.number),
+                    args: [pool.address as `0x${string}`],
+                });
 
-                    if (pool.type === 'COMPOSABLE_STABLE' && pool.version === 0) {
-                        supplyFunction = 'getVirtualSupply';
-                    } else if (
-                        pool.type === 'COMPOSABLE_STABLE' ||
-                        (pool.type === 'WEIGHTED' && pool.version > 1) ||
-                        (pool.type === 'UNKNOWN' && pool.version > 1)
-                    ) {
-                        supplyFunction = 'getActualSupply';
-                    } else {
-                        supplyFunction = 'totalSupply';
-                    }
-
-                    const result = await client.readContract({
-                        address: pool.address as `0x${string}`,
-                        abi: parseAbi([
-                            'function getActualSupply() view returns (uint256)',
-                            'function totalSupply() view returns (uint256)',
-                            'function getVirtualSupply() view returns (uint256)',
-                        ]),
-                        functionName: supplyFunction,
-                        blockNumber: BigInt(block.number),
-                    });
-
-                    return {
-                        timestamp: block.timestamp,
-                        value: formatEther(result as bigint),
-                    };
-                } else {
-                    const result = await client.readContract({
-                        address: config[pool.chain].balancer.v3.vaultAddress as `0x${string}`,
-                        abi: parseAbi(['function totalSupply(address) view returns (uint256)']),
-                        functionName: 'totalSupply',
-                        blockNumber: BigInt(block.number),
-                        args: [pool.address as `0x${string}`],
-                    });
-
-                    return {
-                        timestamp: block.timestamp,
-                        value: formatEther(result as bigint),
-                    };
-                }
+                return {
+                    timestamp: block.timestamp,
+                    value: formatEther(result as bigint),
+                };
             } catch (error) {
                 console.error(
                     `Failed to get total shares for pool ${pool.id} at block ${block.number} (timestamp: ${block.timestamp}):`,
@@ -379,57 +347,7 @@ async function getPoolTokenBalancesAtBlocks(
 
     const balancesMap: Record<number, { address: string; balance: string; index: number }[]> = {};
 
-    if (pool.protocolVersion === 2) {
-        // Process blocks in batches
-        for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
-            const batch = blocks.slice(i, i + BATCH_SIZE);
-
-            // Create a promise for each block in the batch
-            const promises = batch.map(async (block) => {
-                try {
-                    const result = await client.readContract({
-                        address: config[pool.chain].balancer.v2.vaultAddress as `0x${string}`,
-                        abi: parseAbi([
-                            'function getPoolTokens(bytes32 poolId) view returns (address[] tokens, uint256[] balances, uint256 lastChangeBlock)',
-                        ]),
-                        functionName: 'getPoolTokens',
-                        args: [pool.id as `0x${string}`],
-                        blockNumber: BigInt(block.number),
-                    });
-
-                    const tokens = (result as any)[0].map((address: string, index: number) => ({
-                        address,
-                        balance: formatUnits((result as any)[1][index], decimalsMap[address.toLowerCase()]),
-                        index,
-                    }));
-
-                    return {
-                        timestamp: block.timestamp,
-                        tokens,
-                    };
-                } catch (error) {
-                    console.error(
-                        `Failed to get pool token balances for pool ${pool.id} at block ${block.number} (timestamp: ${block.timestamp}):`,
-                    );
-                    return {
-                        timestamp: block.timestamp,
-                        tokens: [],
-                    };
-                }
-            });
-
-            // Wait for all promises in this batch to resolve
-            const results = await Promise.all(promises);
-
-            // Add results to the map
-            for (const result of results) {
-                balancesMap[result.timestamp] = result.tokens;
-            }
-        }
-
-        return balancesMap;
-    } else if (pool.protocolVersion === 3) {
-        // Process blocks in batches
+    // Process blocks in batches
         for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
             const batch = blocks.slice(i, i + BATCH_SIZE);
 
@@ -478,71 +396,4 @@ async function getPoolTokenBalancesAtBlocks(
         }
 
         return balancesMap;
-    } else if (pool.protocolVersion === 1) {
-        // Process blocks in batches
-        for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
-            const batch = blocks.slice(i, i + BATCH_SIZE);
-
-            // For protocol v1, we need to query each token balance separately for each block
-            const promises = batch.map(async (block) => {
-                try {
-                    // For each block, query all token balances in parallel
-                    const tokenPromises = pool.tokens.map(async (token, index) => {
-                        try {
-                            const result = await client.readContract({
-                                address: pool.address as `0x${string}`,
-                                abi: parseAbi(['function getBalance(address) view returns (uint256)']),
-                                functionName: 'getBalance',
-                                blockNumber: BigInt(block.number),
-                                args: [token.address as `0x${string}`],
-                            });
-
-                            return {
-                                address: token.address,
-                                balance: formatUnits(result as bigint, decimalsMap[token.address.toLowerCase()]),
-                                index: index,
-                            };
-                        } catch (error) {
-                            console.error(
-                                `Failed to get balance for token ${token.address} in pool ${pool.id} at block ${block.number}:`,
-                                error,
-                            );
-                            return {
-                                address: token.address,
-                                balance: '0',
-                                index: index,
-                            };
-                        }
-                    });
-
-                    const tokens = await Promise.all(tokenPromises);
-
-                    return {
-                        timestamp: block.timestamp,
-                        tokens,
-                    };
-                } catch (error) {
-                    console.error(
-                        `Failed to get pool token balances for pool ${pool.id} at block ${block.number} (timestamp: ${block.timestamp}):`,
-                    );
-                    return {
-                        timestamp: block.timestamp,
-                        tokens: [],
-                    };
-                }
-            });
-
-            // Wait for all block promises in this batch to resolve
-            const results = await Promise.all(promises);
-
-            // Add results to the map
-            for (const result of results) {
-                balancesMap[result.timestamp] = result.tokens;
-            }
-        }
-
-        return balancesMap;
-    }
-
-    return {};
 }

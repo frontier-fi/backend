@@ -194,44 +194,4 @@ type GqlPoolAggregator {
     Hook assigned to a pool
     """
     hook: GqlHook
-    """
-    QuantAmmWeighted specific fields
-    """
-    quantAmmWeightedParams: QuantAmmWeightedParams
-    """
-    The timestamp of the last user interaction
-    """
-    lastTimestamp: Int
-    """
-    ReClamm: The last virtual balances of the pool
-    """
-    lastVirtualBalances: [BigDecimal!]
-    """
-    ReClamm: Represents how fast the pool can move the virtual balances per day
-    """
-    dailyPriceShiftBase: BigDecimal
-    """
-    ReClamm: The centeredness margin of the pool
-    """
-    centerednessMargin: BigDecimal
-    """
-    ReClamm: The current fourth root price ratio, an interpolation of the price ratio state
-    """
-    currentFourthRootPriceRatio: BigDecimal
-    """
-    ReClamm: The fourth root price ratio at the start of an update
-    """
-    startFourthRootPriceRatio: BigDecimal
-    """
-    ReClamm: The fourth root price ratio at the end of an update
-    """
-    endFourthRootPriceRatio: BigDecimal
-    """
-    ReClamm: The timestamp when the update begins
-    """
-    priceRatioUpdateStartTime: Int
-    """
-    ReClamm: The timestamp when the update ends
-    """
-    priceRatioUpdateEndTime: Int
 }

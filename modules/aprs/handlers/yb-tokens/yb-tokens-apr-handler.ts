@@ -90,9 +90,7 @@ export class YbTokensAprHandler implements AprHandler {
                 let fee = 0;
                 if (collectsYieldFee(pool) && tokenCollectsYieldFee(token) && pool.dynamicData) {
                     fee =
-                        pool.type === 'META_STABLE'
-                            ? parseFloat(pool.dynamicData.protocolSwapFee || '0')
-                            : pool.protocolVersion === 3
+                        pool.protocolVersion === 3
                             ? parseFloat(pool.dynamicData.aggregateYieldFee || '0.1')
                             : parseFloat(pool.dynamicData.protocolYieldFee || '0');
 

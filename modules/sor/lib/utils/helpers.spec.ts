@@ -15,20 +15,6 @@ describe('getHookState', () => {
         expect(getHookState(pool)).toBeUndefined();
     });
 
-    it('should return undefined for RECLAMM hook type', () => {
-        const pool = {
-            hook: { type: 'RECLAMM' } as unknown as HookData,
-        } as unknown as PrismaPoolAndHookWithDynamic;
-        expect(getHookState(pool)).toBeUndefined();
-    });
-
-    it('should return undefined for AKRON hook type', () => {
-        const pool = {
-            hook: { type: 'AKRON' } as unknown as HookData,
-        } as unknown as PrismaPoolAndHookWithDynamic;
-        expect(getHookState(pool)).toBeUndefined();
-    });
-
     it('should return correct hook state for EXIT_FEE hook type', () => {
         const removeLiquidityFeePercentage = '0.01';
         const tokens = [{ address: '0x1234' }, { address: '0x5678' }];

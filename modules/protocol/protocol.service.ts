@@ -62,7 +62,6 @@ export class ProtocolService {
             prisma.prismaPool.findMany({
                 where: {
                     NOT: { categories: { has: 'BLACK_LISTED' } },
-                    type: { not: 'LIQUIDITY_BOOTSTRAPPING' },
                     dynamicData: {
                         totalSharesNum: {
                             gt: 0.000000000001,
@@ -109,12 +108,10 @@ export class ProtocolService {
         );
 
         const balancerV1Tvl = await this.getBalancerV1Tvl(chain);
-        const sftmxTvl = 0;
-        const stsTVL = await this.getStsTVL(chain);
 
         const protocolData = {
             chainId: `${config[chain].chain.id}`,
-            totalLiquidity: `${totalLiquidity + balancerV1Tvl + sftmxTvl + stsTVL}`,
+            totalLiquidity: `${totalLiquidity + balancerV1Tvl}`,
             totalSwapFee: '0',
             totalSwapVolume: '0',
             poolCount: `${poolCount}`,
@@ -130,25 +127,6 @@ export class ProtocolService {
         this.cache.put(`${PROTOCOL_METRICS_CACHE_KEY}:${chain}`, protocolData, 60 * 30 * 1000);
 
         return protocolData;
-    }
-
-    private async getStsTVL(chain: Chain): Promise<number> {
-        if (chain !== 'SONIC') {
-            return 0;
-        }
-
-        const tokenAddress = config[chain].weth.address;
-        const sPrice = await prisma.prismaTokenCurrentPrice.findFirst({
-            where: { tokenAddress, chain: 'SONIC' },
-        });
-
-        if (config[chain].sts) {
-            const stakingData = await prisma.prismaStakedSonicData.findUniqueOrThrow({
-                where: { id: config[chain].sts!.address },
-            });
-            return parseFloat(stakingData.totalAssets) * (sPrice?.price || 0);
-        }
-        return 0;
     }
 
     private async getBalancerV1Tvl(chain: Chain): Promise<number> {

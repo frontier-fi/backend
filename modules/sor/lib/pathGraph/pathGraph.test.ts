@@ -1,5 +1,5 @@
 import { PathGraph } from './pathGraph';
-import { BasePool } from '../poolsV2/basePool';
+import { BasePool } from '../basePool';
 import { Token, TokenAmount, SwapKind } from '@balancer/sdk';
 import { describe, test, expect, beforeEach } from 'bun:test';
 

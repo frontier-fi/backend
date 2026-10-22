@@ -1,5 +1,5 @@
 import { TokenAmount, SwapKind, Token } from '@balancer/sdk';
-import { BasePool } from './poolsV2/basePool';
+import { BasePool } from './basePool';
 import { BufferPool } from './poolsV3/buffer/bufferPool';
 
 export class PathLocal {

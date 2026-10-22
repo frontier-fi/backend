@@ -1,5 +1,5 @@
 import { LoadCodegenConfigResult } from '@graphql-codegen/cli';
-import config from './config';
+import sepoliaConfig from './config/sepolia';
 
 const plugins = {
     types: ['typescript', 'typescript-operations', 'typescript-graphql-request'],
@@ -20,80 +20,15 @@ const defaults = {
 };
 
 const files = {
-    ['modules/sources/subgraphs/cow-amm/generated/types.ts']: {
-        schema: config.MAINNET.subgraphs.cowAmm,
-        documents: 'modules/sources/subgraphs/cow-amm/*.graphql',
-        ...defaults.types,
-    },
     ['modules/sources/subgraphs/balancer-v3-vault/generated/types.ts']: {
-        schema: config.MAINNET.subgraphs.balancerV3,
+        schema: sepoliaConfig.subgraphs.balancerV3,
         documents: 'modules/sources/subgraphs/balancer-v3-vault/*.graphql',
         ...defaults.types,
     },
     ['modules/sources/subgraphs/balancer-v3-pools/generated/types.ts']: {
-        schema: config.MAINNET.subgraphs.balancerPoolsV3,
+        schema: sepoliaConfig.subgraphs.balancerPoolsV3,
         documents: 'modules/sources/subgraphs/balancer-v3-pools/*.graphql',
         ...defaults.types,
-    },
-    ['modules/subgraphs/balancer-subgraph/generated/balancer-subgraph-types.ts']: {
-        schema: config.MAINNET.subgraphs.balancer,
-        documents: 'modules/subgraphs/balancer-subgraph/balancer-subgraph-queries.graphql',
-        ...defaults.types,
-    },
-    ['modules/subgraphs/reliquary-subgraph/generated/reliquary-subgraph-types.ts']: {
-        schema: config.SONIC.subgraphs.reliquary,
-        documents: 'modules/subgraphs/reliquary-subgraph/reliquary-subgraph-queries.graphql',
-        ...defaults.types,
-        config: {
-            ...defaults.types.config,
-            namingConvention: {
-                enumValues: 'keep',
-            },
-        },
-    },
-    ['modules/sources/subgraphs/aura/generated/aura-subgraph-types.ts']: {
-        schema: config.MAINNET.subgraphs.aura,
-        documents: 'modules/sources/subgraphs/aura/aura-subgraph-queries.graphql',
-        ...defaults.types,
-        config: {
-            ...defaults.types.config,
-            namingConvention: {
-                enumValues: 'keep',
-            },
-        },
-    },
-    ['modules/sources/subgraphs/sts-subgraph/generated/sts-subgraph-types.ts']: {
-        schema: config.SONIC.subgraphs.sts,
-        documents: 'modules/sources/subgraphs/sts-subgraph/sts-subgraph-queries.graphql',
-        ...defaults.types,
-        config: {
-            ...defaults.types.config,
-            namingConvention: {
-                enumValues: 'keep',
-            },
-        },
-    },
-    ['modules/subgraphs/gauge-subgraph/generated/gauge-subgraph-types.ts']: {
-        schema: config.MAINNET.subgraphs.gauge,
-        documents: 'modules/subgraphs/gauge-subgraph/gauge-subgraph-queries.graphql',
-        ...defaults.types,
-        config: {
-            ...defaults.types.config,
-            namingConvention: {
-                enumValues: 'keep',
-            },
-        },
-    },
-    ['modules/subgraphs/veBal-locks-subgraph/generated/veBal-locks-subgraph-types.ts']: {
-        schema: config.MAINNET.subgraphs.gauge,
-        documents: 'modules/subgraphs/veBal-locks-subgraph/veBal-locks-subgraph-queries.graphql',
-        ...defaults.types,
-        config: {
-            ...defaults.types.config,
-            namingConvention: {
-                enumValues: 'keep',
-            },
-        },
     },
     ['apps/api/gql/generated-schema-ast.ts']: {
         schema: './apps/api/gql/schema/*.gql',

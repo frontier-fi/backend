@@ -7,7 +7,6 @@ const aprsInclude = Prisma.validator<Prisma.PrismaPoolDefaultArgs>()({
     include: {
         dynamicData: true,
         tokens: { include: { token: true, nestedPool: true } },
-        staking: { include: { gauge: { include: { rewards: true } }, reliquary: { include: { levels: true } } } },
     },
 });
 
@@ -21,21 +20,6 @@ export class AprRepository {
         const [dbPools, dynamicData, pts] = await Promise.all([
             prisma.prismaPool.findMany({
                 where: { chain, ...(poolIds ? { id: { in: poolIds } } : {}) },
-                include: {
-                    staking: {
-                        include: {
-                            gauge: {
-                                where: {
-                                    status: {
-                                        not: 'KILLED',
-                                    },
-                                },
-                                include: { rewards: true },
-                            },
-                            reliquary: { include: { levels: true } },
-                        },
-                    },
-                },
             }),
             prisma.prismaPoolDynamicData
                 .findMany({ where: { chain, ...(poolIds ? { id: { in: poolIds } } : {}) } })

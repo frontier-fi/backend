@@ -39,7 +39,6 @@ extend type Query {
 extend type Mutation {
     tokenReloadTokenPrices(chains: [GqlChain!]!): Boolean
     tokenSyncTokenDefinitions: String!
-    tokenSyncLatestFxPrices(chain: GqlChain!): String!
     tokenDeleteTokenType(tokenAddress: String!, type: GqlTokenType!, chain: GqlChain!): String!
     tokenReloadAllTokenTypes(chain: GqlChain!): String!
     tokenReloadErc4626Tokens(chains: [GqlChain!]!): [GqlTokenMutationResult!]!

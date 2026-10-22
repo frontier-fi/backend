@@ -1,6 +1,6 @@
 import { Address, SwapKind, TokenAmount, Token } from '@balancer/sdk';
 import { PathSegment, PathGraphTraversalConfig } from './pathGraphTypes';
-import { BasePool } from '../poolsV2/basePool';
+import { BasePool } from '../basePool';
 import { PathLocal } from '../path';
 import { formatUnits } from 'viem';
 import { SorAbortError } from '../../errors';

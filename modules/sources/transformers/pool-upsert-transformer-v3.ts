@@ -1,7 +1,6 @@
 import { Chain, PrismaPoolType } from '@prisma/client';
 import { PoolType } from '../subgraphs/balancer-v3-pools/generated/types';
-import { StableData, typeDataMapper } from '../../pool/subgraph-mapper';
-import { quantAmmWeighted, lbPool, reclamm, fixedLBP } from '../../pool/pool-data';
+import { StableData } from '../../pool/subgraph-pool';
 import { V3JoinedSubgraphPool } from '../subgraphs';
 import { parseEther } from 'viem';
 import { PoolUpsertData } from '../../../prisma/prisma-types';
@@ -13,9 +12,9 @@ export const poolUpsertTransformerV3 = (
     poolData: V3JoinedSubgraphPool,
     chain: Chain,
     blockNumber: number,
-): PoolUpsertData => {
+): PoolUpsertData | null => {
     let type: PrismaPoolType;
-    let typeData: ReturnType<(typeof typeDataMapper)[keyof typeof typeDataMapper]> | {} = {};
+    let typeData: StableData | Record<string, unknown> = {};
 
     // expand the nested tokens
     const allTokens = _.flattenDeep(
@@ -38,44 +37,14 @@ export const poolUpsertTransformerV3 = (
                 amp: poolData.stableParams!.amp,
             } as StableData;
             break;
-        case PoolType.StableSurge:
-            type = PrismaPoolType.STABLE;
-            if (poolData.stableSurgeParams) {
-                typeData = {
-                    amp: poolData.stableSurgeParams!.amp,
-                } as StableData;
-            }
-            break;
-        case PoolType.Gyro2:
-            type = PrismaPoolType.GYRO;
-            typeData = {
-                ...poolData.gyro2Params,
-            };
-            break;
         case PoolType.GyroE:
             type = PrismaPoolType.GYROE;
             typeData = {
                 ...poolData.gyroEParams,
             };
             break;
-        case PoolType.QuantAmmWeighted:
-            type = PrismaPoolType.QUANT_AMM_WEIGHTED;
-            typeData = quantAmmWeighted(poolData);
-            break;
-        case PoolType.Lbp:
-            type = PrismaPoolType.LIQUIDITY_BOOTSTRAPPING;
-            typeData = lbPool(poolData);
-            break;
-        case PoolType.FixedLbp:
-            type = PrismaPoolType.FIXED_LBP;
-            typeData = fixedLBP(poolData);
-            break;
-        case PoolType.ReClamm:
-            type = PrismaPoolType.RECLAMM;
-            typeData = reclamm(poolData);
-            break;
         default:
-            type = PrismaPoolType.UNKNOWN;
+            return null;
     }
 
     return {

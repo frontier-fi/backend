@@ -1,12 +1,8 @@
 export type PoolTypeData = {
-    typeData: StableTypeData | SeedlessLBPTypeData;
+    typeData: StableTypeData;
 };
 
 export type StableTypeData = {
     amp: string;
     bptPriceRate: string;
-};
-
-export type SeedlessLBPTypeData = {
-    reserveTokenVirtualBalance: string;
 };

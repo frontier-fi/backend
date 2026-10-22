@@ -6,18 +6,13 @@ import { zeroAddress } from 'viem';
 import config from '../../../config';
 
 const typeToParamsType = {
-    AKRON: undefined,
     STABLE_SURGE: 'StableSurgeHookParams',
     FEE_TAKING: 'FeeTakingHookParams',
     EXIT_FEE: 'ExitFeeHookParams',
     MEV_TAX: 'MevTaxHookParams',
     DIRECTIONAL_FEE: undefined,
     LOTTERY: undefined,
-    VEBAL_DISCOUNT: undefined,
     NFTLIQUIDITY_POSITION: undefined,
-    RECLAMM: undefined,
-    LBP: undefined,
-    FIXED_LBP: undefined,
     UNKNOWN: undefined,
 };
 
@@ -34,23 +29,7 @@ export const hookTransformer = (poolData: V3JoinedSubgraphPool, chain: Chain): H
     const { hook, ...hookFlags } = hookConfig;
     const hookTypes = config[chain].hooks;
 
-    let type = hookTypes?.[hook.address] || 'UNKNOWN';
-
-    if (poolData.address === hook.address) {
-        switch (poolData.factory.type) {
-            case 'ReClamm':
-                type = 'RECLAMM';
-                break;
-            case 'LBP':
-                type = 'LBP';
-                break;
-            case 'FixedLBP':
-                type = 'FIXED_LBP';
-                break;
-            default:
-                type = 'UNKNOWN';
-        }
-    }
+    const type = hookTypes?.[hook.address] || 'UNKNOWN';
 
     return {
         address: hook.address.toLowerCase(),

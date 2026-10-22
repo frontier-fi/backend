@@ -7,7 +7,7 @@ import {
     LiquidityManagement,
 } from '../../../apps/api/gql/generated-schema';
 import _ from 'lodash';
-import { FxData, GyroData, StableData, QuantAmmWeightedData, ReclammData } from '../subgraph-mapper';
+import { GyroData, StableData } from '../subgraph-pool';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { zeroAddress } from 'viem';
@@ -243,9 +243,7 @@ export class PoolAggregatorLoader {
         const filteredPools = [];
 
         for (const mappedPool of gqlPools) {
-            // if a pool has a hook, we skip it if either there are no included hooks, or its type does not match an included hook
-            // we always return reclammns and lbps. They make special use of the hook system but are not real hooks
-            if (mappedPool.hook && mappedPool.type !== 'RECLAMM' && mappedPool.type !== 'LIQUIDITY_BOOTSTRAPPING') {
+            if (mappedPool.hook) {
                 if (!args.where?.includeHooks || !args.where.includeHooks.includes(mappedPool.hook.type)) {
                     continue;
                 }
@@ -412,41 +410,14 @@ export class PoolAggregatorLoader {
 
         switch (pool.type) {
             case 'STABLE':
-            case 'META_STABLE':
-            case 'COMPOSABLE_STABLE':
                 return {
                     ...mappedData,
                     amp: (typeData as StableData).amp,
                 };
-            case 'GYRO':
-            case 'GYRO3':
             case 'GYROE':
                 return {
                     ...mappedData,
-                    ...(typeData as GyroData), // Deprecated
-                };
-            case 'FX':
-                return {
-                    ...mappedData,
-                    ...(typeData as FxData), // Deprecated
-                };
-            case 'QUANT_AMM_WEIGHTED':
-                return {
-                    ...mappedData,
-                    quantAmmWeightedParams: typeData as QuantAmmWeightedData,
-                };
-            case 'RECLAMM':
-                return {
-                    ...mappedData,
-                    ...(typeData as ReclammData), // Deprecated
-                };
-            case 'ELEMENT':
-                return {
-                    ...mappedData,
-                };
-            case 'LIQUIDITY_BOOTSTRAPPING':
-                return {
-                    ...mappedData,
+                    ...(typeData as GyroData),
                 };
         }
 

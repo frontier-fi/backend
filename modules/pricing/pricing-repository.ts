@@ -43,39 +43,6 @@ export class PricingRepository {
         // Fetch all prices in a single query
         const allPrices = await this.fetchAllPrices(chain, allTokenAddresses);
 
-        // Include stSonic for OP, FTM for beets price handler
-        if (['OPTIMISM', 'FANTOM'].includes(chain)) {
-            const sts = await prisma.prismaToken.findFirst({
-                where: {
-                    address: stSaddress,
-                    chain: Chain.SONIC,
-                },
-                select: {
-                    address: true,
-                    chain: true,
-                    coingeckoTokenId: true,
-                    excludedFromCoingecko: true,
-                    underlyingTokenAddress: true,
-                    unwrapRate: true,
-                    types: {
-                        select: {
-                            type: true,
-                        },
-                    },
-                },
-            });
-
-            if (sts) {
-                tokens.push(sts);
-
-                const stsPrice = (await this.fetchAllPrices(Chain.SONIC, [sts.address])).get(sts.address);
-
-                if (stsPrice) {
-                    allPrices.set(sts.address, stsPrice);
-                }
-            }
-        }
-
         return tokens.map((token) => ({
             address: token.address,
             chain: token.chain,

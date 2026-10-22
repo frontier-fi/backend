@@ -2,19 +2,17 @@ import { GqlChain, GqlHistoricalTokenPrice, Resolvers } from '../generated-schem
 import _ from 'lodash';
 import { isAdminRoute } from '../../../../modules/auth/auth-context';
 import { tokenService } from '../../../../modules/token/token.service';
-import { syncLatestFXPrices } from '../../../../modules/token/latest-fx-price';
 import moment from 'moment';
 import { TokenController } from '../../../../modules/controllers/token-controller';
-import config from '../../../../config';
 import { PricingService } from '../../../../modules/pricing';
 import { ContentController } from '../../../../modules/content/content-controller';
 
 const resolvers: Resolvers = {
     Query: {
-        tokenGetTokens: async (parent, args, context) => {
+        tokenGetTokens: async (_parent, args, context) => {
             return tokenService.getTokenDefinitions(args);
         },
-        tokenGetCurrentPrices: async (parent, { chains }, context) => {
+        tokenGetCurrentPrices: async (_parent, { chains }, context) => {
             const prices = await tokenService.getCurrentTokenPrices(chains);
 
             return prices.map((price) => ({
@@ -25,7 +23,7 @@ const resolvers: Resolvers = {
                 updatedBy: price.updatedBy,
             }));
         },
-        tokenGetHistoricalPrices: async (parent, { addresses, chain, range }, context) => {
+        tokenGetHistoricalPrices: async (_parent, { addresses, chain, range }, context) => {
             const data = await tokenService.getTokenPricesForRange(addresses, range, chain);
 
             const grouped = _.groupBy(data, 'tokenAddress');
@@ -45,7 +43,7 @@ const resolvers: Resolvers = {
             }
             return result;
         },
-        tokenGetTokenDynamicData: async (parent, { address, chain }, context) => {
+        tokenGetTokenDynamicData: async (_parent, { address, chain }, context) => {
             const data = await tokenService.getTokenDynamicData(address, chain);
 
             return data
@@ -58,7 +56,7 @@ const resolvers: Resolvers = {
                   }
                 : null;
         },
-        tokenGetTokensDynamicData: async (parent, { addresses, chain }, context) => {
+        tokenGetTokensDynamicData: async (_parent, { addresses, chain }, context) => {
             const items = await tokenService.getTokensDynamicData(addresses, chain);
 
             return items.map((item) => ({
@@ -69,7 +67,7 @@ const resolvers: Resolvers = {
                 updatedAt: item.updatedAt.toUTCString(),
             }));
         },
-        tokenGetRelativePriceChartData: async (parent, { tokenIn, tokenOut, range, chain }, context) => {
+        tokenGetRelativePriceChartData: async (_parent, { tokenIn, tokenOut, range, chain }, context) => {
             const data = await tokenService.getRelativeDataForRange(tokenIn, tokenOut, range, chain);
 
             return data.map((item) => ({
@@ -80,7 +78,7 @@ const resolvers: Resolvers = {
         },
     },
     Mutation: {
-        tokenReloadTokenPrices: async (parent, { chains }, context) => {
+        tokenReloadTokenPrices: async (_parent, { chains }, context) => {
             isAdminRoute(context);
 
             const service = new PricingService(chains);
@@ -90,36 +88,28 @@ const resolvers: Resolvers = {
 
             return true;
         },
-        tokenSyncTokenDefinitions: async (parent, {}, context) => {
+        tokenSyncTokenDefinitions: async (_parent, {}, context) => {
             isAdminRoute(context);
 
             await ContentController().syncTokenContentData();
 
             return 'success';
         },
-        tokenSyncLatestFxPrices: async (parent, { chain }, context) => {
-            isAdminRoute(context);
-            const subgraphUrl = config[chain].subgraphs.balancer;
-
-            await syncLatestFXPrices(subgraphUrl, chain);
-
-            return 'success';
-        },
-        tokenDeleteTokenType: async (parent, args, context) => {
+        tokenDeleteTokenType: async (_parent, args, context) => {
             isAdminRoute(context);
 
             await tokenService.deleteTokenType(args, args.chain);
 
             return 'success';
         },
-        tokenReloadAllTokenTypes: async (parent, { chain }, context) => {
+        tokenReloadAllTokenTypes: async (_parent, { chain }, context) => {
             isAdminRoute(context);
 
             await ContentController().reloadAllTokenTypes(chain);
 
             return 'success';
         },
-        tokenReloadErc4626Tokens: async (parent, { chains }, context) => {
+        tokenReloadErc4626Tokens: async (_parent, { chains }, context) => {
             isAdminRoute(context);
 
             const result: { type: string; chain: GqlChain; success: boolean; error: string | undefined }[] = [];

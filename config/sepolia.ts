@@ -1,6 +1,6 @@
 import { env } from '../apps/env';
 import { NetworkData } from './types';
-import { activeChainWorkerJobsGeneric, activeChainWorkerJobsV2, activeChainWorkerJobsV3, cowAmmWorkerJobs, quantAmmWorkerJobs } from './worker-jobs';
+import { activeChainWorkerJobsGeneric, activeChainWorkerJobsV2, activeChainWorkerJobsV3 } from './worker-jobs';
 
 export default <NetworkData>{
     chain: {
@@ -13,11 +13,9 @@ export default <NetworkData>{
     },
     subgraphs: {
         startDate: '2023-05-03',
-        cowAmm: `https://gateway-arbitrum.network.thegraph.com/api/${env.THEGRAPH_API_KEY_BALANCER}/deployments/id/QmeqeR1YL7xfB2Z7DaykE5Xh1YGGS1AGuoF4qUxSa58K2D`,
         balancer: `https://api.subgraph.ormilabs.com/api/public/717cf785-de57-4761-94dd-9ac51b019902/subgraphs/v2-sepolia-smol/latest/gn`,
         balancerV3: `https://api.subgraph.ormilabs.com/api/public/717cf785-de57-4761-94dd-9ac51b019902/subgraphs/v3-vault-sepolia-smol/latest/gn`,
         balancerPoolsV3: `https://api.subgraph.ormilabs.com/api/public/717cf785-de57-4761-94dd-9ac51b019902/subgraphs/v3-pools-sepolia-smol/latest/gn`,
-        gauge: `https://api.subgraph.ormilabs.com/api/public/717cf785-de57-4761-94dd-9ac51b019902/subgraphs/balancer-gauges-sepolia/latest/gn`,
     },
     eth: {
         address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
@@ -77,6 +75,6 @@ export default <NetworkData>{
     multicall3: '0xca11bde05977b3631167028862be2a173976ca11',
     avgBlockSpeed: 1,
     aprHandlers: {},
-    stakingServices: ['gauge'],
-    workerJobs: [...activeChainWorkerJobsGeneric, ...activeChainWorkerJobsV2, ...activeChainWorkerJobsV3, ...cowAmmWorkerJobs, ...quantAmmWorkerJobs],
+    stakingServices: [],
+    workerJobs: [...activeChainWorkerJobsGeneric, ...activeChainWorkerJobsV2, ...activeChainWorkerJobsV3],
 };

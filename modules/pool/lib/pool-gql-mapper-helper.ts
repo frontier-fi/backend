@@ -15,11 +15,11 @@ import {
 } from '../../../prisma/prisma-types';
 import { floatToExactString } from '../../common/numbers';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
-import { StableData } from '../subgraph-mapper';
+import { StableData } from '../subgraph-pool';
 import { prisma } from '../../../prisma/prisma-client';
 import { tokenService } from '../../token/token.service';
 
-export function mapAprItems(pool: PrismaPoolMinimal): GqlPoolAprItem[] {
+export function mapAprItems(pool: Pick<PrismaPoolMinimal, 'aprItems'>): GqlPoolAprItem[] {
     const aprItems: GqlPoolAprItem[] = [];
 
     for (const aprItem of pool.aprItems) {
@@ -31,12 +31,7 @@ export function mapAprItems(pool: PrismaPoolMinimal): GqlPoolAprItem[] {
         let type: GqlPoolAprItemType;
         switch (aprItem.type) {
             case PrismaPoolAprType.NATIVE_REWARD:
-                if (pool.chain === 'FANTOM' || pool.chain === 'SONIC') {
-                    type = 'MABEETS_EMISSIONS';
-                } else {
-                    type = 'VEBAL_EMISSIONS';
-                }
-                break;
+                continue;
             case PrismaPoolAprType.THIRD_PARTY_REWARD:
                 type = 'STAKING';
                 break;

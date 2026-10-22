@@ -8,16 +8,11 @@ import { multicallViem } from '../../web3/multicaller-viem';
 import { ViemClient } from '../../sources/viem-client';
 import config from '../../../config';
 import { blockNumbers } from '../../block-numbers';
-import { Abi, formatUnits } from 'viem';
+import { formatUnits } from 'viem';
 import { DAYS_OF_HOURLY_PRICES } from '../../../config';
 import _ from 'lodash';
-import vaultV2 from '../../pool/abi/Vault.json';
 import vaultV3 from '../../sources/contracts/abis/VaultV3';
 
-// V2 Vault ABI - only the functions we need
-const v2VaultAbi = vaultV2.filter((item) => item.type === 'function' && item.name === 'getPoolTokens');
-
-// V3 Vault ABI - only the functions we need
 const v3VaultAbi = vaultV3.filter((item) => item.type === 'function' && item.name === 'getPoolTokenInfo');
 
 /**
@@ -40,32 +35,16 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
         return [];
     }
 
-    // Get vault addresses
-    const v2VaultAddress = config[chain].balancer.v2.vaultAddress as `0x${string}`;
     const v3VaultAddress = config[chain].balancer.v3.vaultAddress as `0x${string}`;
 
-    // Prepare multicall calls
-    const calls = ids.flatMap((id) => [
-        id.length === 42 // address is 42 chars long, but v2 ids are longer
-            ? {
-                  path: `${id}.poolTokens`,
-                  address: v3VaultAddress,
-                  abi: v3VaultAbi,
-                  functionName: 'getPoolTokenInfo',
-                  args: [id],
-                  parser: (info: any) =>
-                      new Map(info[0].map((token: string, idx: number) => [token.toLowerCase(), info[2][idx]])),
-              }
-            : {
-                  path: `${id}.poolTokens`,
-                  address: v2VaultAddress,
-                  abi: v2VaultAbi as Abi,
-                  functionName: 'getPoolTokens',
-                  args: [id],
-                  parser: (info: any) =>
-                      new Map(info[0].map((token: string, idx: number) => [token.toLowerCase(), info[1][idx]])),
-              },
-    ]);
+    const calls = ids.map((id) => ({
+        path: `${id}.poolTokens`,
+        address: v3VaultAddress,
+        abi: v3VaultAbi,
+        functionName: 'getPoolTokenInfo',
+        args: [id],
+        parser: (info: any) => new Map(info[0].map((token: string, idx: number) => [token.toLowerCase(), info[2][idx]])),
+    }));
 
     if (calls.length === 0) return [];
 

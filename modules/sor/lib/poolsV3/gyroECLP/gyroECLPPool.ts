@@ -6,13 +6,13 @@ import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
 import { chainToChainId as chainToIdMap } from '../../../../../config/chain-id-to-chain';
-import { GyroData } from '../../../../pool/subgraph-mapper';
+import { GyroData } from '../../../../pool/subgraph-pool';
 import { TokenPairData } from '../../../../sources/contracts/v3/fetch-tokenpair-data';
 
 import { BasePoolMethodsV3 } from '../basePoolMethodsV3';
 
 import { LiquidityManagement } from '../../../types';
-import { DerivedGyroEParams, GyroEParams } from '../../poolsV2/gyroE/types';
+import { DerivedGyroEParams, GyroEParams } from '../../gyroE/types';
 import { getHookState, PoolTokenWithRate, WAD } from '../../utils';
 import { BasePoolV3 } from '../basePoolV3';
 

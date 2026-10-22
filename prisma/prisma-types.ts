@@ -75,20 +75,6 @@ export const prismaPoolWithExpandedNesting = Prisma.validator<Prisma.PrismaPoolD
                         rewarders: true,
                     },
                 },
-                gauge: {
-                    include: {
-                        rewards: true,
-                    },
-                },
-                reliquary: {
-                    include: {
-                        levels: {
-                            orderBy: { level: 'asc' },
-                        },
-                    },
-                },
-                aura: true,
-                vebal: true,
             },
         },
         allTokens: {
@@ -289,20 +275,6 @@ export const prismaPoolMinimal = Prisma.validator<Prisma.PrismaPoolDefaultArgs>(
                         rewarders: true,
                     },
                 },
-                gauge: {
-                    include: {
-                        rewards: true,
-                    },
-                },
-                reliquary: {
-                    include: {
-                        levels: {
-                            orderBy: { level: 'asc' },
-                        },
-                    },
-                },
-                aura: true,
-                vebal: true,
             },
         },
     },
@@ -356,7 +328,6 @@ export type HookData = {
     address: string;
     name?: string;
     type:
-        | 'AKRON'
         | 'FEE_TAKING'
         | 'EXIT_FEE'
         | 'STABLE_SURGE'
@@ -364,10 +335,6 @@ export type HookData = {
         | 'DIRECTIONAL_FEE'
         | 'LOTTERY'
         | 'NFTLIQUIDITY_POSITION'
-        | 'VEBAL_DISCOUNT'
-        | 'RECLAMM'
-        | 'LBP'
-        | 'FIXED_LBP'
         | 'UNKNOWN';
     enableHookAdjustedAmounts: boolean;
     shouldCallAfterSwap: boolean;

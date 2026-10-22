@@ -9,26 +9,19 @@ import {
     GqlPoolDynamicData,
     GqlPoolFeaturedPool,
     GqlPoolMinimal,
-    GqlPoolStaking,
     GqlPoolUnion,
     GqlPoolUserBalance,
     QueryPoolGetPoolsArgs,
-    GqlUserStakedBalance,
     GqlPoolFilterCategory,
     LiquidityManagement,
-    QuantAmmWeightSnapshot,
-    LiquidityBootstrappingPoolV3Params,
 } from '../../../apps/api/gql/generated-schema';
-import _ from 'lodash';
 import { prisma } from '../../../prisma/prisma-client';
-import { Chain, Prisma, PrismaUserStakedBalance, PrismaUserWalletBalance } from '@prisma/client';
+import { Chain, Prisma, PrismaUserWalletBalance } from '@prisma/client';
 import { fixedNumber } from '../../view-helpers/fixed-number';
-import { ElementData, FxData, GyroData, StableData, QuantAmmWeightedData, ReclammData } from '../subgraph-mapper';
-import { LBPoolData, FixedLBPData } from '../pool-data';
+import { GyroData, StableData } from '../subgraph-pool';
 import { ZERO_ADDRESS } from '@balancer/sdk';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { GraphQLError } from 'graphql';
-import { getWeightSnapshots } from '../../actions/quant-amm/get-weight-snapshots';
 import { mapPoolToken, enrichWithErc4626Data, mapAprItems } from './pool-gql-mapper-helper';
 import { ContentController } from '../../content/content-controller';
 
@@ -49,21 +42,7 @@ export class PoolGqlLoaderService {
             throw new GraphQLError('Pool with id does not exist', { extensions: { code: 'NOT_FOUND' } });
         }
 
-        if (pool.type === 'UNKNOWN') {
-            throw new GraphQLError('Pool exists, but has an unknown type', { extensions: { code: 'NOT_FOUND' } });
-        }
-
-        const includeQuantWeightSnapshots = Object.keys(fields).includes('weightSnapshots');
-        let quantWeightSnapshots: QuantAmmWeightSnapshot[] | undefined = undefined;
-        if (pool.type === 'QUANT_AMM_WEIGHTED' && includeQuantWeightSnapshots) {
-            quantWeightSnapshots = await getWeightSnapshots(prisma, pool.id, pool.chain, 7);
-        }
-        const mappedPool = this.mapPoolToGqlPool(
-            pool,
-            pool.userWalletBalances,
-            userAddress ? pool.staking.map((staking) => staking.userStakedBalances).flat() : [],
-            quantWeightSnapshots,
-        );
+        const mappedPool = this.mapPoolToGqlPool(pool, pool.userWalletBalances);
 
         // load rate provider data into PoolTokenDetail model
         await this.enrichWithRateproviderData(mappedPool);
@@ -140,7 +119,6 @@ export class PoolGqlLoaderService {
                 args.first = undefined;
                 args.skip = undefined;
             }
-            // const includeQuery = args.where.userAddress ? prismaPoolMinimal.include.staking.include.
             const pools = await prisma.prismaPool.findMany({
                 ...this.mapQueryArgsToPoolQuery(args),
                 include: {
@@ -148,13 +126,7 @@ export class PoolGqlLoaderService {
                 },
             });
 
-            const gqlPools = pools.map((pool) =>
-                this.mapToMinimalGqlPool(
-                    pool,
-                    pool.userWalletBalances,
-                    pool.staking.map((staking) => staking.userStakedBalances).flat(),
-                ),
-            );
+            const gqlPools = pools.map((pool) => this.mapToMinimalGqlPool(pool, pool.userWalletBalances));
 
             for (const mappedPool of gqlPools) {
                 // load rate provider data into PoolTokenDetail model
@@ -260,15 +232,11 @@ export class PoolGqlLoaderService {
     }
 
     public mapToMinimalGqlPool(
-        pool: PrismaPoolMinimal,
+        pool: Omit<PrismaPoolMinimal, 'staking'>,
         userWalletbalances: PrismaUserWalletBalance[] = [],
-        userStakedBalances: PrismaUserStakedBalance[] = [],
     ): GqlPoolMinimal {
         return {
             ...pool,
-            ...(pool.protocolVersion === 3 && (pool.type === 'LIQUIDITY_BOOTSTRAPPING' || pool.type === 'FIXED_LBP')
-                ? { lbpParams: pool.typeData as unknown as LiquidityBootstrappingPoolV3Params }
-                : {}),
             liquidityManagement: (pool.liquidityManagement as LiquidityManagement) || undefined,
             hook: mapHookToGqlHook(pool.hook as HookData),
             incentivized: pool.categories.some((category) => category === 'INCENTIVIZED'),
@@ -276,8 +244,8 @@ export class PoolGqlLoaderService {
             decimals: 18,
             dynamicData: this.getPoolDynamicData(pool),
             poolTokens: pool.tokens.map((token) => mapPoolToken(token, pool.protocolVersion)),
-            staking: this.getStakingData(pool),
-            userBalance: this.getUserBalance(pool, userWalletbalances, userStakedBalances),
+            staking: null,
+            userBalance: this.getUserBalance(pool, userWalletbalances),
             categories: pool.categories as GqlPoolFilterCategory[],
             tags: pool.categories,
             hasErc4626: pool.allTokens.some((token) => token.token.types.some((type) => type.type === 'ERC4626')),
@@ -408,16 +376,6 @@ export class PoolGqlLoaderService {
                               },
                           },
                       },
-                      {
-                          userStakedBalances: {
-                              some: {
-                                  userAddress: {
-                                      equals: userAddress.toLowerCase(),
-                                  },
-                                  balanceNum: { gt: 0 },
-                              },
-                          },
-                      },
                   ],
               }
             : {};
@@ -527,20 +485,18 @@ export class PoolGqlLoaderService {
     }
 
     private mapPoolToGqlPool(
-        pool: PrismaPoolWithExpandedNesting,
+        pool: Omit<PrismaPoolWithExpandedNesting, 'staking'>,
         userWalletbalances: PrismaUserWalletBalance[] = [],
-        userStakedBalances: PrismaUserStakedBalance[] = [],
-        quantWeightSnapshots?: QuantAmmWeightSnapshot[],
     ): GqlPoolUnion {
         const { typeData, ...poolWithoutTypeData } = pool;
 
         const mappedData = {
             decimals: 18,
             owner: pool.swapFeeManager, // Keep for backwards compatibility
-            staking: this.getStakingData(pool),
+            staking: null,
             dynamicData: this.getPoolDynamicData(pool),
             poolTokens: pool.tokens.map((token) => mapPoolToken(token, pool.protocolVersion)),
-            userBalance: this.getUserBalance(pool, userWalletbalances, userStakedBalances),
+            userBalance: this.getUserBalance(pool, userWalletbalances),
             vaultVersion: poolWithoutTypeData.protocolVersion,
             categories: pool.categories as GqlPoolFilterCategory[],
             tags: pool.categories,
@@ -563,115 +519,34 @@ export class PoolGqlLoaderService {
                     ...(typeData as StableData),
                     ...mappedData,
                 };
-            case 'META_STABLE':
-                return {
-                    __typename: 'GqlPoolMetaStable',
-                    ...poolWithoutTypeData,
-                    ...(typeData as StableData),
-                    ...mappedData,
+            case 'GYROE': {
+                const gyroData: GyroData = {
+                    alpha: '',
+                    beta: '',
+                    c: '',
+                    s: '',
+                    lambda: '',
+                    tauAlphaX: '',
+                    tauAlphaY: '',
+                    tauBetaX: '',
+                    tauBetaY: '',
+                    u: '',
+                    v: '',
+                    w: '',
+                    z: '',
+                    dSq: '',
+                    ...(typeData as Partial<GyroData>),
                 };
-            case 'COMPOSABLE_STABLE':
-                return {
-                    __typename: 'GqlPoolComposableStable',
-                    ...poolWithoutTypeData,
-                    ...(typeData as StableData),
-                    ...mappedData,
-                };
-            case 'ELEMENT':
-                return {
-                    __typename: 'GqlPoolElement',
-                    ...poolWithoutTypeData,
-                    ...(typeData as ElementData),
-                    ...mappedData,
-                };
-            case 'LIQUIDITY_BOOTSTRAPPING':
-                if (pool.protocolVersion === 3) {
-                    return {
-                        __typename: 'GqlPoolLiquidityBootstrappingV3',
-                        ...poolWithoutTypeData,
-                        ...(typeData as LBPoolData & {
-                            lbpName?: string;
-                            description?: string;
-                            website?: string;
-                            x?: string;
-                            discord?: string;
-                            telegram?: string;
-                            farcaster?: string;
-                        }),
-                        ...mappedData,
-                    };
-                } else {
-                    return {
-                        __typename: 'GqlPoolLiquidityBootstrapping',
-                        ...poolWithoutTypeData,
-                        ...mappedData,
-                    };
-                }
-            case 'FIXED_LBP':
-                return {
-                    __typename: 'GqlPoolFixedPriceLBP',
-                    ...poolWithoutTypeData,
-                    ...(typeData as FixedLBPData & {
-                        lbpName?: string;
-                        description?: string;
-                        website?: string;
-                        x?: string;
-                        discord?: string;
-                        telegram?: string;
-                        farcaster?: string;
-                    }),
-                    ...mappedData,
-                };
-            case 'GYRO':
-            case 'GYRO3':
-            case 'GYROE':
                 return {
                     __typename: 'GqlPoolGyro',
                     ...poolWithoutTypeData,
-                    ...({
-                        alpha: '',
-                        beta: '',
-                        sqrtAlpha: '',
-                        sqrtBeta: '',
-                        root3Alpha: '',
-                        c: '',
-                        s: '',
-                        lambda: '',
-                        tauAlphaX: '',
-                        tauAlphaY: '',
-                        tauBetaX: '',
-                        tauBetaY: '',
-                        u: '',
-                        v: '',
-                        w: '',
-                        z: '',
-                        dSq: '',
-                        ...(typeData as any),
-                    } as GyroData),
+                    ...gyroData,
+                    sqrtAlpha: '',
+                    sqrtBeta: '',
+                    root3Alpha: '',
                     ...mappedData,
                 };
-            case 'FX':
-                return {
-                    __typename: 'GqlPoolFx',
-                    ...poolWithoutTypeData,
-                    ...mappedData,
-                    ...(typeData as FxData),
-                };
-            case 'QUANT_AMM_WEIGHTED':
-                return {
-                    __typename: 'GqlPoolQuantAmmWeighted',
-                    ...poolWithoutTypeData,
-                    ...mappedData,
-                    quantAmmWeightedParams: typeData as QuantAmmWeightedData,
-                    weightSnapshots: quantWeightSnapshots,
-                };
-            case 'RECLAMM':
-                return {
-                    __typename: 'GqlPoolReClamm',
-                    ...poolWithoutTypeData,
-                    ...(typeData as ReclammData),
-                    ...mappedData,
-                };
+            }
         }
 
         return {
@@ -681,87 +556,9 @@ export class PoolGqlLoaderService {
         };
     }
 
-    private getStakingData(pool: PrismaPoolMinimal): GqlPoolStaking | null {
-        if (pool.staking.length === 0) {
-            return null;
-        }
-
-        for (const staking of pool.staking) {
-            // This is needed to cast type APR type of the reliquary level from prisma (float) to the type of GQL (bigdecimal/string)
-            if (staking.reliquary) {
-                return {
-                    ...staking,
-                    reliquary: {
-                        ...staking.reliquary,
-                        levels: staking.reliquary.levels.map((level) => ({
-                            ...level,
-                            apr: `${level.apr}`,
-                        })),
-                    },
-                    farm: null,
-                    gauge: null,
-                    aura: null,
-                };
-            } else if (staking.farm) {
-                return {
-                    ...staking,
-                    gauge: null,
-                    reliquary: null,
-                    aura: null,
-                };
-            } else if (staking.vebal) {
-                return {
-                    ...staking,
-                    gauge: null,
-                    reliquary: null,
-                    aura: null,
-                };
-            }
-        }
-
-        const sorted = this.getSortedGauges(pool);
-
-        if (sorted.length === 0) {
-            return null;
-        }
-
-        const auraPool = pool.staking.find(
-            (staking) => staking.type === 'AURA' && staking.aura && !staking.aura!.isShutdown,
-        );
-
-        return {
-            ...sorted[0],
-            gauge: {
-                ...sorted[0].gauge!,
-                otherGauges: sorted.slice(1).map((item) => item.gauge!),
-            },
-            aura: auraPool?.aura,
-            farm: null,
-            reliquary: null,
-        };
-    }
-
-    private getSortedGauges(pool: PrismaPoolMinimal) {
-        return _.sortBy(pool.staking, (staking) => {
-            if (staking.gauge) {
-                switch (staking.gauge.status) {
-                    case 'PREFERRED':
-                        return 0;
-                    case 'ACTIVE':
-                        return 1;
-                    case 'KILLED':
-                        return 2;
-                }
-            }
-
-            return 100;
-        }).filter((staking) => staking.gauge);
-    }
-
     private getUserBalance(
-        pool: PrismaPoolMinimal,
+        pool: Omit<PrismaPoolMinimal, 'staking'>,
         userWalletBalances: PrismaUserWalletBalance[],
-        userStakedBalances: PrismaUserStakedBalance[],
     ): GqlPoolUserBalance {
         let bptPrice = 0;
         if (pool.dynamicData && pool.dynamicData.totalLiquidity > 0 && parseFloat(pool.dynamicData.totalShares) > 0) {
@@ -769,37 +566,17 @@ export class PoolGqlLoaderService {
         }
         const walletBalance = userWalletBalances.at(0)?.balance || '0';
         const walletBalanceNum = userWalletBalances.at(0)?.balanceNum || 0;
-        const walletBalanceUsd = walletBalanceNum * bptPrice;
-
-        const gqlUserStakedBalances: GqlUserStakedBalance[] = [];
-
-        let totalBalance = walletBalanceNum;
-
-        for (const balance of userStakedBalances) {
-            const stakedBalanceNum = balance.balanceNum || 0;
-            const stakedBalanceUsd = stakedBalanceNum * bptPrice;
-
-            const staking = pool.staking.find((staking) => staking.id === balance.stakingId);
-
-            gqlUserStakedBalances.push({
-                balance: balance.balance,
-                balanceUsd: stakedBalanceUsd,
-                stakingType: staking!.type,
-                stakingId: staking!.id,
-            });
-            totalBalance += stakedBalanceNum;
-        }
 
         return {
             walletBalance: walletBalance,
-            walletBalanceUsd,
-            totalBalance: totalBalance.toString(),
-            totalBalanceUsd: totalBalance * bptPrice,
-            stakedBalances: gqlUserStakedBalances,
+            walletBalanceUsd: walletBalanceNum * bptPrice,
+            totalBalance: walletBalanceNum.toString(),
+            totalBalanceUsd: walletBalanceNum * bptPrice,
+            stakedBalances: [],
         };
     }
 
-    private getPoolDynamicData(pool: PrismaPoolMinimal): GqlPoolDynamicData {
+    private getPoolDynamicData(pool: Omit<PrismaPoolMinimal, 'staking'>): GqlPoolDynamicData {
         const {
             fees24h,
             totalLiquidity,
@@ -868,33 +645,16 @@ export class PoolGqlLoaderService {
 
     private getPoolMinimalInclude(userAddress?: string) {
         if (!userAddress) {
+            const { staking: _staking, ...include } = prismaPoolMinimal.include;
             return {
-                ...prismaPoolMinimal.include,
-                staking: {
-                    include: {
-                        ...prismaPoolMinimal.include.staking.include,
-                        userStakedBalances: false,
-                    },
-                },
+                ...include,
                 userWalletBalances: false,
             };
         }
 
+        const { staking: _staking, ...include } = prismaPoolMinimal.include;
         return {
-            ...prismaPoolMinimal.include,
-            staking: {
-                include: {
-                    ...prismaPoolMinimal.include.staking.include,
-                    userStakedBalances: {
-                        where: {
-                            userAddress: {
-                                equals: userAddress.toLowerCase(),
-                            },
-                            balanceNum: { gt: 0 },
-                        },
-                    },
-                },
-            },
+            ...include,
             userWalletBalances: {
                 where: {
                     userAddress: {
@@ -908,33 +668,16 @@ export class PoolGqlLoaderService {
 
     private getPoolInclude(userAddress?: string) {
         if (!userAddress) {
+            const { staking: _staking, ...include } = prismaPoolWithExpandedNesting.include;
             return {
-                ...prismaPoolWithExpandedNesting.include,
-                staking: {
-                    include: {
-                        ...prismaPoolWithExpandedNesting.include.staking.include,
-                        userStakedBalances: false,
-                    },
-                },
+                ...include,
                 userWalletBalances: false,
             };
         }
 
+        const { staking: _staking, ...include } = prismaPoolWithExpandedNesting.include;
         return {
-            ...prismaPoolWithExpandedNesting.include,
-            staking: {
-                include: {
-                    ...prismaPoolWithExpandedNesting.include.staking.include,
-                    userStakedBalances: {
-                        where: {
-                            userAddress: {
-                                equals: userAddress.toLowerCase(),
-                            },
-                            balanceNum: { gt: 0 },
-                        },
-                    },
-                },
-            },
+            ...include,
             userWalletBalances: {
                 where: {
                     userAddress: {
@@ -980,7 +723,6 @@ const sanitiseTextSearch = (textSearch: string) => {
     // Replace terms like LBP and BTF
     const replacements = {
         lbp: 'LIQUIDITY_BOOTSTRAPPING',
-        btf: 'QUANT_AMM_WEIGHTED',
     };
 
     // Apply replacements for whole words only

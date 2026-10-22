@@ -1,7 +1,19 @@
 import { Factory } from 'fishery';
-import { BalancerPoolTokenFragment } from '../../modules/subgraphs/balancer-subgraph/generated/balancer-subgraph-types';
 
-export const poolTokenFactory = Factory.define<BalancerPoolTokenFragment>(() => ({
+type FactoryPoolToken = {
+    id: string;
+    symbol: string;
+    name: string;
+    decimals: number;
+    address: string;
+    balance: string;
+    weight: string;
+    priceRate: string;
+    index: number;
+    token: Record<string, never>;
+};
+
+export const poolTokenFactory = Factory.define<FactoryPoolToken>(() => ({
     id: 'token1',
     symbol: 'T1',
     name: 'Token 1',

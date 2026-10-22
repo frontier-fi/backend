@@ -1,28 +1,19 @@
 import {
     SnapshotsController,
-    CowAmmController,
-    FXPoolsController,
     PoolController,
     EventController,
-    StakingController,
     TokenController,
-    QuantAmmController,
     TokenYieldsController,
 } from '../modules/controllers';
 import { chainIdToChain } from '../config/chain-id-to-chain';
-import { VeBalVotingListService } from '../modules/vebal/vebal-voting-list.service';
 import { Chain, PrismaLastBlockSyncedCategory } from '@prisma/client';
 import { upsertLastSyncedBlock } from '../modules/actions/last-synced-block';
 import { prisma } from '../prisma/prisma-client';
-import { LBPController } from '../modules/controllers/lbp-controller';
 import { request, gql } from 'graphql-request';
 import _ from 'lodash';
 import { AprService } from '../modules/aprs';
 import { PricingService } from '../modules/pricing';
-import { LoopsService } from '../modules/loops/service';
-import { veBalService } from '../modules/vebal/vebal.service';
 import { ContentController } from '../modules/content/content-controller';
-import { StakedSonicController } from '../modules/sts/sts-controller';
 import { UserBalancesController } from '../modules/user/user-balances-controller';
 
 /**
@@ -38,31 +29,9 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
 
     const chain = chainIdToChain[chainId];
 
-    if (job === 'add-pools-v2') {
-        return PoolController().addPoolsV2(chain);
-    } else if (job === 'sync-all-pools-v2') {
-        return PoolController().syncOnchainDataForAllPoolsV2(chain);
-    } else if (job === 'sync-changed-pools-v2') {
-        return PoolController().syncChangedPoolsV2(chain);
-    } else if (job === 'reload-pools-v3') {
+    if (job === 'reload-pools-v3') {
         await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3, 0);
         return PoolController().addPoolsV3(chain, false);
-    } else if (job === 'sor-sync-v2') {
-        console.log('Syncing V2 pools');
-        await PoolController().addPoolsV2(chain);
-        await PoolController().syncOnchainDataForAllPoolsV2(chain);
-
-        console.log('Syncing pools metadata');
-        await ContentController().syncCategories();
-        await ContentController().syncRateProviderReviews();
-
-        console.log('Syncing token prices');
-        await EventController().syncLastSwaps(chain);
-        await syncCurrentPricesFromApi(chain);
-
-        await PoolController().updateLiquidityValuesForInactivePools(chain);
-
-        return 'OK';
     } else if (job === 'sor-sync-v3') {
         console.log('Syncing V3 pools');
         await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3, 0);
@@ -93,14 +62,8 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
         return PoolController().syncPoolsV3(chain);
     } else if (job === 'update-liquidity-for-inactive-pools') {
         return PoolController().updateLiquidityValuesForInactivePools(chain);
-    } else if (job === 'sync-staking') {
-        return StakingController().syncStaking(chain);
     } else if (job === 'sync-join-exits-v3') {
         return EventController().syncJoinExitsV3(chain);
-    } else if (job === 'sync-join-exits-v2') {
-        return EventController().syncJoinExitsV2(chain);
-    } else if (job === 'sync-swaps-v2') {
-        return EventController().syncSwapsUpdateVolumeAndFeesV2(chain);
     } else if (job === 'sync-snapshots') {
         return SnapshotsController().syncSnapshots(chain);
     } else if (job === 'sync-swaps-v3') {
@@ -111,23 +74,10 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
         return PoolController().updateLiquidity24hAgoV3(chain);
     } else if (job === 'sync-bpt-balances') {
         return UserBalancesController().syncBalances(chain);
-    } else if (job === 'sync-user-balances-v2') {
-        return UserBalancesController().syncUserBalancesFromV2Subgraph(chain);
     } else if (job === 'sync-user-balances-v3') {
         return UserBalancesController().syncUserBalancesFromV3Subgraph(chain);
-    } else if (job === 'sync-cow-amm-pools') {
-        return CowAmmController().syncPools(chain);
-    } else if (job === 'reload-cow-amm-pools') {
-        await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.COW_AMM_POOLS, 0);
-        return CowAmmController().syncPools(chain);
-    } else if (job === 'sync-cow-amm-swaps') {
-        return CowAmmController().syncSwaps(chain);
-    } else if (job === 'sync-cow-amm-join-exits') {
-        return CowAmmController().syncJoinExits(chain);
     } else if (job === 'sync-categories') {
         return ContentController().syncCategories();
-    } else if (job === 'sync-latest-fx-prices') {
-        return FXPoolsController().syncLatestPrices(chain);
     } else if (job === 'sync-rate-provider-reviews') {
         return ContentController().syncRateProviderReviews();
     } else if (job === 'sync-hook-reviews') {
@@ -138,10 +88,6 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
         return ContentController().syncCategories();
     } else if (job === 'sync-hook-data') {
         return PoolController().syncHookData(chain);
-    } else if (job === 'sync-sts-data') {
-        return StakedSonicController().syncSonicStakingData();
-    } else if (job === 'sync-loops-data') {
-        return new LoopsService().fetchAndStoreLoopsData(chain);
     } else if (job === 'reload-pool-aprs') {
         const aprService = new AprService();
         return aprService.reloadAprs(chain);
@@ -165,57 +111,23 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
         await TokenController().syncErc4626OnChainData(chain);
         const service = new PricingService([chain]);
         return service.updatePrices(chain);
-    } else if (job === 'sync-vebal') {
-        return new VeBalVotingListService().syncVotingGauges();
     } else if (job === 'sync-token-tvl') {
         return TokenController().syncTvl();
     } else if (job === 'sync-erc4626') {
         return TokenController().syncErc4626OnChainData(chain);
-    } else if (job === 'sync-weights') {
-        await QuantAmmController.syncWeights(chain);
-        return 'OK';
-    } else if (job === 'sync-lbps') {
-        await LBPController.syncData(chain);
-        return 'OK';
-    } else if (job === 'reload-lbps') {
-        await LBPController.reloadLbps(chain);
-        return 'OK';
     } else if (job === 'sync-token-yields') {
         await TokenYieldsController().fetchAndStoreAllYields();
         return 'OK';
-    } else if (job === 'sync-staked-balances') {
-        await UserBalancesController().syncChangedStakedBalances(chain);
-        return 'OK';
-    } else if (job === 'sync-vebal-balances') {
-        await veBalService.syncVeBalBalances(chain);
-        return 'OK';
-    } else if (job === 'sync-vebal-totalsupply') {
-        await veBalService.syncVeBalTotalSupply(chain);
-        return 'OK';
     }
     // Maintenance
-    else if (job === 'sync-onchain-data-v2') {
-        const poolIds = process.argv[4]?.split(',');
-        if (poolIds) {
-            await PoolController().syncOnchainDataForPoolsV2(chain, poolIds);
-        } else {
-            await PoolController().syncOnchainDataForPoolsV2(chain);
-        }
-        return 'OK';
-    } else if (job === 'sync-fx-quote-tokens') {
-        return FXPoolsController().syncQuoteTokens(chain);
-    } else if (job === 'sync-current-prices') {
+    else if (job === 'sync-current-prices') {
         await syncCurrentPricesFromApi(chain);
 
         return 'OK';
     } else if (job === 'sync-historical-prices') {
         console.log('Syncing all pools and tokens first');
-        // await PoolController().addPoolsV2(chain);
         // await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3, 0);
         // await PoolController().addPoolsV3(chain, false);
-        // await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.COW_AMM_POOLS, 0);
-        // await CowAmmController().syncPools(chain);
-
         // get all current prices first to
         const endpoint = 'https://api-v3.balancer.fi/graphql';
         const currentPricesQuery = gql`

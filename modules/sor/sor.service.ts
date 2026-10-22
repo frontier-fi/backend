@@ -41,14 +41,11 @@ export class SorService {
         // map SOR Service inputs to SOR inputs
         const getSwapPathsInput = await mapToGetSwapPathsInput({ ...args, tokenIn, tokenOut });
 
-        // get swap paths from sor for the requested protocol version mapped as sor service output type
-        const { paths, protocolVersion } = args.useProtocolVersion
-            ? await this.getSwapPaths({
-                  ...getSwapPathsInput,
-                  protocolVersion: args.useProtocolVersion,
-                  signal,
-              })
-            : await this.getBestSwapPathFromBothVersions(getSwapPathsInput, signal);
+        const { paths, protocolVersion } = await this.getSwapPaths({
+            ...getSwapPathsInput,
+            protocolVersion: 3,
+            signal,
+        });
 
         // return zero response if no paths are found
         if (!paths) {
@@ -63,30 +60,6 @@ export class SorService {
         const mappedPaths = await mapToSorSwapPaths(paths, args.swapType, chain, protocolVersion);
 
         return mappedPaths;
-    }
-
-    private async getBestSwapPathFromBothVersions(
-        input: Omit<GetSwapPathsInput, 'protocolVersion'>,
-        signal?: AbortSignal,
-    ): Promise<{
-        paths: PathWithAmount[] | null;
-        protocolVersion: number;
-    }> {
-        const pathsV2 = await this.getSwapPaths({ ...input, protocolVersion: 2, signal });
-        const pathsV3 = await this.getSwapPaths({ ...input, protocolVersion: 3, signal });
-
-        if (input.swapType === 'EXACT_IN') {
-            return parseFloat(pathsV2.returnAmount) > parseFloat(pathsV3.returnAmount) ? pathsV2 : pathsV3;
-        } else {
-            // return swap path with smallest non-zero amountsIn (if it exists)
-            if (parseFloat(pathsV2.returnAmount) === 0) {
-                return pathsV3;
-            } else if (parseFloat(pathsV3.returnAmount) === 0) {
-                return pathsV2;
-            } else {
-                return parseFloat(pathsV3.returnAmount) < parseFloat(pathsV3.returnAmount) ? pathsV2 : pathsV3;
-            }
-        }
     }
 
     private async getSwapPaths(

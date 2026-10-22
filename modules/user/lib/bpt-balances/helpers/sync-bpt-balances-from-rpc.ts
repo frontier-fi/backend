@@ -16,7 +16,7 @@ export const syncBptBalancesFromRpc = async (
     poolIds: string[],
     client: ViemClient,
     chain: Chain,
-    syncCategory: 'BPT_BALANCES_V2' | 'BPT_BALANCES_V3' | 'BPT_BALANCES_COW_AMM',
+    syncCategory: 'BPT_BALANCES_V2' | 'BPT_BALANCES_V3',
 ) => {
     // Must have poolIds to sync
     if (poolIds.length === 0) {

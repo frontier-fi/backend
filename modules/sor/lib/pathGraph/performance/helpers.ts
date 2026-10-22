@@ -1,4 +1,4 @@
-import { BasePool } from '../../poolsV2/basePool';
+import { BasePool } from '../../basePool';
 import { Token, TokenAmount } from '@balancer/sdk';
 
 export interface GraphTopology {

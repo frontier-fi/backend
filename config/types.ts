@@ -9,8 +9,6 @@ export interface WorkerJob {
 
 export type DeploymentEnv = 'canary' | 'main';
 
-export type StakingServiceType = 'gauge' | 'vebal' | 'reliquary';
-
 export interface NetworkData {
     chain: {
         slug: string;
@@ -40,51 +38,17 @@ export interface NetworkData {
     };
     subgraphs: {
         startDate: string;
-        balancer: string;
         balancerV3?: string;
         balancerPoolsV3?: string;
-        reliquary?: string;
-        sts?: string;
-        gauge?: string;
-        aura?: string;
-        cowAmm?: string;
     };
-    protocolToken: 'beets' | 'bal';
-    beets?: {
-        address: string;
-    };
-    sts?: {
-        address: string;
-        sfcAddress: string;
-        constantsManagerAddress: string;
-        validatorFee: number;
-    };
-    loops?: {
-        address: string;
-        aavePoolDataProvider: string;
-        aavePoolAddressesProvider: string;
-    };
+    protocolToken: 'bal';
     bal?: {
         address: string;
     };
-    veBal?: {
-        address: string;
-        bptAddress: string;
-        delegationProxy: string;
-    };
-    gaugeControllerAddress?: string;
-    gaugeControllerHelperAddress?: string;
     gyro?: {
         config: string;
     };
     balancer: {
-        v2: {
-            vaultAddress: string;
-            defaultSwapFeePercentage: string;
-            defaultYieldFeePercentage: string;
-            tokenAdmin?: string;
-            balancerQueriesAddress: string;
-        };
         v3: {
             vaultAddress: string;
             routerAddress: string;
@@ -97,11 +61,6 @@ export interface NetworkData {
     multicall: string;
     multicall3: string;
     aprHandlers: AprHandlerConfigs;
-    reliquary?: {
-        address: string;
-        excludedFarmIds: string[];
-    };
     avgBlockSpeed: number;
-    stakingServices: StakingServiceType[];
     workerJobs: WorkerJob[];
 }

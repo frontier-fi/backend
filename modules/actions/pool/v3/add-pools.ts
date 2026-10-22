@@ -14,7 +14,13 @@ export const addPools = async (
     chain: Chain,
     blockNumber: number,
 ) => {
-    const data = subgraphPools.map((fragment) => poolUpsertTransformerV3(fragment, chain, blockNumber));
+    const data = subgraphPools
+        .map((fragment) => poolUpsertTransformerV3(fragment, chain, blockNumber))
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    if (data.length === 0) {
+        return [];
+    }
 
     // Add onchain data to subgraph data
     const onchainData = await fetchPoolSyncData(

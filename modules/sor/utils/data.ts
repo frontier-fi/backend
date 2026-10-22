@@ -55,7 +55,7 @@ export async function getBasePoolsFromDb(
             // When not considering hooks, only keep pools without hooks or with always-allowed hook types
             if (!pool.hook || Object.keys(pool.hook).length === 0) return true;
             const hook = pool.hook as HookData;
-            return hook.type === 'MEV_TAX' || hook.type === 'RECLAMM' || hook.type === 'LBP';
+            return hook.type === 'MEV_TAX';
         });
 
     const requestedPoolIds = pools.map((pool) => pool.id);
@@ -67,21 +67,7 @@ export async function getBasePoolsFromDb(
 
 async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> {
     const type = {
-        in: [
-            'WEIGHTED',
-            'META_STABLE',
-            'PHANTOM_STABLE',
-            'COMPOSABLE_STABLE',
-            'STABLE',
-            'FX',
-            'GYRO',
-            'GYRO3',
-            'GYROE',
-            'QUANT_AMM_WEIGHTED',
-            'RECLAMM',
-            'LIQUIDITY_BOOTSTRAPPING',
-            'FIXED_LBP',
-        ] as PrismaPoolType[],
+        in: ['WEIGHTED', 'STABLE', 'GYROE'] as PrismaPoolType[],
     };
 
     let pools = [] as SORDbPool[];
@@ -122,11 +108,6 @@ async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> 
                         {
                             chain: 'SEPOLIA',
                         },
-                        {
-                            pool: {
-                                type: 'LIQUIDITY_BOOTSTRAPPING',
-                            },
-                        },
                     ],
                     totalSharesNum: { gt: 0.000000000001 },
                     swapEnabled: true,
@@ -149,7 +130,7 @@ async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> 
     pools = pools.filter((pool) => {
         if (!pool.hook || Object.keys(pool.hook).length === 0) return true;
         const hook = pool.hook as HookData;
-        if (hook.type === 'MEV_TAX' || hook.type === 'RECLAMM' || hook.type === 'LBP') return true;
+        if (hook.type === 'MEV_TAX') return true;
         // non-STABLE pools with STABLE_SURGE hooks are never supported
         if (pool.type !== 'STABLE' && hook.type === 'STABLE_SURGE') return false;
         const isSupportedHookType = hook.type !== undefined && hook.type !== 'UNKNOWN';

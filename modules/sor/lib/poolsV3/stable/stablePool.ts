@@ -5,7 +5,7 @@ import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
 import { chainToChainId as chainToIdMap } from '../../../../../config/chain-id-to-chain';
-import { StableData } from '../../../../pool/subgraph-mapper';
+import { StableData } from '../../../../pool/subgraph-pool';
 import { TokenPairData } from '../../../../sources/contracts/v3/fetch-tokenpair-data';
 
 import { WAD } from '../../utils/math';

@@ -1,13 +1,4 @@
-import {
-    BufferState,
-    GyroECLPState,
-    QuantAmmState,
-    ReClammState,
-    ReClammV2State,
-    StableState,
-    WeightedState,
-    LiquidityBootstrappingState,
-} from '@balancer-labs/balancer-maths';
+import { BufferState, GyroECLPState, StableState, WeightedState } from '@balancer-labs/balancer-maths';
 import { Address } from '@balancer/sdk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -17,11 +8,8 @@ import { BufferPoolData } from '../../../modules/sor/utils/data';
 import { TransformBigintToString } from '../types';
 import {
     mapGyroPoolStateToPrismaPool,
-    mapQuantAmmPoolStateToPrismaPool,
-    mapReClammPoolStateToPrismaPool,
     mapStablePoolStateToPrismaPool,
     mapWeightedPoolStateToPrismaPool,
-    mapLiquidityBootstrappingPoolStateToPrismaPool,
 } from './mapping';
 import { Path, SwapPathInput } from '../generate/getSwapPath';
 import { maxUint256 } from 'viem';
@@ -47,23 +35,7 @@ export type BufferPool = PoolBase &
 
 export type GyroEPool = PoolBase & GyroECLPState;
 
-export type LiquidityBootstrappingPool = PoolBase & LiquidityBootstrappingState;
-
-export type ReClammPool = PoolBase & ReClammState;
-
-export type ReClammV2Pool = PoolBase & ReClammV2State;
-
-export type QuantAmmPool = PoolBase & QuantAmmState;
-
-export type SupportedPools =
-    | WeightedPool
-    | StablePool
-    | BufferPool
-    | GyroEPool
-    | LiquidityBootstrappingPool
-    | ReClammPool
-    | ReClammV2Pool
-    | QuantAmmPool;
+export type SupportedPools = WeightedPool | StablePool | BufferPool | GyroEPool;
 
 type SwapPathData = SwapPathInput & {
     test: string;
@@ -202,69 +174,6 @@ function mapPools(pools: TransformBigintToString<SupportedPools>[]): PrismaPoolA
                 dSq: BigInt(pool.dSq),
             };
             prismaPools.push(mapGyroPoolStateToPrismaPool(gyroPool, Number(pool.chainId), 3, bufferPools));
-        } else if (pool.poolType === 'LIQUIDITY_BOOTSTRAPPING') {
-            // the return obect here need to be a PrismaPoolAndHookWithDynamic
-            // this is read from the test file
-            const lbpPool = {
-                ...pool,
-                scalingFactors: pool.scalingFactors.map((sf) => BigInt(sf)),
-                swapFee: BigInt(pool.swapFee),
-                balancesLiveScaled18: pool.balancesLiveScaled18.map((b) => BigInt(b)),
-                tokenRates: pool.tokenRates.map((r) => BigInt(r)),
-                totalSupply: BigInt(pool.totalSupply),
-                aggregateSwapFee: BigInt(pool.aggregateSwapFee ?? '0'),
-                supportsUnbalancedLiquidity:
-                    pool.supportsUnbalancedLiquidity === undefined ? true : pool.supportsUnbalancedLiquidity,
-                projectTokenIndex: Number(pool.projectTokenIndex),
-                weights: pool.weights.map((weight) => BigInt(weight)),
-                currentTimestamp: BigInt(pool.currentTimestamp),
-                endWeights: pool.endWeights.map((w) => BigInt(w)),
-                startWeights: pool.startWeights.map((w) => BigInt(w)),
-                startTime: BigInt(pool.startTime),
-                endTime: BigInt(pool.endTime),
-            };
-            prismaPools.push(mapLiquidityBootstrappingPoolStateToPrismaPool(lbpPool, Number(pool.chainId), 3));
-        } else if (pool.poolType === 'RECLAMM' || pool.poolType === 'RECLAMM_V2') {
-            const reClammPool = {
-                ...pool,
-                scalingFactors: pool.scalingFactors.map((sf) => BigInt(sf)),
-                swapFee: BigInt(pool.swapFee),
-                balancesLiveScaled18: pool.balancesLiveScaled18.map((b) => BigInt(b)),
-                tokenRates: pool.tokenRates.map((r) => BigInt(r)),
-                totalSupply: BigInt(pool.totalSupply),
-                aggregateSwapFee: BigInt(pool.aggregateSwapFee ?? '0'),
-                supportsUnbalancedLiquidity:
-                    pool.supportsUnbalancedLiquidity === undefined ? true : pool.supportsUnbalancedLiquidity,
-                lastTimestamp: BigInt(pool.lastTimestamp),
-                lastVirtualBalances: pool.lastVirtualBalances.map((b) => BigInt(b)),
-                dailyPriceShiftBase: BigInt(pool.dailyPriceShiftBase),
-                centerednessMargin: BigInt(pool.centerednessMargin),
-                startFourthRootPriceRatio: BigInt(pool.startFourthRootPriceRatio),
-                endFourthRootPriceRatio: BigInt(pool.endFourthRootPriceRatio),
-                priceRatioUpdateStartTime: BigInt(pool.priceRatioUpdateStartTime),
-                priceRatioUpdateEndTime: BigInt(pool.priceRatioUpdateEndTime),
-                currentTimestamp: BigInt(pool.currentTimestamp),
-            };
-            prismaPools.push(mapReClammPoolStateToPrismaPool(reClammPool, Number(pool.chainId), 3, bufferPools));
-        } else if (pool.poolType === 'QUANT_AMM_WEIGHTED') {
-            const quantAmmPool = {
-                ...pool,
-                scalingFactors: pool.scalingFactors.map((sf) => BigInt(sf)),
-                swapFee: BigInt(pool.swapFee),
-                balancesLiveScaled18: pool.balancesLiveScaled18.map((b) => BigInt(b)),
-                tokenRates: pool.tokenRates.map((r) => BigInt(r)),
-                totalSupply: BigInt(pool.totalSupply),
-                aggregateSwapFee: BigInt(pool.aggregateSwapFee ?? '0'),
-                supportsUnbalancedLiquidity:
-                    pool.supportsUnbalancedLiquidity === undefined ? true : pool.supportsUnbalancedLiquidity,
-                firstFourWeightsAndMultipliers: pool.firstFourWeightsAndMultipliers.map((w) => BigInt(w)),
-                secondFourWeightsAndMultipliers: pool.secondFourWeightsAndMultipliers.map((m) => BigInt(m)),
-                maxTradeSizeRatio: BigInt(pool.maxTradeSizeRatio),
-                lastUpdateTime: BigInt(pool.lastUpdateTime),
-                lastInteropTime: BigInt(pool.lastInteropTime),
-                currentTimestamp: BigInt(pool.currentTimestamp),
-            };
-            prismaPools.push(mapQuantAmmPoolStateToPrismaPool(quantAmmPool, Number(pool.chainId), 3, bufferPools));
         }
     }
     return prismaPools;

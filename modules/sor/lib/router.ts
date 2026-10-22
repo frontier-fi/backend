@@ -2,13 +2,10 @@ import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
 import { PathGraph } from './pathGraph/pathGraph';
 import { PathGraphTraversalConfig } from './pathGraph/pathGraphTypes';
 import { max, min } from './utils/math';
-import { BasePool } from './poolsV2/basePool';
+import { BasePool } from './basePool';
 import { PathLocal, PathWithAmount } from './path';
 import { formatUnits, parseEther } from 'viem';
-import { Chain } from '@prisma/client';
-import { chainToChainId } from '../../../config/chain-id-to-chain';
 
-const SWAPS_GREATER_THAN_BUFFER_LIMIT_THRESHOLD = 2;
 export class Router {
     private readonly pathGraph: PathGraph;
 
@@ -78,12 +75,6 @@ export class Router {
                 try {
                     const pathWithAmount = new PathWithAmount(path.tokens, path.pools, path.isBuffer, amount);
 
-                    // prevent paths with high gas cost on HyperEvm due to small blocks limitation
-                    const isHyperEvm = swapAmount.token.chainId === parseInt(chainToChainId[Chain.HYPEREVM]);
-                    const gasCostTooHigh =
-                        isHyperEvm &&
-                        pathWithAmount.swapStepsGreaterThanBufferLimit > SWAPS_GREATER_THAN_BUFFER_LIMIT_THRESHOLD;
-
                     // remove paths with buffer steps that would revert onchain because the swap
                     // amount exceeds the buffer's capacity (buffer balance + erc4626 maxDeposit/maxWithdraw)
                     const exceedsBufferCapacity = pathWithAmount.swapStepsExceedingBufferCapacity > 0;
@@ -96,7 +87,7 @@ export class Router {
                         pathWithAmount.swapKind === SwapKind.GivenIn
                             ? pathWithAmount.outputAmount
                             : pathWithAmount.inputAmount;
-                    if (calculatedAmount.amount > 0n && !gasCostTooHigh && !exceedsBufferCapacity) {
+                    if (calculatedAmount.amount > 0n && !exceedsBufferCapacity) {
                         quotePathsByRatio[i].push(pathWithAmount);
                         selectedPaths.push(path);
                     }

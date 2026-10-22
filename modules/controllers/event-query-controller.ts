@@ -2,7 +2,6 @@ import {
     GqlPoolAddRemoveEventV3,
     GqlPoolSwapEventV3,
     QueryPoolEventsArgs,
-    GqlPoolSwapEventCowAmm,
     GqlPoolEventType,
 } from '../../apps/api/gql/generated-schema';
 import { Chain, PoolEventType } from '@prisma/client';
@@ -47,18 +46,6 @@ const parseSwap = (event: SwapEvent): GqlPoolSwapEventV3 => {
     };
 };
 
-const parseCowAmmSwap = (event: SwapEvent): GqlPoolSwapEventCowAmm => {
-    const regularSwap = parseSwap(event);
-    return {
-        ...regularSwap,
-        __typename: 'GqlPoolSwapEventCowAmm',
-        surplus: (event.payload.surplus && {
-            ...event.payload.surplus,
-            valueUSD: Number(event.payload.surplus.valueUSD),
-        }) || { address: '', amount: '0', valueUSD: 0 },
-    };
-};
-
 const GqlTypeToDbType: Record<GqlPoolEventType, PoolEventType> = {
     SWAP: 'SWAP',
     ADD: 'JOIN',
@@ -69,11 +56,7 @@ const getMultichainEvents = async (chainIn: Chain[], limit: number = 100) => {
     const results = await Promise.all(
         chainIn.map(async (chain) => {
             return (await eventsRepository.getEvents({ chain, limit: Math.min(100, limit) })).map((event) =>
-                event.type === 'SWAP' && (event as SwapEvent).payload?.surplus
-                    ? parseCowAmmSwap(event as SwapEvent)
-                    : event.type === 'SWAP'
-                    ? parseSwap(event as SwapEvent)
-                    : parseJoinExit(event as JoinExitEvent),
+                event.type === 'SWAP' ? parseSwap(event as SwapEvent) : parseJoinExit(event as JoinExitEvent),
             );
         }),
     );
@@ -103,7 +86,7 @@ export function EventsQueryController(env = process.env) {
             first,
             skip,
             where,
-        }: QueryPoolEventsArgs): Promise<(GqlPoolSwapEventV3 | GqlPoolSwapEventCowAmm | GqlPoolAddRemoveEventV3)[]> => {
+        }: QueryPoolEventsArgs): Promise<(GqlPoolSwapEventV3 | GqlPoolAddRemoveEventV3)[]> => {
             // Setting default values
             first = Math.min(1000, first ?? 1000); // Limiting to 1000 items
             skip = skip ?? 0;
@@ -146,11 +129,7 @@ export function EventsQueryController(env = process.env) {
             });
 
             const results = dbEvents.map((event) =>
-                event.type === 'SWAP' && (event as SwapEvent).payload?.surplus
-                    ? parseCowAmmSwap(event as SwapEvent)
-                    : event.type === 'SWAP'
-                    ? parseSwap(event as SwapEvent)
-                    : parseJoinExit(event as JoinExitEvent),
+                event.type === 'SWAP' ? parseSwap(event as SwapEvent) : parseJoinExit(event as JoinExitEvent),
             );
 
             return results;

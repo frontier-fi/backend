@@ -55,21 +55,7 @@ model PrismaPool {
 enum PrismaPoolType {
     WEIGHTED
     STABLE
-    META_STABLE
-    PHANTOM_STABLE
-    COMPOSABLE_STABLE
-    ELEMENT
-    UNKNOWN
-    LIQUIDITY_BOOTSTRAPPING
-    INVESTMENT
-    GYRO
-    GYRO3
     GYROE
-    FX
-    COW_AMM
-    QUANT_AMM_WEIGHTED
-    RECLAMM
-    FIXED_LBP
 }
 
 model PrismaPoolDynamicData {
@@ -186,18 +172,14 @@ enum PrismaPoolAprType {
     IB_YIELD
     VOTING
     LOCKING
-    AURA
     MERKL
     FUUL
-    QUANT_AMM_UPLIFT
     SURPLUS
     SURPLUS_24H
     SURPLUS_7D
     SURPLUS_30D
     STAKING
     STAKING_BOOST
-    MABEETS_EMISSIONS
-    VEBAL_EMISSIONS
 }
 
 
@@ -247,10 +229,6 @@ model PrismaPoolStaking {
     type                PrismaPoolStakingType
     address             String
     farm                PrismaPoolStakingMasterChefFarm?
-    gauge               PrismaPoolStakingGauge?
-    reliquary           PrismaPoolStakingReliquaryFarm?
-    aura                PrismaPoolStakingAura?
-    vebal               PrismaPoolStakingVebal?
 
     userStakedBalances  PrismaUserStakedBalance[]
 
@@ -260,11 +238,6 @@ model PrismaPoolStaking {
 
 enum PrismaPoolStakingType {
     MASTER_CHEF
-    GAUGE
-    RELIQUARY
-    FRESH_BEETS
-    AURA
-    VEBAL
 }
 
 model PrismaPoolStakingMasterChefFarm {
@@ -294,110 +267,6 @@ model PrismaPoolStakingMasterChefFarmRewarder {
     @@index([farmId, chain])
 }
 
-model PrismaPoolStakingGauge {
-    @@id([id, chain])
-    @@unique([stakingId, chain])
-
-    id                  String
-    stakingId           String
-    staking             PrismaPoolStaking   @relation(fields:[stakingId, chain], references: [id, chain], onDelete: Cascade)
-    chain               Chain
-
-    gaugeAddress        String
-    votingGauge         PrismaVotingGauge[]
-    rewards             PrismaPoolStakingGaugeReward[]
-    status              PrismaPoolStakingGaugeStatus    @default(ACTIVE)
-    version             Int                             @default(1)
-    workingSupply       String                          @default("0.0")
-    totalSupply         String                          @default("0.0")
-}
-
-model PrismaPoolStakingAura {
-    @@id([id, chain])
-    @@unique([stakingId, chain])
-
-    id                  String
-    stakingId           String
-    staking             PrismaPoolStaking   @relation(fields:[stakingId, chain], references: [id, chain], onDelete: Cascade)
-    chain               Chain
-
-    auraPoolAddress     String
-    auraPoolId          String
-    apr                 Float
-    isShutdown          Boolean
-}
-
-model PrismaPoolStakingVebal {
-    @@id([id, chain])
-    @@unique([stakingId, chain])
-
-    id                  String
-    stakingId           String
-    staking             PrismaPoolStaking   @relation(fields:[stakingId, chain], references: [id, chain], onDelete: Cascade)
-    chain               Chain
-
-    vebalAddress        String
-}
-
-enum PrismaPoolStakingGaugeStatus {
-    KILLED
-    ACTIVE
-    PREFERRED
-}
-
-
-model PrismaPoolStakingGaugeReward{
-    @@id([id, chain])
-
-    id                  String
-    gaugeId             String
-    gauge               PrismaPoolStakingGauge @relation(fields:[gaugeId, chain], references: [id, chain], onDelete: Cascade)
-    chain               Chain
-
-    tokenAddress        String
-    rewardPerSecond     String
-    isVeBalemissions    Boolean                 @default(false)
-
-    @@index([gaugeId, chain])
-}
-
-
-model PrismaPoolStakingReliquaryFarm {
-    @@id([id, chain])
-    @@unique([stakingId, chain])
-
-    id                      String
-    stakingId               String
-    staking                 PrismaPoolStaking   @relation(fields:[stakingId, chain], references: [id, chain])
-    chain                   Chain
-
-    name                    String
-    beetsPerSecond          String
-    totalBalance            String              @default("0")
-    totalWeightedBalance    String              @default("0")
-    levels                  PrismaPoolStakingReliquaryFarmLevel[]
-    snapshots               PrismaReliquaryFarmSnapshot[]
-    relicSnapshots          PrismaUserRelicSnapshot[]
-}
-
-model PrismaPoolStakingReliquaryFarmLevel {
-    @@id([id, chain])
-
-    id                  String
-    farmId              String
-    farm                PrismaPoolStakingReliquaryFarm  @relation(fields:[farmId, chain], references: [id, chain])
-    chain               Chain
-
-    level               Int
-    balance             String
-    requiredMaturity    Int
-    allocationPoints    Int
-    apr                 Float
-
-    @@index([farmId, chain])
-}
-
-
 model PrismaPoolSnapshot {
     @@id([id, chain])
 
@@ -421,40 +290,6 @@ model PrismaPoolSnapshot {
     @@index([protocolVersion])
     @@index([timestamp(sort: Desc)])
     @@index([poolId, chain])
-}
-
-model PrismaReliquaryFarmSnapshot {
-    @@id([id, chain])
-
-    id                  String
-    farmId              String
-    stakingFarm         PrismaPoolStakingReliquaryFarm  @relation(fields:[farmId, chain], references: [id, chain])
-    chain               Chain
-
-    timestamp           Int
-    relicCount          Int
-    userCount           Int
-    totalBalance        String
-    dailyDeposited      String
-    dailyWithdrawn      String
-    totalLiquidity      String                          @default("0")
-    levelBalances       PrismaReliquaryLevelSnapshot[]
-
-    @@index([farmId, chain])
-}
-
-model PrismaReliquaryLevelSnapshot {
-    @@id([id, chain])
-
-    id                  String
-    farmSnapshotId      String
-    farmSnapshot        PrismaReliquaryFarmSnapshot @relation(fields:[farmSnapshotId, chain], references: [id, chain])
-    chain               Chain
-
-    level               String
-    balance             String
-
-    @@index([farmSnapshotId, chain])
 }
 
 enum PoolEventType {

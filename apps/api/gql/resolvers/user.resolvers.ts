@@ -19,20 +19,6 @@ const resolvers: Resolvers = {
 
             return 'success';
         },
-        userInitStakedBalances: async (parent, { stakingTypes, chain }, context) => {
-            isAdminRoute(context);
-
-            await UserBalancesController().initStakedBalances(stakingTypes, chain);
-
-            return 'success';
-        },
-        userSyncChangedStakedBalances: async (parent, { chain }, context) => {
-            isAdminRoute(context);
-
-            await UserBalancesController().syncChangedStakedBalances(chain);
-
-            return 'success';
-        },
     },
 };
 

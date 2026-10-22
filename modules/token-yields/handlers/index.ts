@@ -7,14 +7,9 @@ const sourceToHandler = {
     avalon: sources.avalonYieldHandler,
     euler: sources.eulerYieldHandler,
     teth: sources.treehouseYieldHandler,
-    sts: sources.stsYieldHandler,
-    hypurrfi: sources.hypurrFiYieldhandler,
-    hypurrfiPrime: sources.hypurrFiPrimeYieldHandler,
-    morphoVaultHyperevm: sources.morphoHyperevmYieldHandler,
     http: sources.httpTokenYieldHandler,
     contract: sources.contractTokenYieldHandler,
     rateProvider: sources.rateProviderHandler,
-    loops: sources.loopsYieldHandler,
 };
 
 export class TokenYieldAprHandlers {

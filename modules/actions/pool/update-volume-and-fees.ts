@@ -81,7 +81,7 @@ export async function updateVolumeAndFees(
         let protocolFees24h = poolStats24h.fees * protocolSwapFeePercentage;
         let protocolFees48h = poolStats48h.fees * protocolSwapFeePercentage;
 
-        if (pool.dynamicData?.isInRecoveryMode || pool.type === 'LIQUIDITY_BOOTSTRAPPING') {
+        if (pool.dynamicData?.isInRecoveryMode) {
             protocolFees24h = 0;
             protocolFees48h = 0;
         }
@@ -115,19 +115,13 @@ export async function updateVolumeAndFees(
             const protocolYieldFeePercentage = parseFloat(pool.dynamicData.protocolYieldFee || '0');
             const protocolSwapFeePercentage = parseFloat(pool.dynamicData.protocolSwapFee || '0');
 
-            yieldCapture24h =
-                pool.type === 'META_STABLE'
-                    ? yieldForUser24h / (1 - protocolSwapFeePercentage)
-                    : yieldForUser24h / (1 - protocolYieldFeePercentage);
+            yieldCapture24h = yieldForUser24h / (1 - protocolYieldFeePercentage);
 
-            yieldCapture48h =
-                pool.type === 'META_STABLE'
-                    ? yieldForUser48h / (1 - protocolSwapFeePercentage)
-                    : yieldForUser48h / (1 - protocolYieldFeePercentage);
+            yieldCapture48h = yieldForUser48h / (1 - protocolYieldFeePercentage);
 
             // if the pool is in recovery mode, the protocol does not take any fee and therefore the user takes all yield captured
             // since this is already reflected in the aprItems of the pool, we need to set that as the totalYieldCapture
-            if (pool.dynamicData.isInRecoveryMode || pool.type === 'LIQUIDITY_BOOTSTRAPPING') {
+            if (pool.dynamicData.isInRecoveryMode) {
                 yieldCapture24h = yieldForUser24h;
                 yieldCapture48h = yieldForUser48h;
             }

@@ -71,12 +71,6 @@ export interface TokenYieldConfig {
     aave?: {
         markets: AaveAddressBookEntry[];
     };
-    sts?: {
-        token: string;
-    };
-    loops?: {
-        token: string;
-    };
     euler?: {
         url: string;
         lens: string;
@@ -85,15 +79,6 @@ export interface TokenYieldConfig {
     http?: TokenYieldHttpFetchConfig[];
     contract?: {
         calls: TokenYieldContractFetchConfig[];
-    };
-    hypurrfi?: {
-        markets: string[];
-    };
-    hypurrfiPrime?: {
-        vaults: string[];
-    };
-    morphoVaultHyperevm?: {
-        vaults: string[];
     };
     rateProvider?: RateProviderYieldConfig;
 }

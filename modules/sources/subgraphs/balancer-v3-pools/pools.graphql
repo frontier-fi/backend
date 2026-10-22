@@ -1,33 +1,21 @@
 fragment Factory on Factory {
     id
+    address
     type
     version
-    pools {
-        id
-        address
-    }
 }
 
 fragment TypePool on Pool {
     id
     address
     factory {
-        id
-        type
-        version
-    }
-    stableParams {
-        amp
-    }
-    stableSurgeParams {
-        amp
+        ...Factory
     }
     weightedParams {
         weights
     }
-    gyro2Params {
-        sqrtAlpha
-        sqrtBeta
+    stableParams {
+        amp
     }
     gyroEParams {
         alpha
@@ -44,59 +32,6 @@ fragment TypePool on Pool {
         w
         z
         dSq
-    }
-    quantAMMWeightedParams {
-        oracleStalenessThreshold
-        poolRegistry
-        lambda
-        epsilonMax
-        absoluteWeightGuardRail
-        maxTradeSizeRatio
-        updateInterval
-        weightsAtLastUpdateInterval
-        weightBlockMultipliers
-        lastUpdateIntervalTime
-        lastInterpolationTimePossible
-        details {
-            id
-            category
-            name
-            type
-            value
-        }
-    }
-    lbpParams {
-        startTime
-        endTime
-        owner
-        isProjectTokenSwapInBlocked
-        reserveToken
-        reserveTokenStartWeight
-        reserveTokenEndWeight
-        projectToken
-        projectTokenStartWeight
-        projectTokenEndWeight
-        reserveTokenVirtualBalance
-    }
-    fixedLBPParams {
-        startTime
-        endTime
-        owner
-        isProjectTokenSwapInBlocked
-        reserveToken
-        projectToken
-        projectTokenRate
-    }
-    reClammParams {
-        lastTimestamp
-        lastVirtualBalances
-        dailyPriceShiftBase
-        centerednessMargin
-        currentFourthRootPriceRatio
-        startFourthRootPriceRatio
-        endFourthRootPriceRatio
-        priceRatioUpdateStartTime
-        priceRatioUpdateEndTime
     }
 }
 

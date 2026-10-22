@@ -3,7 +3,6 @@ import { AprHandler } from '../types';
 import * as handlers from '.';
 import config from '../../../config';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
-import { tokenService } from '../../token/token.service';
 
 /**
  * Creates handler instances for a specific chain
@@ -14,29 +13,10 @@ export function createHandlers(chain: Chain): AprHandler[] {
     // Default handlers for all of the chains
     handlerList.push(new handlers.SwapFeeAprHandler());
     handlerList.push(new handlers.NestedPoolAprHandler());
-    // handlerList.push(new handlers.QuantAmmAprHandler());
-    handlerList.push(new handlers.LiquidityGaugeAprHandler(tokenService));
     handlerList.push(new handlers.MerklAprHandler());
-
-    // Mainnet specific handlers
-    if (chain === Chain.MAINNET) {
-        handlerList.push(new handlers.VeBalProtocolAprHandler());
-        handlerList.push(new handlers.VeBalVotingAprHandler());
-    }
-
-    if (config[chain].aprHandlers.maBeetsAprHandler) {
-        handlerList.push(
-            new handlers.MaBeetsAprHandler(config[chain].aprHandlers.maBeetsAprHandler.beetsAddress, tokenService),
-        );
-        handlerList.push(new handlers.BeetswarsGaugeVotingAprHandler());
-    }
 
     if (config[chain].aprHandlers.ybAprHandler) {
         handlerList.push(new handlers.YbTokensAprHandler());
-    }
-
-    if (config[chain].aprHandlers.fuulHypurrAprHandler) {
-        handlerList.push(new handlers.FuulHypurrAprHandler());
     }
 
     if (config[chain].aprHandlers.morphoRewardsAprHandler) {

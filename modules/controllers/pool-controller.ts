@@ -1,12 +1,5 @@
 import config from '../../config';
-import { addPools as addPoolsV2 } from '../actions/pool/v2/add-pools';
 import { addPools as addPoolsV3 } from '../actions/pool/v3/add-pools';
-import { getV2SubgraphClient } from '../subgraphs/balancer-subgraph';
-import {
-    syncOnchainDataForAllPools as syncOnchainDataForAllPoolsV2,
-    syncChangedPools as syncChangedPoolsV2,
-    syncOnChainDataForPools as syncOnChainDataForPoolsV2,
-} from '../actions/pool/v2';
 import { getViemClient } from '../sources/viem-client';
 import {
     getPoolsSubgraphClient,
@@ -31,87 +24,6 @@ import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 
 export function PoolController(tracer?: any) {
     return {
-        async addPoolsV2(chain: Chain) {
-            const subgraphUrl = config[chain].subgraphs.balancer;
-            const subgraphService = getV2SubgraphClient(subgraphUrl, chain);
-
-            return addPoolsV2(subgraphService, chain);
-        },
-
-        async syncOnchainDataForAllPoolsV2(chain: Chain) {
-            const vaultAddress = config[chain].balancer.v2.vaultAddress;
-            const balancerQueriesAddress = config[chain].balancer.v2.balancerQueriesAddress;
-            const yieldProtocolFeePercentage = config[chain].balancer.v2.defaultYieldFeePercentage;
-            const swapProtocolFeePercentage = config[chain].balancer.v2.defaultSwapFeePercentage;
-            const gyroConfig = config[chain].gyro?.config;
-
-            const viemClient = getViemClient(chain);
-            const latestBlock = await viemClient.getBlockNumber();
-
-            return syncOnchainDataForAllPoolsV2(
-                Number(latestBlock),
-                chain,
-                vaultAddress,
-                balancerQueriesAddress,
-                yieldProtocolFeePercentage,
-                swapProtocolFeePercentage,
-                gyroConfig,
-            );
-        },
-
-        async syncOnchainDataForPoolsV2(chain: Chain, poolIds?: string[]) {
-            const vaultAddress = config[chain].balancer.v2.vaultAddress;
-            const balancerQueriesAddress = config[chain].balancer.v2.balancerQueriesAddress;
-            const yieldProtocolFeePercentage = config[chain].balancer.v2.defaultYieldFeePercentage;
-            const swapProtocolFeePercentage = config[chain].balancer.v2.defaultSwapFeePercentage;
-            const gyroConfig = config[chain].gyro?.config;
-
-            const viemClient = getViemClient(chain);
-            const latestBlock = await viemClient.getBlockNumber();
-
-            return syncOnChainDataForPoolsV2(
-                Number(latestBlock),
-                chain,
-                vaultAddress,
-                balancerQueriesAddress,
-                yieldProtocolFeePercentage,
-                swapProtocolFeePercentage,
-                gyroConfig,
-                poolIds,
-            );
-        },
-
-        async syncChangedPoolsV2(chain: Chain) {
-            const vaultAddress = config[chain].balancer.v2.vaultAddress;
-            const balancerQueriesAddress = config[chain].balancer.v2.balancerQueriesAddress;
-            const yieldProtocolFeePercentage = config[chain].balancer.v2.defaultYieldFeePercentage;
-            const swapProtocolFeePercentage = config[chain].balancer.v2.defaultSwapFeePercentage;
-            const gyroConfig = config[chain].gyro?.config;
-
-            return syncChangedPoolsV2(
-                chain,
-                vaultAddress,
-                balancerQueriesAddress,
-                yieldProtocolFeePercentage,
-                swapProtocolFeePercentage,
-                gyroConfig,
-            );
-        },
-
-        async updateLiquidity24hAgoV2(chain: Chain) {
-            const client = getViemClient(chain);
-
-            const poolIds = await prisma.prismaPool
-                .findMany({
-                    where: { chain, protocolVersion: 2 },
-                    select: { id: true },
-                })
-                .then((results) => results.map((r) => r.id));
-
-            const updates = await updateLiquidity24hAgo(poolIds, chain, client);
-
-            return updates;
-        },
         async updateLiquidityValuesForInactivePools(chain: Chain) {
             const poolTokens = await prisma.prismaPoolToken.findMany({
                 where: {
@@ -177,10 +89,6 @@ export function PoolController(tracer?: any) {
             if (poolsToSync.length === 0) {
                 return [];
             }
-
-            // we filter out LBPs because it would otherwise override the metadata that has been stored when the create mutation was called
-            // we sync LBPs on a different schedule and with a different function that only updates the onchain data, not the metadata
-            poolsToSync = poolsToSync.filter((pool) => pool.factory.type !== 'LBP' && pool.factory.type !== 'FixedLBP');
 
             const inserts = await addPoolsV3(poolsToSync, viemClient, vaultAddress, chain, latestBlock);
             await syncBptBalancesFromSubgraph(
