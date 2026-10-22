@@ -7,7 +7,7 @@ export const initApiSentry = () => {
     Sentry.init({
         dsn: env.SENTRY_DSN,
         environment: `api-${env.DEPLOYMENT_ENV}`,
-        enabled: env.NODE_ENV === 'production',
+        enabled: env.NODE_ENV === 'production' && Boolean(env.SENTRY_DSN),
         ignoreErrors: [/.*error: Provide.*chain.*param/],
         integrations: [
             Sentry.captureConsoleIntegration({

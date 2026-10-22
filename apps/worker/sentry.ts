@@ -6,7 +6,7 @@ export const initWorkerSentry = () => {
     Sentry.init({
         dsn: env.SENTRY_DSN,
         environment: `worker-${env.DEPLOYMENT_ENV}`,
-        enabled: env.NODE_ENV === 'production',
+        enabled: env.NODE_ENV === 'production' && Boolean(env.SENTRY_DSN),
         integrations: [
             Sentry.captureConsoleIntegration({
                 levels: ['error', 'warn'],
