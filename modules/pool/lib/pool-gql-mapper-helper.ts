@@ -31,13 +31,8 @@ export function mapAprItems(pool: Pick<PrismaPoolMinimal, 'aprItems'>): GqlPoolA
         let type: GqlPoolAprItemType;
         switch (aprItem.type) {
             case PrismaPoolAprType.NATIVE_REWARD:
-                continue;
-            case PrismaPoolAprType.THIRD_PARTY_REWARD:
-                type = 'STAKING';
-                break;
             case null:
-                type = 'NESTED';
-                break;
+                continue;
             default:
                 type = aprItem.type;
                 break;
@@ -75,16 +70,13 @@ export function mapPoolToken(
         weight: poolToken.weight,
         hasNestedPool: hasNestedPool,
         nestedPool: hasNestedPool ? mapNestedPool(nestedPool, poolToken.balance || '0') : undefined,
-        isAllowed:
-            protocolVersion === 1 ||
-            (protocolVersion === 2 && poolToken.token.types.every((type) => type.type !== 'BLOCKED_V2')) ||
-            (protocolVersion === 3 && poolToken.token.types.every((type) => type.type !== 'BLOCKED_V3')),
+        isAllowed: poolToken.token.types.every((type) => type.type !== 'BLOCKED_V3'),
         isErc4626: poolToken.token.types.some((type) => type.type === 'ERC4626'),
         maxDeposit: poolToken.token.maxDeposit === '0' ? undefined : poolToken.token.maxDeposit,
         maxWithdraw: poolToken.token.maxWithdraw === '0' ? undefined : poolToken.token.maxWithdraw,
         isExemptFromProtocolYieldFee: poolToken.exemptFromProtocolYieldFee,
         scalingFactor: poolToken.scalingFactor,
-        tradable: !poolToken.token.types.find((type) => type.type === 'PHANTOM_BPT' || type.type === 'BPT'),
+        tradable: !poolToken.token.types.find((type) => type.type === 'BPT'),
         chain: poolToken.chain,
         chainId: Number(chainToChainId[poolToken.chain]),
     };

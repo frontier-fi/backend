@@ -80,6 +80,6 @@ export class BptPriceHandler implements PriceHandler {
     }
 
     private getAcceptedTokens(tokens: TokenPriceData[]): TokenPriceData[] {
-        return tokens.filter((token) => token.types.includes('BPT') || token.types.includes('PHANTOM_BPT'));
+        return tokens.filter((token) => token.types.includes('BPT'));
     }
 }

@@ -232,7 +232,7 @@ export class PoolGqlLoaderService {
     }
 
     public mapToMinimalGqlPool(
-        pool: Omit<PrismaPoolMinimal, 'staking'>,
+        pool: PrismaPoolMinimal,
         userWalletbalances: PrismaUserWalletBalance[] = [],
     ): GqlPoolMinimal {
         return {
@@ -244,7 +244,6 @@ export class PoolGqlLoaderService {
             decimals: 18,
             dynamicData: this.getPoolDynamicData(pool),
             poolTokens: pool.tokens.map((token) => mapPoolToken(token, pool.protocolVersion)),
-            staking: null,
             userBalance: this.getUserBalance(pool, userWalletbalances),
             categories: pool.categories as GqlPoolFilterCategory[],
             tags: pool.categories,
@@ -485,7 +484,7 @@ export class PoolGqlLoaderService {
     }
 
     private mapPoolToGqlPool(
-        pool: Omit<PrismaPoolWithExpandedNesting, 'staking'>,
+        pool: PrismaPoolWithExpandedNesting,
         userWalletbalances: PrismaUserWalletBalance[] = [],
     ): GqlPoolUnion {
         const { typeData, ...poolWithoutTypeData } = pool;
@@ -493,7 +492,6 @@ export class PoolGqlLoaderService {
         const mappedData = {
             decimals: 18,
             owner: pool.swapFeeManager, // Keep for backwards compatibility
-            staking: null,
             dynamicData: this.getPoolDynamicData(pool),
             poolTokens: pool.tokens.map((token) => mapPoolToken(token, pool.protocolVersion)),
             userBalance: this.getUserBalance(pool, userWalletbalances),
@@ -557,7 +555,7 @@ export class PoolGqlLoaderService {
     }
 
     private getUserBalance(
-        pool: Omit<PrismaPoolMinimal, 'staking'>,
+        pool: PrismaPoolMinimal,
         userWalletBalances: PrismaUserWalletBalance[],
     ): GqlPoolUserBalance {
         let bptPrice = 0;
@@ -572,11 +570,10 @@ export class PoolGqlLoaderService {
             walletBalanceUsd: walletBalanceNum * bptPrice,
             totalBalance: walletBalanceNum.toString(),
             totalBalanceUsd: walletBalanceNum * bptPrice,
-            stakedBalances: [],
         };
     }
 
-    private getPoolDynamicData(pool: Omit<PrismaPoolMinimal, 'staking'>): GqlPoolDynamicData {
+    private getPoolDynamicData(pool: PrismaPoolMinimal): GqlPoolDynamicData {
         const {
             fees24h,
             totalLiquidity,
@@ -645,16 +642,14 @@ export class PoolGqlLoaderService {
 
     private getPoolMinimalInclude(userAddress?: string) {
         if (!userAddress) {
-            const { staking: _staking, ...include } = prismaPoolMinimal.include;
             return {
-                ...include,
+                ...prismaPoolMinimal.include,
                 userWalletBalances: false,
             };
         }
 
-        const { staking: _staking, ...include } = prismaPoolMinimal.include;
         return {
-            ...include,
+            ...prismaPoolMinimal.include,
             userWalletBalances: {
                 where: {
                     userAddress: {
@@ -668,16 +663,14 @@ export class PoolGqlLoaderService {
 
     private getPoolInclude(userAddress?: string) {
         if (!userAddress) {
-            const { staking: _staking, ...include } = prismaPoolWithExpandedNesting.include;
             return {
-                ...include,
+                ...prismaPoolWithExpandedNesting.include,
                 userWalletBalances: false,
             };
         }
 
-        const { staking: _staking, ...include } = prismaPoolWithExpandedNesting.include;
         return {
-            ...include,
+            ...prismaPoolWithExpandedNesting.include,
             userWalletBalances: {
                 where: {
                     userAddress: {

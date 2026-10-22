@@ -69,7 +69,6 @@ export class SwapsPriceHandler implements PriceHandler {
         return tokens.filter(
             (token) =>
                 !token.types.includes('BPT') &&
-                !token.types.includes('PHANTOM_BPT') &&
                 token.latestSwaps &&
                 token.latestSwaps.length > 0,
         );

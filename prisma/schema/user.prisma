@@ -4,7 +4,6 @@ model PrismaUser {
     userSnapshots           PrismaUserPoolBalanceSnapshot[]
 
     walletBalances          PrismaUserWalletBalance[]
-    stakedBalances          PrismaUserStakedBalance[]
 }
 
 
@@ -33,45 +32,6 @@ model PrismaUserWalletBalance {
 }
 
 
-model PrismaUserStakedBalance {
-    @@id([id, chain])
-    @@index(userAddress)
-
-    id                      String
-    chain                   Chain               
-    balance                 String
-    balanceNum              Float
-    updatedAt               DateTime            @updatedAt
-
-    userAddress             String
-    user                    PrismaUser          @relation(fields:[userAddress], references: [address], onDelete: Cascade)
-
-    poolId                  String?
-    pool                    PrismaPool?          @relation(fields:[poolId, chain], references: [id, chain], onDelete: Cascade)
-
-    tokenAddress            String
-    token                   PrismaToken         @relation(fields:[tokenAddress, chain], references: [address, chain], onDelete: Cascade)
-
-    stakingId               String
-    staking                 PrismaPoolStaking   @relation(fields:[stakingId, chain], references: [id, chain], onDelete: Cascade)
-
-    @@index([poolId, chain])
-    @@index([stakingId, chain])
-}
-
-model PrismaUserBalanceSyncStatus {
-    @@id([type, chain])
-
-    type                PrismaUserBalanceType
-    chain               Chain                   
-    blockNumber         Int
-}
-
-enum PrismaUserBalanceType {
-    WALLET
-    STAKED
-}
-
 model PrismaUserPoolBalanceSnapshot {
     @@id([id, chain])
 
@@ -86,7 +46,6 @@ model PrismaUserPoolBalanceSnapshot {
     pool                    PrismaPool?         @relation(fields:[poolId, chain], references:[id, chain])
 
     walletBalance           String
-    farmBalance             String
     totalBalance            String
     percentShare            String
     totalValueUSD           String

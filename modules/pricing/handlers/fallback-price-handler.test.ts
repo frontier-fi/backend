@@ -20,7 +20,7 @@ describe('FallbackPriceHandler', () => {
                 },
                 {
                     address: '0xtoken2',
-                    chain: Chain.ARBITRUM,
+                    chain: Chain.SEPOLIA,
                     types: ['ERC20'],
                 },
                 {
@@ -47,7 +47,7 @@ describe('FallbackPriceHandler', () => {
             });
             expect(priceItems[1]).toEqual({
                 address: '0xtoken2',
-                chain: Chain.ARBITRUM,
+                chain: Chain.SEPOLIA,
                 price: 2.0,
                 updatedAt: expect.any(Date),
                 updatedBy: 'FallbackHandlerService',
@@ -103,7 +103,7 @@ describe('FallbackPriceHandler', () => {
                 },
                 {
                     address: '0xtoken2',
-                    chain: Chain.ARBITRUM,
+                    chain: Chain.SEPOLIA,
                     types: ['ERC20'],
                 },
             ];
@@ -125,12 +125,12 @@ describe('FallbackPriceHandler', () => {
                 },
                 {
                     address: '0xtoken2',
-                    chain: Chain.ARBITRUM,
+                    chain: Chain.SEPOLIA,
                     types: ['ERC20'],
                 },
                 {
                     address: '0xtoken3',
-                    chain: Chain.POLYGON,
+                    chain: Chain.BASE,
                     types: ['ERC20'],
                 },
             ];
@@ -144,8 +144,8 @@ describe('FallbackPriceHandler', () => {
 
             expect(priceItems).toHaveLength(3);
             expect(priceItems.find((p) => p.address === '0xtoken1')?.chain).toBe(Chain.MAINNET);
-            expect(priceItems.find((p) => p.address === '0xtoken2')?.chain).toBe(Chain.ARBITRUM);
-            expect(priceItems.find((p) => p.address === '0xtoken3')?.chain).toBe(Chain.POLYGON);
+            expect(priceItems.find((p) => p.address === '0xtoken2')?.chain).toBe(Chain.SEPOLIA);
+            expect(priceItems.find((p) => p.address === '0xtoken3')?.chain).toBe(Chain.BASE);
         });
 
         it('should handle high precision prices correctly', async () => {

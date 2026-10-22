@@ -38,10 +38,8 @@ model PrismaPool {
     allTokens           PrismaPoolExpandedTokens[]
     allTokensNested     PrismaPoolExpandedTokens[] @relation(name: "NestedPoolForAllToken")
     filters             PrismaPoolFilterMap[]
-    staking             PrismaPoolStaking[]
 
     userWalletBalances  PrismaUserWalletBalance[]
-    userStakedBalances  PrismaUserStakedBalance[]
 
     userPoolBalanceSnapshots    PrismaUserPoolBalanceSnapshot[]
 
@@ -168,18 +166,12 @@ enum PrismaPoolAprType {
     SWAP_FEE_7D
     SWAP_FEE_30D
     NATIVE_REWARD
-    THIRD_PARTY_REWARD
     IB_YIELD
-    VOTING
-    LOCKING
     MERKL
-    FUUL
     SURPLUS
     SURPLUS_24H
     SURPLUS_7D
     SURPLUS_30D
-    STAKING
-    STAKING_BOOST
 }
 
 
@@ -217,54 +209,6 @@ model PrismaPoolFilterMap {
     filter              PrismaPoolFilter    @relation(fields:[filterId, chain], references: [id, chain])
     poolId              String
     pool                PrismaPool          @relation(fields:[poolId, chain], references: [id, chain], onDelete: Cascade)
-}
-
-model PrismaPoolStaking {
-    @@id([id, chain])
-
-    id                  String
-    poolId              String
-    pool                PrismaPool          @relation(fields:[poolId, chain], references: [id, chain], onDelete: Cascade)
-    chain               Chain
-    type                PrismaPoolStakingType
-    address             String
-    farm                PrismaPoolStakingMasterChefFarm?
-
-    userStakedBalances  PrismaUserStakedBalance[]
-
-    @@index([poolId, chain])
-}
-
-
-enum PrismaPoolStakingType {
-    MASTER_CHEF
-}
-
-model PrismaPoolStakingMasterChefFarm {
-    @@id([id, chain])
-    @@unique([stakingId, chain])
-
-    id                  String
-    stakingId           String
-    staking             PrismaPoolStaking   @relation(fields:[stakingId, chain], references: [id, chain])
-    chain               Chain
-    beetsPerBlock       String
-    rewarders           PrismaPoolStakingMasterChefFarmRewarder[]
-}
-
-model PrismaPoolStakingMasterChefFarmRewarder {
-    @@id([id, chain])
-
-    id                  String
-    farmId              String
-    farm                PrismaPoolStakingMasterChefFarm  @relation(fields:[farmId, chain], references: [id, chain])
-    chain               Chain
-
-    address             String
-    tokenAddress        String
-    rewardPerSecond     String
-
-    @@index([farmId, chain])
 }
 
 model PrismaPoolSnapshot {

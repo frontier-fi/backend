@@ -81,7 +81,7 @@ export class TokenService {
                 types: token.types.map((type) => type.type),
                 isBufferAllowed: token.isBufferAllowed,
                 chainId: config[chain].chain.id,
-                tradable: !token.types.find((type) => type.type === 'PHANTOM_BPT' || type.type === 'BPT'),
+                tradable: !token.types.find((type) => type.type === 'BPT'),
                 rateProviderData: rateProviderData[token.address],
                 coingeckoId: token.coingeckoTokenId,
                 isErc4626: token.types.some((type) => type.type === 'ERC4626'),
@@ -133,7 +133,7 @@ export class TokenService {
                     // Always include WHITE_LISTED
                     token.types.includes('WHITE_LISTED') ||
                     // Exclude BPT tokens
-                    !(['BPT', 'PHANTOM_BPT'] as PrismaTokenTypeOption[]).some((type) => token.types.includes(type)),
+                    !token.types.includes('BPT'),
             )
             .filter((token) => types.every((type) => token.types.includes(type)));
 
@@ -177,7 +177,7 @@ export class TokenService {
         return tokens.map((token) => ({
             ...token,
             chainId: config[token.chain].chain.id,
-            tradable: !token.types.find((type) => type === 'PHANTOM_BPT' || type === 'BPT'),
+            tradable: !token.types.find((type) => type === 'BPT'),
             rateProviderData: rateProviderData[token.address],
             priceRateProviderData: rateProviderData[token.address],
             coingeckoId: token.coingeckoTokenId,

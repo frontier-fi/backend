@@ -364,7 +364,7 @@ export class PoolAggregatorLoader {
                     hasNestedPool: token.token.types ? token.address !== pool.address && types.includes('BPT') : false,
                     index: token.index,
                     id: token.id,
-                    isAllowed: types.includes('BLOCKED_V2') || types.includes('BLOCKED_V3'),
+                    isAllowed: types.includes('BLOCKED_V3'),
                     isBufferAllowed: token.token.isBufferAllowed,
                     isExemptFromProtocolYieldFee: token.exemptFromProtocolYieldFee,
                     canUseBufferForSwaps: erc4626Review.canUseBufferForSwaps,
@@ -397,7 +397,7 @@ export class PoolAggregatorLoader {
                               chainId: Number(chainToChainId[underlying.chain]),
                               isErc4626: underlyingTypes?.includes('ERC4626') || false,
                               tradable:
-                                  underlyingTypes?.includes('BPT') || underlyingTypes?.includes('PHANTOM_BPT') || false,
+                                  underlyingTypes?.includes('BPT') || false,
                               priority: 0,
                           }
                         : undefined,

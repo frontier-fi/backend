@@ -52,17 +52,8 @@ const getHoldersCount = async (chain: Chain) => {
             chain,
         },
     });
-    // This is overfetching, because of V2 pools
-    const stakers = await prisma.prismaUserStakedBalance.groupBy({
-        by: ['poolId', 'chain'],
-        _count: { userAddress: true },
-        where: {
-            chain,
-        },
-    });
 
-    // Merge the two arrays
-    const pools = [...holders, ...stakers].reduce((acc, item) => {
+    const pools = holders.reduce((acc, item) => {
         const { poolId, chain } = item;
         if (!poolId) return acc;
         acc[`${poolId}-${chain}`] ||= 0;

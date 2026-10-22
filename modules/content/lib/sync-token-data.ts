@@ -87,7 +87,7 @@ async function syncBlockedTokens() {
     const [existingBlockedTypes, blockedTokensCsv] = await Promise.all([
         prisma.prismaTokenType.findMany({
             select: { id: true, tokenAddress: true, chain: true, type: true },
-            where: { type: { in: [PrismaTokenTypeOption.BLOCKED_V2, PrismaTokenTypeOption.BLOCKED_V3] } },
+            where: { type: PrismaTokenTypeOption.BLOCKED_V3 },
         }),
         fetch(BLOCKED_TOKENS_URL).then(async (response) => {
             if (!response.ok) {
@@ -110,7 +110,7 @@ async function syncBlockedTokens() {
         })
         .filter(
             (token) =>
-                token.tokenAddress && token.chain && (token.protocolVersion === 2 || token.protocolVersion === 3),
+                token.tokenAddress && token.chain && token.protocolVersion === 3,
         );
 
     const existingTokensInDB = await prisma.prismaToken.findMany({
@@ -125,13 +125,6 @@ async function syncBlockedTokens() {
 
     const tokenExistsInDB = new Set(existingTokensInDB.map((token) => `${token.address}-${token.chain}`));
 
-    const { tokensToAdd: v2TokensToAdd, tokensToRemove: v2TokensToRemove } = getTokensToSync(
-        2,
-        PrismaTokenTypeOption.BLOCKED_V2,
-        githubBlockedTokens,
-        existingBlockedTypes,
-        tokenExistsInDB,
-    );
     const { tokensToAdd: v3TokensToAdd, tokensToRemove: v3TokensToRemove } = getTokensToSync(
         3,
         PrismaTokenTypeOption.BLOCKED_V3,
@@ -142,8 +135,8 @@ async function syncBlockedTokens() {
 
     const operations = [];
 
-    const allTokensToAdd = [...v2TokensToAdd, ...v3TokensToAdd];
-    const allTokensToRemove = [...v2TokensToRemove, ...v3TokensToRemove];
+    const allTokensToAdd = v3TokensToAdd;
+    const allTokensToRemove = v3TokensToRemove;
 
     if (allTokensToAdd.length > 0) {
         operations.push(

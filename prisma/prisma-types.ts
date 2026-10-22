@@ -68,15 +68,6 @@ export type PrismaPoolTokenWithDynamicData = Prisma.PrismaPoolTokenGetPayload<ty
 export const prismaPoolWithExpandedNesting = Prisma.validator<Prisma.PrismaPoolDefaultArgs>()({
     include: {
         dynamicData: true,
-        staking: {
-            include: {
-                farm: {
-                    include: {
-                        rewarders: true,
-                    },
-                },
-            },
-        },
         allTokens: {
             include: {
                 token: {
@@ -264,15 +255,6 @@ export const prismaPoolMinimal = Prisma.validator<Prisma.PrismaPoolDefaultArgs>(
                                 },
                             },
                         },
-                    },
-                },
-            },
-        },
-        staking: {
-            include: {
-                farm: {
-                    include: {
-                        rewarders: true,
                     },
                 },
             },

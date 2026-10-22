@@ -39,7 +39,7 @@ export async function updateVolumeAndFees(
                 where: {
                     chain,
                     ...(poolIds ? { poolId: { in: poolIds } } : {}),
-                    OR: [{ type: 'IB_YIELD' }, { type: null }],
+                    type: 'IB_YIELD',
                 },
             })
             .then((records) => _.groupBy(records, 'poolId') as Record<string, typeof records>),
@@ -97,12 +97,9 @@ export async function updateVolumeAndFees(
             const totalLiquidity24hAgo = pool.dynamicData.totalLiquidity24hAgo;
             let userYieldApr = 0;
 
-            // we approximate total APR by summing it up, as APRs are usually small, this is good enough
-            // we need IB yield APR (such as sFTMx) as well as phantom stable APR, which is set for phantom stable pools
-            // we need any phantom stable pool or weighted pool that has either a phantom stable nested, which has no apr type set (done by boosted-pool-apr.service.ts)
             if (pool.aprItems && pool.aprItems.length > 0) {
                 pool.aprItems.forEach((aprItem) => {
-                    if (aprItem.type === 'IB_YIELD' || aprItem.type === null) {
+                    if (aprItem.type === 'IB_YIELD') {
                         userYieldApr += aprItem.apr;
                     }
                 });

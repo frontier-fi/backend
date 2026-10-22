@@ -156,10 +156,6 @@ type GqlPoolMinimal {
     """
     dynamicData: GqlPoolDynamicData!
     """
-    Staking options of this pool which emit additional rewards
-    """
-    staking: GqlPoolStaking
-    """
     The pool type, such as weighted, stable, etc.
     """
     type: GqlPoolType!
@@ -234,29 +230,6 @@ type GqlPoolUserBalance {
     The wallet balance (BPT in wallet) in USD as float.
     """
     walletBalanceUsd: Float!
-    """
-    The staked BPT balances of the user.
-    """
-    stakedBalances: [GqlUserStakedBalance!]!
-}
-
-type GqlUserStakedBalance {
-    """
-    The staked BPT balance as float.
-    """
-    balance: AmountHumanReadable!
-    """
-    The steaked BPT balance in USD as float.
-    """
-    balanceUsd: Float!
-    """
-    The staking type in which this balance is staked.
-    """
-    stakingType: GqlPoolStakingType!
-    """
-    The id of the staking to match with GqlPoolStaking.id.
-    """
-    stakingId: String!
 }
 
 """
@@ -344,10 +317,6 @@ interface GqlPoolBase {
     Dynamic data such as token balances, swap fees or volume
     """
     dynamicData: GqlPoolDynamicData!
-    """
-    Staking options of this pool which emit additional rewards
-    """
-    staking: GqlPoolStaking
     """
     If a user address was provided in the query, the user balance is populated here
     """
@@ -492,7 +461,6 @@ type GqlPoolWeighted implements GqlPoolBase {
     hasNestedErc4626: Boolean!
     hasAnyAllowedBuffer: Boolean!
     hook: GqlHook
-    staking: GqlPoolStaking
     type: GqlPoolType!
     version: Int!
 
@@ -555,7 +523,6 @@ type GqlPoolGyro implements GqlPoolBase {
     z: String!
     dSq: String!
 
-    staking: GqlPoolStaking
     version: Int!
 
     userBalance: GqlPoolUserBalance
@@ -600,7 +567,6 @@ type GqlPoolStable implements GqlPoolBase {
 
     amp: BigInt!
     bptPriceRate: BigDecimal!
-    staking: GqlPoolStaking
     type: GqlPoolType!
     version: Int!
 
@@ -961,33 +927,9 @@ enum GqlPoolAprItemType {
     """
     IB_YIELD
     """
-    Represents if the APR items comes from a nested pool.
-    """
-    NESTED
-    """
-    Staking reward APR in a pool from a reward token.
-    """
-    STAKING
-    """
-    APR boost that can be earned, i.e. via veBAL or maBEETS.
-    """
-    STAKING_BOOST
-    """
-    APR in a pool that can be earned through locking, i.e. veBAL
-    """
-    LOCKING
-    """
-    APR that can be earned thourgh voting, i.e. gauge votes
-    """
-    VOTING
-    """
     Rewards distributed by merkl.xyz
     """
     MERKL
-    """
-    Rewards distributed by fuul.xyz
-    """
-    FUUL
     SURPLUS @deprecated(reason: "Use SURPLUS_24H instead")
     """
     Surplus APR based on data from the last 24h
@@ -1035,31 +977,6 @@ type GqlPoolSnapshot {
     holdersCount: String! @deprecated
     sharePrice: String!
     amounts: [String!]!
-}
-
-type GqlPoolStaking {
-    id: ID!
-    chain: GqlChain!
-    type: GqlPoolStakingType!
-    address: String!
-    farm: GqlPoolStakingMasterChefFarm
-}
-
-enum GqlPoolStakingType {
-    MASTER_CHEF
-}
-
-type GqlPoolStakingMasterChefFarm {
-    id: ID!
-    beetsPerBlock: String!
-    rewarders: [GqlPoolStakingFarmRewarder!]
-}
-
-type GqlPoolStakingFarmRewarder {
-    id: ID!
-    address: String!
-    tokenAddress: String!
-    rewardPerSecond: String!
 }
 
 enum GqlPoolEventType {
