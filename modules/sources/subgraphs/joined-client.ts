@@ -1,6 +1,6 @@
-import { V3VaultSubgraphClient } from './balancer-v3-vault';
-import { V3PoolsSubgraphClient } from './balancer-v3-pools';
-import { PoolsQueryVariables } from './balancer-v3-vault/generated/types';
+import { V3VaultSubgraphClient } from './vault';
+import { V3PoolsSubgraphClient } from './pools';
+import { PoolsQueryVariables } from './vault/generated/types';
 
 export type V3JoinedSubgraphClient = ReturnType<typeof getV3JoinedSubgraphClient>;
 

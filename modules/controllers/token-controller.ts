@@ -14,7 +14,7 @@ export function TokenController(tracer?: any) {
             await syncErc4626Tokens(viemClient, chain);
         },
         async syncErc4626OnChainData(chain: Chain) {
-            const vaultAddress = config[chain].balancer.v3.vaultAddress;
+            const vaultAddress = config[chain].contracts.Vault;
             if (!vaultAddress) {
                 return;
             }

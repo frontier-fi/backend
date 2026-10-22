@@ -13,20 +13,16 @@ export interface NetworkData {
     chain: {
         slug: string;
         id: number;
-        nativeAssetAddress: string;
-        wrappedNativeAssetAddress: string;
         prismaId: Chain;
         gqlId: GqlChain;
     };
     eth: {
         address: string;
-        addressFormatted: string;
         symbol: string;
         name: string;
     };
     weth: {
         address: string;
-        addressFormatted: string;
     };
     rpcUrl: string;
     rpcMaxBlockRange: number;
@@ -37,26 +33,15 @@ export interface NetworkData {
         excludedTokenAddresses: string[];
     };
     subgraphs: {
-        startDate: string;
-        balancerV3?: string;
-        balancerPoolsV3?: string;
+        vault?: string;
+        pools?: string;
     };
     protocolToken: 'bal';
-    bal?: {
-        address: string;
-    };
     gyro?: {
         config: string;
     };
-    balancer: {
-        v3: {
-            vaultAddress: string;
-            routerAddress: string;
-            defaultSwapFeePercentage: string;
-            defaultYieldFeePercentage: string;
-            tokenAdmin?: string;
-        };
-    };
+    // Active contract addresses from frontier-fi/deployments. Mock contracts are omitted.
+    contracts: Record<string, string>;
     hooks?: Record<string, GqlHookType>;
     multicall: string;
     multicall3: string;

@@ -17,15 +17,15 @@ export function PoolMutationController(tracer?: any) {
     return {
         async loadSwapsFeesVolumeForAllPoolsV3(chain: Chain) {
             const {
-                subgraphs: { balancerV3 },
+                subgraphs: { vault },
             } = config[chain];
 
             // Guard against unconfigured chains
-            if (!balancerV3) {
+            if (!vault) {
                 throw new Error(`Chain not configured: ${chain}`);
             }
 
-            const vaultSubgraphClient = getVaultSubgraphClient(balancerV3, chain);
+            const vaultSubgraphClient = getVaultSubgraphClient(vault, chain);
 
             const poolsWithNewSwaps = await syncSwaps(vaultSubgraphClient, chain);
             await updateVolumeAndFees(chain, poolsWithNewSwaps);

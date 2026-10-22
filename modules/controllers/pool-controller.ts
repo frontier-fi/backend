@@ -47,22 +47,20 @@ export function PoolController(tracer?: any) {
         },
         async addPoolsV3(chain: Chain, syncNewPoolsOnly = true) {
             const {
-                subgraphs: { balancerV3, balancerPoolsV3 },
-                balancer: {
-                    v3: { vaultAddress },
-                },
+                subgraphs: { vault, pools: poolsUrl },
+                contracts: { Vault: vaultAddress },
                 hooks,
             } = config[chain];
 
             // Guard against unconfigured chains
-            if (!balancerV3 || !balancerPoolsV3) {
+            if (!vault || !poolsUrl) {
                 throw new Error(`Chain not configured: ${chain}`);
             }
 
             const viemClient = getViemClient(chain);
 
-            const vaultSubgraphClient = getVaultSubgraphClient(balancerV3, chain);
-            const poolsSubgraphClient = getPoolsSubgraphClient(balancerPoolsV3, chain);
+            const vaultSubgraphClient = getVaultSubgraphClient(vault, chain);
+            const poolsSubgraphClient = getPoolsSubgraphClient(poolsUrl, chain);
             const subgraphClient = getV3JoinedSubgraphClient(vaultSubgraphClient, poolsSubgraphClient);
 
             const latestBlock = Number(await viemClient.getBlockNumber());
@@ -121,21 +119,19 @@ export function PoolController(tracer?: any) {
          */
         async syncPoolsV3(chain: Chain) {
             const {
-                subgraphs: { balancerV3, balancerPoolsV3 },
-                balancer: {
-                    v3: { vaultAddress, routerAddress },
-                },
+                subgraphs: { vault, pools },
+                contracts: { Vault: vaultAddress, Router: routerAddress },
                 acceptableSGLag,
             } = config[chain];
 
             // Guard against unconfigured chains
-            if (!vaultAddress || !balancerV3 || !balancerPoolsV3) {
+            if (!vaultAddress || !routerAddress || !vault || !pools) {
                 throw new Error(`Chain not configured: ${chain}`);
             }
 
             const viemClient = getViemClient(chain);
-            const subgraphClient = getVaultSubgraphClient(balancerV3, chain);
-            const poolsSubgraphClient = getPoolsSubgraphClient(balancerPoolsV3, chain);
+            const subgraphClient = getVaultSubgraphClient(vault, chain);
+            const poolsSubgraphClient = getPoolsSubgraphClient(pools, chain);
 
             const fromBlock = await getLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3);
             const rpcLatestBlock = await viemClient.getBlockNumber().then(Number);
@@ -153,8 +149,8 @@ export function PoolController(tracer?: any) {
                 return [];
             }
 
-            // Sepolia vault deployment block, uncomment to test from the beginning
-            // const fromBlock = 5274748n;
+            // Sepolia vault deployment block (2026-10-18), uncomment to test from the beginning
+            // const fromBlock = 11940608n;
 
             let changedIds: string[] = [];
             if (useSubgraph) {

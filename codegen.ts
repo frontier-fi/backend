@@ -20,14 +20,14 @@ const defaults = {
 };
 
 const files = {
-    ['modules/sources/subgraphs/balancer-v3-vault/generated/types.ts']: {
-        schema: sepoliaConfig.subgraphs.balancerV3,
-        documents: 'modules/sources/subgraphs/balancer-v3-vault/*.graphql',
+    ['modules/sources/subgraphs/vault/generated/types.ts']: {
+        schema: sepoliaConfig.subgraphs.vault,
+        documents: 'modules/sources/subgraphs/vault/*.graphql',
         ...defaults.types,
     },
-    ['modules/sources/subgraphs/balancer-v3-pools/generated/types.ts']: {
-        schema: sepoliaConfig.subgraphs.balancerPoolsV3,
-        documents: 'modules/sources/subgraphs/balancer-v3-pools/*.graphql',
+    ['modules/sources/subgraphs/pools/generated/types.ts']: {
+        schema: sepoliaConfig.subgraphs.pools,
+        documents: 'modules/sources/subgraphs/pools/*.graphql',
         ...defaults.types,
     },
     ['apps/api/gql/generated-schema-ast.ts']: {

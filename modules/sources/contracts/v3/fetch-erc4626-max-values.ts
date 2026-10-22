@@ -23,10 +23,10 @@ export const fetchMaxValues = async (
     const caller = new Multicaller3Viem(chain, MinimalErc4626Abi);
     erc4626Tokens.forEach((token) => {
         caller.call(`${token.address}-maxDeposit`, token.address, 'maxDeposit', [
-            config[chain].balancer.v3.vaultAddress,
+            config[chain].contracts.Vault,
         ]);
         caller.call(`${token.address}-maxWithdraw`, token.address, 'maxWithdraw', [
-            config[chain].balancer.v3.vaultAddress,
+            config[chain].contracts.Vault,
         ]);
     });
     const results = await caller.execute<{ [id: string]: bigint }>();

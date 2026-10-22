@@ -289,7 +289,7 @@ async function getTotalSharesAtBlocks(
         const promises = batch.map(async (block) => {
             try {
                 const result = await client.readContract({
-                    address: config[pool.chain].balancer.v3.vaultAddress as `0x${string}`,
+                    address: config[pool.chain].contracts.Vault as `0x${string}`,
                     abi: parseAbi(['function totalSupply(address) view returns (uint256)']),
                     functionName: 'totalSupply',
                     blockNumber: BigInt(block.number),
@@ -355,7 +355,7 @@ async function getPoolTokenBalancesAtBlocks(
             const promises = batch.map(async (block) => {
                 try {
                     const result = await client.readContract({
-                        address: config[pool.chain].balancer.v3.vaultAddress as `0x${string}`,
+                        address: config[pool.chain].contracts.Vault as `0x${string}`,
                         abi: parseAbi([
                             'function getPoolTokenInfo(address pool) external view returns (address[] memory tokens, uint256[] memory tokenInfo, uint256[] memory balancesRaw, uint256[] memory lastBalancesLiveScaled18)',
                         ]),

@@ -6,26 +6,26 @@ export function UserBalancesController() {
     return {
         async syncBalances(chain: Chain) {
             const {
-                subgraphs: { balancerV3 },
+                subgraphs: { vault },
             } = config[chain];
 
-            if (balancerV3 && config[chain].balancer.v3.vaultAddress !== '') {
-                await syncBptBalancesV3(chain, balancerV3);
+            if (vault && config[chain].contracts.Vault) {
+                await syncBptBalancesV3(chain, vault);
             }
 
             return true;
         },
         async syncUserBalancesFromV3Subgraph(chain: Chain) {
             const {
-                subgraphs: { balancerV3 },
+                subgraphs: { vault },
             } = config[chain];
 
             // Guard against unconfigured chains
-            if (!balancerV3) {
+            if (!vault) {
                 return [];
             }
 
-            const syncedBlocks = await syncBptBalancesV3(chain, balancerV3);
+            const syncedBlocks = await syncBptBalancesV3(chain, vault);
             return syncedBlocks;
         },
     };

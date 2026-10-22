@@ -2,7 +2,7 @@ import { Chain } from '@prisma/client';
 import { V3VaultSubgraphClient } from '../../../sources/subgraphs';
 import _ from 'lodash';
 import { swapV3Transformer } from '../../../sources/transformers/swap-v3-transformer';
-import { OrderDirection, Swap_OrderBy } from '../../../sources/subgraphs/balancer-v3-vault/generated/types';
+import { OrderDirection, Swap_OrderBy } from '../../../sources/subgraphs/vault/generated/types';
 import { swapsUsd } from '../../../sources/enrichers/swaps-usd';
 import { SwapEvent } from '../../../../prisma/prisma-types';
 import { eventsRepository, EventStoreRepository } from '../../../repositories/events';

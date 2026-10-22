@@ -1,4 +1,4 @@
-import type { TypePoolFragment } from '../sources/subgraphs/balancer-v3-pools/generated/types';
+import type { TypePoolFragment } from '../sources/subgraphs/pools/generated/types';
 
 type WithoutTypename<T> = Omit<T, '__typename'>;
 

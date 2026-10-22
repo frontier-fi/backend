@@ -1,6 +1,6 @@
 import { Chain, PrismaPoolType } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
-import { PoolType } from '../subgraphs/balancer-v3-pools/generated/types';
+import { PoolType } from '../subgraphs/pools/generated/types';
 import { V3JoinedSubgraphPool } from '../subgraphs';
 import { poolUpsertTransformerV3 } from './pool-upsert-transformer-v3';
 

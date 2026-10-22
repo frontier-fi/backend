@@ -4,7 +4,7 @@ import { prismaPoolTokenFactory } from './prismaToken.factory';
 import { createRandomAddress } from '../utils';
 import { Chain, PrismaPoolType } from '@prisma/client';
 import { prismaPoolDynamicDataFactory } from './prismaPoolDynamicData.factory';
-import { GyroEParams } from '../../modules/sources/subgraphs/balancer-v3-pools/generated/types';
+import { GyroEParams } from '../../modules/sources/subgraphs/pools/generated/types';
 
 class PrismaPoolFactory extends Factory<PrismaPoolAndHookWithDynamic> {
     stable(amp?: string) {

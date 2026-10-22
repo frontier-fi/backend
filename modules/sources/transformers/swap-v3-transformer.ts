@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { SwapFragment } from '../subgraphs/balancer-v3-vault/generated/types';
+import { SwapFragment } from '../subgraphs/vault/generated/types';
 import { Chain } from '@prisma/client';
 import { SwapEvent } from '../../../prisma/prisma-types';
 

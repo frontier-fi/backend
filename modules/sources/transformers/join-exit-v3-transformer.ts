@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { AddRemoveFragment } from '../subgraphs/balancer-v3-vault/generated/types';
+import { AddRemoveFragment } from '../subgraphs/vault/generated/types';
 import { Chain, PoolEventType } from '@prisma/client';
 import { JoinExitEvent } from '../../../prisma/prisma-types';
 

@@ -14,19 +14,17 @@ describe('sync pools debug', () => {
         const ids = ['0x64bb1613459c6790cd6c94272dc9d09384d955c9', '0x7a7e80a5d622e1065f98dcd873f8c0c3d429aeba'];
 
         const {
-            subgraphs: { balancerV3, balancerPoolsV3 },
-            balancer: {
-                v3: { vaultAddress },
-            },
+            subgraphs: { vault, pools: poolsUrl },
+            contracts: { Vault: vaultAddress },
         } = config[chain];
 
         // Guard against unconfigured chains
-        if (!balancerV3 || !balancerPoolsV3 || !vaultAddress) {
+        if (!vault || !poolsUrl || !vaultAddress) {
             throw new Error(`Chain not configured: ${chain}`);
         }
 
-        const vaultSubgraphClient = getVaultSubgraphClient(balancerV3, chain);
-        const poolsSubgraphClient = getPoolsSubgraphClient(balancerPoolsV3, chain);
+        const vaultSubgraphClient = getVaultSubgraphClient(vault, chain);
+        const poolsSubgraphClient = getPoolsSubgraphClient(poolsUrl, chain);
         const client = getV3JoinedSubgraphClient(vaultSubgraphClient, poolsSubgraphClient);
         const pools = await client.getAllInitializedPools({
             id_in: ids,

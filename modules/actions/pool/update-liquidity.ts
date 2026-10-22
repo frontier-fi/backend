@@ -35,7 +35,7 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
         return [];
     }
 
-    const v3VaultAddress = config[chain].balancer.v3.vaultAddress as `0x${string}`;
+    const v3VaultAddress = config[chain].contracts.Vault as `0x${string}`;
 
     const calls = ids.map((id) => ({
         path: `${id}.poolTokens`,

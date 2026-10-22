@@ -1,4 +1,4 @@
-import { PoolShareFragment } from '../subgraphs/balancer-v3-vault/generated/types';
+import { PoolShareFragment } from '../subgraphs/vault/generated/types';
 import { Chain, Prisma } from '@prisma/client';
 
 export const poolShareToUserBalance = (

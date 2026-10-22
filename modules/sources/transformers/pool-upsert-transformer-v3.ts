@@ -1,5 +1,5 @@
 import { Chain, PrismaPoolType } from '@prisma/client';
-import { PoolType } from '../subgraphs/balancer-v3-pools/generated/types';
+import { PoolType } from '../subgraphs/pools/generated/types';
 import { StableData } from '../../pool/subgraph-pool';
 import { V3JoinedSubgraphPool } from '../subgraphs';
 import { parseEther } from 'viem';
