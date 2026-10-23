@@ -10,6 +10,7 @@ import { corsMiddleware, lowerCaseMiddleware } from './middleware';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
 import { ApolloServerPluginUsageReporting } from '@apollo/server/plugin/usageReporting';
 import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin/landingPage/default';
+import { examplePoolsQuery } from './apollo/landing-page';
 import { schema } from './gql/generated-schema-ast';
 import { resolvers } from './gql/resolvers';
 import { ResolverContext, resolverContext } from './gql/resolver-context';
@@ -35,7 +36,7 @@ const configureMiddlewares = (app: express.Express) => {
 const configureApolloServer = async (httpServer: http.Server, app: express.Express) => {
     const plugins = [ApolloServerPluginDrainHttpServer({ httpServer }), apolloSentryPlugin];
 
-    if (env.NODE_ENV !== 'production') plugins.push(ApolloServerPluginLandingPageLocalDefault());
+    plugins.push(ApolloServerPluginLandingPageLocalDefault({ document: examplePoolsQuery }));
 
     if (process.env.APOLLO_SCHEMA_REPORTING === 'true') {
         plugins.push(
