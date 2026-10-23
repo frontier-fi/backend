@@ -5,10 +5,9 @@ import { HookData } from '../../prisma/prisma-types';
 
 class PrismaHookFactory extends Factory<HookData> {}
 
-export const hookFactory = PrismaHookFactory.define(({ params }) => {
+export const hookFactory = PrismaHookFactory.define(() => {
     return {
         address: createRandomAddress(),
-        name: 'Test Hook',
         type: 'UNKNOWN',
         enableHookAdjustedAmounts: false,
         shouldCallAfterSwap: false,
@@ -20,11 +19,5 @@ export const hookFactory = PrismaHookFactory.define(({ params }) => {
         shouldCallAfterRemoveLiquidity: false,
         shouldCallBeforeRemoveLiquidity: false,
         shouldCallComputeDynamicSwapFee: false,
-        dynamicData: {},
-        reviewData: {
-            summary: '',
-            reviewFile: '',
-            warnings: [],
-        },
     } as HookData;
 });

@@ -4,7 +4,6 @@ import { PathWithAmount } from '../path';
 import { HookState } from '@balancer-labs/balancer-maths';
 import { LiquidityManagement } from '../../types';
 
-import { parseEther, parseUnits } from 'viem';
 import { PrismaPoolAndHookWithDynamic, HookData } from '../../../../prisma/prisma-types';
 
 export function checkInputs(
@@ -55,45 +54,8 @@ export function getHookState(pool: PrismaPoolAndHookWithDynamic): HookState | un
     const hookData = pool.hook as HookData;
 
     switch (hookData.type) {
-        case 'MEV_TAX':
-            return undefined;
-        case 'EXIT_FEE': {
-            // api for this hook is an Object with removeLiquidityFeePercentage key & fee as string
-            const dynamicData = hookData.dynamicData as { removeLiquidityFeePercentage: string };
-
-            return {
-                tokens: pool.tokens.map((token: { address: string }) => token.address),
-                // ExitFeeHook will always have dynamicData as part of the API response
-                removeLiquidityHookFeePercentage: parseEther(dynamicData.removeLiquidityFeePercentage),
-                hookType: 'ExitFee',
-            };
-        }
-        case 'DIRECTIONAL_FEE': {
-            // this hook does not require a hook state to be passed
-            return {
-                hookType: 'DirectionalFee',
-            } as HookState;
-        }
-        case 'STABLE_SURGE': {
-            const typeData = pool.typeData as { amp: string };
-            const dynamicData = hookData.dynamicData as {
-                surgeThresholdPercentage: string;
-                maxSurgeFeePercentage: string;
-            };
-            return {
-                // amp onchain precision is 1000. Api returns 200 means onchain value is 200000
-                amp: parseUnits(typeData.amp, 3),
-                // 18 decimal precision.
-                surgeThresholdPercentage: parseEther(dynamicData.surgeThresholdPercentage),
-                maxSurgeFeePercentage: parseEther(dynamicData.maxSurgeFeePercentage),
-                hookType: 'StableSurge',
-            };
-        }
+        case 'UNKNOWN':
         default:
-            if (hookData.type) {
-                console.warn(`pool ${pool.id} with hook type ${hookData.type} not implemented`);
-            }
-
             return undefined;
     }
 }

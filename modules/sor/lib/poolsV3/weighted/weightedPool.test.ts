@@ -14,7 +14,6 @@ import {
     prismaPoolDynamicDataFactory,
     prismaPoolFactory,
     prismaPoolTokenFactory,
-    hookFactory,
 } from '../../../../../test/factories';
 
 describe('SOR V3 Weighted Pool Tests', () => {
@@ -28,10 +27,7 @@ describe('SOR V3 Weighted Pool Tests', () => {
     let totalShares: string;
     let weightedPool: WeightedPoolV3;
     let weightedPrismaPool: PrismaPoolAndHookWithDynamic;
-    let weightedPoolWithHook: WeightedPoolV3;
-    let weightedPrismaPoolWithHook: PrismaPoolAndHookWithDynamic;
     let poolAddress: string;
-    let hookType: string;
 
     beforeAll(() => {
         swapFee = '0.001';
@@ -42,7 +38,6 @@ describe('SOR V3 Weighted Pool Tests', () => {
         scalingFactors = [10n ** 12n, 10n ** 0n];
         poolAddress = createRandomAddress();
         aggregateSwapFee = 0n;
-        hookType = 'DirectionalFee';
 
         const poolToken1 = prismaPoolTokenFactory.build({
             token: poolTokenFactory.build({ decimals: tokenDecimals[0] }),
@@ -71,39 +66,6 @@ describe('SOR V3 Weighted Pool Tests', () => {
             },
         });
         weightedPool = WeightedPoolV3.fromPrismaPool(weightedPrismaPool);
-
-        const dynamicData = {};
-
-        const directionalFeeHook = hookFactory.build({
-            type: 'DIRECTIONAL_FEE',
-            dynamicData: dynamicData,
-            enableHookAdjustedAmounts: true,
-            shouldCallAfterAddLiquidity: true,
-            shouldCallAfterInitialize: true,
-            shouldCallAfterRemoveLiquidity: true,
-            shouldCallAfterSwap: true,
-            shouldCallBeforeAddLiquidity: true,
-            shouldCallBeforeInitialize: true,
-            shouldCallBeforeRemoveLiquidity: true,
-            shouldCallBeforeSwap: true,
-            shouldCallComputeDynamicSwapFee: true,
-        });
-
-        weightedPrismaPoolWithHook = prismaPoolFactory.build({
-            type: 'WEIGHTED',
-            address: poolAddress,
-            protocolVersion: 3,
-            tokens: [poolToken1, poolToken2],
-            dynamicData: prismaPoolDynamicDataFactory.build({ swapFee, totalShares }),
-            hook: directionalFeeHook,
-            liquidityManagement: {
-                disableUnbalancedLiquidity: true,
-                enableAddLiquidityCustom: false,
-                enableDonation: false,
-                enableRemoveLiquidityCustom: false,
-            },
-        });
-        weightedPoolWithHook = WeightedPoolV3.fromPrismaPool(weightedPrismaPoolWithHook);
     });
 
     test('Get Pool State', () => {
@@ -121,23 +83,6 @@ describe('SOR V3 Weighted Pool Tests', () => {
             supportsUnbalancedLiquidity: false,
         };
         expect(poolState).toEqual(weightedPool.getPoolState());
-    });
-    test('get Pool State with hook', () => {
-        const poolState = {
-            poolType: 'WEIGHTED',
-            poolAddress: poolAddress,
-            swapFee: parseEther(swapFee),
-            aggregateSwapFee: aggregateSwapFee,
-            balancesLiveScaled18: tokenBalances.map((b) => parseEther(b)),
-            tokenRates: Array(tokenBalances.length).fill(WAD),
-            totalSupply: parseEther(totalShares),
-            weights: tokenWeights.map((w) => parseEther(w)),
-            tokens: tokenAddresses,
-            scalingFactors,
-            hookType: 'DirectionalFee',
-            supportsUnbalancedLiquidity: false,
-        };
-        expect(poolState).toEqual(weightedPoolWithHook.getPoolState('DirectionalFee'));
     });
 
     test('swaps a small amount out and mutates balances only when asked', () => {

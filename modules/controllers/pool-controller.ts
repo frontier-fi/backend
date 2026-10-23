@@ -16,7 +16,6 @@ import { syncHookData } from '../actions/pool/v3/sync-hook-data';
 import { getLastSyncedBlock, upsertLastSyncedBlock } from '../actions/last-synced-block';
 import { getChangedPoolsV3 } from '../sources/logs';
 import { syncBptBalancesFromSubgraph } from '../user/lib/bpt-balances/helpers/sync-bpt-balances-from-subgraph';
-import { syncHookReviews } from '../content/lib/sync-hook-reviews';
 import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
 import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-reviews';
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
@@ -49,7 +48,6 @@ export function PoolController(tracer?: any) {
             const {
                 subgraphs: { vault, pools: poolsUrl },
                 contracts: { Vault: vaultAddress },
-                hooks,
             } = config[chain];
 
             // Guard against unconfigured chains
@@ -103,10 +101,6 @@ export function PoolController(tracer?: any) {
             );
 
             await syncRateProviderReviews();
-
-            if (hooks) {
-                await syncHookReviews();
-            }
 
             await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3, latestBlock);
 

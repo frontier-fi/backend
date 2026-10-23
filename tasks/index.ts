@@ -80,8 +80,6 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
         return ContentController().syncCategories();
     } else if (job === 'sync-rate-provider-reviews') {
         return ContentController().syncRateProviderReviews();
-    } else if (job === 'sync-hook-reviews') {
-        return ContentController().syncHookReviews();
     } else if (job === 'sync-erc4626-data') {
         return ContentController().syncErc4626Data();
     } else if (job === 'sync-tags') {

@@ -3,7 +3,6 @@ import config from '../../config';
 import { CoingeckoDataService } from '../token/lib/coingecko-data.service';
 import { syncBlockedBuffers } from './lib/sync-erc4626-blocked-buffers';
 import { syncErc4626Reviews } from './lib/sync-erc4626-reviews';
-import { syncHookReviews } from './lib/sync-hook-reviews';
 import { syncRateProviderReviews } from './lib/sync-rate-provider-reviews';
 import { syncTags } from './lib/sync-tags';
 import { syncTokenContentData } from './lib/sync-token-data';
@@ -14,9 +13,6 @@ export function ContentController() {
     return {
         async syncRateProviderReviews() {
             return syncRateProviderReviews();
-        },
-        async syncHookReviews() {
-            return syncHookReviews();
         },
         async syncErc4626Data() {
             await syncBlockedBuffers();

@@ -52,10 +52,7 @@ export async function getBasePoolsFromDb(
         .filter((pool) => pool.protocolVersion === protocolVersion)
         .filter((pool) => {
             if (considerPoolsWithHooks) return true;
-            // When not considering hooks, only keep pools without hooks or with always-allowed hook types
-            if (!pool.hook || Object.keys(pool.hook).length === 0) return true;
-            const hook = pool.hook as HookData;
-            return hook.type === 'MEV_TAX';
+            return !pool.hook || Object.keys(pool.hook).length === 0;
         });
 
     const requestedPoolIds = pools.map((pool) => pool.id);
@@ -130,9 +127,7 @@ async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> 
     pools = pools.filter((pool) => {
         if (!pool.hook || Object.keys(pool.hook).length === 0) return true;
         const hook = pool.hook as HookData;
-        if (hook.type === 'MEV_TAX') return true;
-        // non-STABLE pools with STABLE_SURGE hooks are never supported
-        if (pool.type !== 'STABLE' && hook.type === 'STABLE_SURGE') return false;
+        // UNKNOWN means the address is stored, but this deployment has no math for it yet.
         const isSupportedHookType = hook.type !== undefined && hook.type !== 'UNKNOWN';
         if (!isSupportedHookType) {
             console.log('Pool has unsupported hook type', pool.id, hook.type);

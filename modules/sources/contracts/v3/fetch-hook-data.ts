@@ -1,21 +1,19 @@
 import type { ViemMulticallCall } from '../../../web3/multicaller-viem';
 import { multicallViem } from '../../../web3/multicaller-viem';
 import { ViemClient } from '../../types';
-import * as hookCallFns from '../hooks';
 import { HookData } from '../../../../prisma/prisma-types';
 
-export const hookCallsMap = {
-    FEE_TAKING: hookCallFns.feeTakingHook,
-    EXIT_FEE: hookCallFns.exitFeeHook,
-    MEV_TAX: hookCallFns.mevTaxHook,
-};
+// Register a hook type's multicall here when Frontier adds one.
+export const hookCallsMap: Partial<
+    Record<HookData['type'], (address: string, poolAddress: string) => ViemMulticallCall[]>
+> = {};
 
 export const hookDataCalls = (pool: { id: string; hook?: HookData }) => {
     if (!pool.hook) {
         return [];
     }
 
-    const callsFn = hookCallsMap[pool.hook.type as keyof typeof hookCallsMap];
+    const callsFn = hookCallsMap[pool.hook.type];
     return callsFn ? callsFn(pool.hook.address, pool.id) : [];
 };
 
@@ -31,10 +29,9 @@ export const fetchHookData = async (
         return {};
     }
 
-    let calls: ViemMulticallCall[] = [];
-
-    for (const pool of pools) {
-        calls = [...calls, ...hookDataCalls(pool)];
+    const calls = pools.flatMap((pool) => hookDataCalls(pool));
+    if (calls.length === 0) {
+        return {};
     }
 
     const results = await multicallViem<Record<string, { pool: { hook: { dynamicData: Record<string, string> } } }>>(

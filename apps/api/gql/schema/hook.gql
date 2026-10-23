@@ -1,41 +1,9 @@
 """
-StableSurge hook specific params. Percentage format is 0.01 -> 0.01%.
+Permissions the Vault gives a hook. A concrete hook type fills these in when one is added.
 """
-type StableSurgeHookParams {
-    surgeThresholdPercentage: String
-    maxSurgeFeePercentage: String
-}
-
-"""
-ExitFee hook specific params. Percentage format is 0.01 -> 0.01%.
-"""
-type ExitFeeHookParams {
-    exitFeePercentage: String
-}
-
-"""
-FeeTaking hook specific params. Percentage format is 0.01 -> 0.01%
-"""
-type FeeTakingHookParams {
-    swapFeePercentage: String
-    addLiquidityFeePercentage: String
-    removeLiquidityFeePercentage: String
-}
-
-"""
-MevTax hook specific params. Percentage format is 0.01 -> 0.01%.
-"""
-type MevTaxHookParams {
-    maxMevSwapFeePercentage: String
-    mevTaxMultiplier: String
-    mevTaxThreshold: String
-}
-
-union HookParams = MevTaxHookParams | StableSurgeHookParams | ExitFeeHookParams | FeeTakingHookParams
-
 type HookConfig {
     """
-    True when hook can change the amounts send to the vault. Necessary to deduct the fees.
+    True when the hook can change the amounts sent to the Vault.
     """
     enableHookAdjustedAmounts: Boolean!
     shouldCallAfterSwap: Boolean!
@@ -49,68 +17,16 @@ type HookConfig {
     shouldCallComputeDynamicSwapFee: Boolean!
 }
 
-type GqlHookData {
-    swapFeePercentage: String
-    addLiquidityFeePercentage: String
-    removeLiquidityFeePercentage: String
-    surgeThresholdPercentage: String
-    maxSurgeFeePercentage: String
-}
-
 """
-Hook data
+A pool hook. Frontier does not ship hook types yet. An address that is not the zero
+address is stored as UNKNOWN until a type is registered in the chain config.
 """
 type GqlHook {
     address: String!
-    name: String! @deprecated(reason: "unused")
     type: GqlHookType!
     config: HookConfig
-    """
-    Hook type specific params
-    """
-    params: HookParams
-    """
-    The review for this hook if applicable.
-    """
-    reviewData: GqlHookReviewData
-    enableHookAdjustedAmounts: Boolean! @deprecated
-    shouldCallAfterSwap: Boolean! @deprecated
-    shouldCallBeforeSwap: Boolean! @deprecated
-    shouldCallAfterInitialize: Boolean! @deprecated
-    shouldCallBeforeInitialize: Boolean! @deprecated
-    shouldCallAfterAddLiquidity: Boolean! @deprecated
-    shouldCallBeforeAddLiquidity: Boolean! @deprecated
-    shouldCallAfterRemoveLiquidity: Boolean! @deprecated
-    shouldCallBeforeRemoveLiquidity: Boolean! @deprecated
-    shouldCallComputeDynamicSwapFee: Boolean! @deprecated
-    dynamicData: GqlHookData @deprecated
-}
-
-"""
-Represents the review data for the hook
-"""
-type GqlHookReviewData {
-    """
-    A summary of the hook review, usually just says safe or unsafe
-    """
-    summary: String!
-    """
-    The filename of the review of the hook
-    """
-    reviewFile: String!
-    """
-    Warnings associated with the hook
-    """
-    warnings: [String!]!
 }
 
 enum GqlHookType {
-    FEE_TAKING
-    EXIT_FEE
-    STABLE_SURGE
-    MEV_TAX
-    LOTTERY
-    DIRECTIONAL_FEE
-    NFTLIQUIDITY_POSITION
     UNKNOWN
 }

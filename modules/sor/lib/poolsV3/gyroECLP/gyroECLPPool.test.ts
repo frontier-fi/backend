@@ -188,15 +188,16 @@ describe('GyroECLPPool', () => {
         );
     });
 
-    test('attaches a hook type without changing the ECLP parameters', () => {
+    test('an unknown hook does not change the ECLP parameters', () => {
         const hooked = GyroECLPPool.fromPrismaPool(
             gyroPool(recordedTypeData, {
-                hook: hookFactory.build({ type: 'DIRECTIONAL_FEE' }),
+                hook: hookFactory.build(),
             }),
         );
+        const state = hooked.getPoolState();
 
-        expect(hooked.getPoolState('DirectionalFee').hookType).toBe('DirectionalFee');
-        expect(hooked.getPoolState('DirectionalFee').paramsLambda).toBe(RECORDED.lambda);
+        expect(state.hookType).toBeUndefined();
+        expect(state.paramsLambda).toBe(RECORDED.lambda);
     });
 
     test('reads the Sepolia WETH/USDC GyroE parameters', () => {

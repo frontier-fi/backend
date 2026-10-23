@@ -101,10 +101,6 @@ export const activeChainWorkerJobsGlobal: WorkerJob[] = [
         interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'canary' ? every(30, 'minutes') : every(15, 'minutes'),
     },
     {
-        name: 'sync-hook-reviews',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'canary' ? every(30, 'minutes') : every(15, 'minutes'),
-    },
-    {
         name: 'sync-erc4626-data',
         interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'canary' ? every(30, 'minutes') : every(15, 'minutes'),
     },

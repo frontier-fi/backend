@@ -284,7 +284,8 @@ describe('poolUpsertTransformerV3', () => {
             1,
         );
 
-        expect(hooked?.pool.hook?.type).toBe('FEE_TAKING');
+        expect(hooked?.pool.hook?.type).toBe('UNKNOWN');
+        expect(hooked?.pool.hook?.address).toBe('0xbb1761af481364a6bd7fdbdb8cfa23abd85f0263');
         expect(sepoliaPool('stable').hookConfig.hook.address).toBe('0x0000000000000000000000000000000000000000');
         expect(poolUpsertTransformerV3(sepoliaPool('stable'), Chain.SEPOLIA, 1)?.pool.hook).toBeUndefined();
     });

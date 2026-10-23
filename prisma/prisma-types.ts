@@ -308,16 +308,8 @@ export type PoolCreateWithMappedJsonFields = ReplaceJsonFields<Prisma.PrismaPool
 
 export type HookData = {
     address: string;
-    name?: string;
-    type:
-        | 'FEE_TAKING'
-        | 'EXIT_FEE'
-        | 'STABLE_SURGE'
-        | 'MEV_TAX'
-        | 'DIRECTIONAL_FEE'
-        | 'LOTTERY'
-        | 'NFTLIQUIDITY_POSITION'
-        | 'UNKNOWN';
+    // Extend this union when a Frontier hook type is added, and register it in config.hooks.
+    type: 'UNKNOWN';
     enableHookAdjustedAmounts: boolean;
     shouldCallAfterSwap: boolean;
     shouldCallBeforeSwap: boolean;
@@ -329,9 +321,4 @@ export type HookData = {
     shouldCallBeforeRemoveLiquidity: boolean;
     shouldCallComputeDynamicSwapFee: boolean;
     dynamicData?: Record<string, string>;
-    reviewData?: {
-        summary: string;
-        reviewFile: string;
-        warnings: string[];
-    };
 };

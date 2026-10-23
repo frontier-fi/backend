@@ -189,9 +189,6 @@ const setupJobHandlers = async (name: string, chainId: string, res: any, next: N
         case 'sync-rate-provider-reviews':
             await runIfNotAlreadyRunning(name, chainId, () => ContentController().syncRateProviderReviews(), res, next);
             break;
-        case 'sync-hook-reviews':
-            await runIfNotAlreadyRunning(name, chainId, () => ContentController().syncHookReviews(), res, next);
-            break;
         case 'sync-erc4626-data':
             await runIfNotAlreadyRunning(name, chainId, () => ContentController().syncErc4626Data(), res, next);
             break;
