@@ -20,7 +20,7 @@ export const initSorSentry = () => {
 
         // Set sampling rate for profiling
         // This is relative to tracesSampleRate
-        profilesSampleRate: Number(env.SENTRY_PROFILES_SAMPLE_RATE || 0.01),
+        profileSessionSampleRate: Number(env.SENTRY_PROFILES_SAMPLE_RATE || 0.01),
 
         beforeSend: (event) => {
             if (event.tags?.job && event.tags?.chain) {

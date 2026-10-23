@@ -1,4 +1,3 @@
-import { PrismaInstrumentation } from '@prisma/instrumentation';
 import * as Sentry from '@sentry/node';
 import { env } from '../env';
 
@@ -13,10 +12,7 @@ export const initApiSentry = () => {
             Sentry.captureConsoleIntegration({
                 levels: ['error', 'warn'],
             }),
-            Sentry.prismaIntegration({
-                // Override the default instrumentation that Sentry uses
-                prismaInstrumentation: new PrismaInstrumentation(),
-            }),
+            Sentry.prismaIntegration(),
         ],
 
         // Add Tracing by setting tracesSampleRate
@@ -25,7 +21,7 @@ export const initApiSentry = () => {
 
         // Set sampling rate for profiling
         // This is relative to tracesSampleRate
-        profilesSampleRate: Number(env.SENTRY_PROFILES_SAMPLE_RATE || 0.001),
+        profileSessionSampleRate: Number(env.SENTRY_PROFILES_SAMPLE_RATE || 0.001),
 
         beforeSend(event, hint) {
             const error = hint.originalException;

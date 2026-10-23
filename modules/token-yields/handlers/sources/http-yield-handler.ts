@@ -43,7 +43,7 @@ const fetchWithTimeout = async (
     }
 };
 
-const extract = (json: any, config: TokenYieldHttpFetchConfig) =>
+const extract = (json: unknown, config: TokenYieldHttpFetchConfig): [string, unknown][] =>
     config.extractors.flatMap((ex) => {
         if (ex.type === 'path') {
             const raw = JSONPath({ path: ex.path, json, wrap: false });
@@ -51,12 +51,12 @@ const extract = (json: any, config: TokenYieldHttpFetchConfig) =>
         }
         if (ex.type === 'enumerate') {
             const values = JSONPath({ path: ex.path, json, wrap: false });
-            return values.map(ex.entries);
+            return Array.isArray(values) ? values.map(ex.entries) : [];
         }
         return [];
     });
 
-const transform = (entries: [string, number][], config: TokenYieldHttpFetchConfig) =>
+const transform = (entries: [string, unknown][], config: TokenYieldHttpFetchConfig) =>
     Promise.all(entries.map(async ([key, value]) => ({ address: key, apr: await normalizeValue(value, config) })));
 
 const normalizeValue = async (value: any, { url, average, scale, convert }: TokenYieldHttpFetchConfig) => {
