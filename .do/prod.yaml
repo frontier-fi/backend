@@ -1,0 +1,129 @@
+# Production Frontier API.
+# First create: scripts/deploy-digitalocean.sh
+# Later pushes to `production` call `doctl apps create-deployment` and keep dashboard secrets.
+#
+# Requires Managed Postgres cluster `frontier-db` in fra.
+# DEPLOYMENT_ENV=production uses the fast worker intervals. staging is slower.
+
+name: frontier-backend
+region: fra
+
+databases:
+  - name: db
+    engine: PG
+    version: "16"
+    production: true
+    cluster_name: frontier-db
+    db_name: frontier
+    db_user: frontier
+
+envs:
+  - key: NODE_ENV
+    scope: RUN_TIME
+    value: production
+  - key: DEPLOYMENT_ENV
+    scope: RUN_TIME
+    value: production
+  - key: NODE_OPTIONS
+    scope: RUN_TIME
+    value: "--max-old-space-size=1536"
+  - key: DATABASE_URL
+    scope: RUN_TIME
+    value: ${db.DATABASE_PRIVATE_URL}
+  - key: ADMIN_API_KEY
+    scope: RUN_TIME
+    type: SECRET
+    value: "REPLACE_ADMIN_API_KEY"
+  - key: DRPC_API_KEY
+    scope: RUN_TIME
+    type: SECRET
+    value: "REPLACE_DRPC_API_KEY"
+  - key: COINGECKO_API_KEY
+    scope: RUN_TIME
+    type: SECRET
+    value: "REPLACE_COINGECKO_API_KEY"
+
+services:
+  - name: api
+    github:
+      repo: frontier-fi/backend
+      branch: production
+      deploy_on_push: false
+    dockerfile_path: Dockerfile
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-2gb
+    health_check:
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      http_path: /health
+    envs:
+      - key: PORT
+        scope: RUN_TIME
+        value: "8080"
+      - key: SOR_INSTANCE
+        scope: RUN_TIME
+        value: "false"
+      - key: SOR_SERVICE_URL
+        scope: RUN_TIME
+        value: http://sor:8080/graphql
+
+  - name: sor
+    github:
+      repo: frontier-fi/backend
+      branch: production
+      deploy_on_push: false
+    dockerfile_path: Dockerfile
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-2gb
+    internal_ports:
+      - 8080
+    health_check:
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      http_path: /health
+      port: 8080
+    envs:
+      - key: PORT
+        scope: RUN_TIME
+        value: "8080"
+      - key: SOR_INSTANCE
+        scope: RUN_TIME
+        value: "true"
+
+workers:
+  - name: worker
+    github:
+      repo: frontier-fi/backend
+      branch: production
+      deploy_on_push: false
+    dockerfile_path: Dockerfile
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-2gb
+    envs:
+      - key: PORT
+        scope: RUN_TIME
+        value: "8080"
+      - key: WORKER
+        scope: RUN_TIME
+        value: "true"
+      - key: SCHEDULER
+        scope: RUN_TIME
+        value: "true"
+      - key: WORKER_QUEUE_URL
+        scope: RUN_TIME
+        value: http://localhost:8080
+
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: frontier-fi/backend
+      branch: production
+      deploy_on_push: false
+    dockerfile_path: Dockerfile
+    run_command: npx prisma migrate deploy --schema prisma/schema
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
