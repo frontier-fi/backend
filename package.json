@@ -50,7 +50,6 @@
         "moment-timezone": "^0.6.5",
         "murmurhash": "^2.0.1",
         "prisma": "^6.19.3",
-        "stellate": "2.7.1",
         "ts-dotenv": "^0.9.1",
         "viem": "^2.57.10"
     },
