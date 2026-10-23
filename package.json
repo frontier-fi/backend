@@ -25,7 +25,8 @@
     },
     "dependencies": {
         "@aave-dao/aave-address-book": "^4.74.6",
-        "@apollo/server": "^4.13.0",
+        "@apollo/server": "^5.5.1",
+        "@as-integrations/express4": "^1.1.2",
         "@balancer-labs/balancer-maths": "^0.0.41",
         "@balancer/sdk": "^5.2.9",
         "@ethersproject/constants": "^5.8.0",
