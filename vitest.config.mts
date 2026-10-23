@@ -5,13 +5,9 @@ export default defineConfig({
         globals: true,
         environment: 'node',
         coverage: { reporter: ['text', 'lcov'] }, // lcov reporter is used by IDE coverage extensions
-        // We just run vebal and sor module tests until we define a global testing strategy
-        include: [
-            // './modules/vebal/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
-            './**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
-        ],
+        include: ['./**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
         testTimeout: 120_000,
         hookTimeout: 120_000,
-        setupFiles: ['/test/vitest-env.ts', '/test/vitest-setup.ts'],
+        setupFiles: ['/test/vitest-env.ts'],
     },
 });
