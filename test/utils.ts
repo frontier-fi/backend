@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { providers } from 'ethers';
+import { JsonRpcProvider } from 'ethers';
 import { Token } from '@balancer/sdk';
 import { PrismaPoolAndHookWithDynamic } from '../prisma/prisma-types';
 import { isSameAddress } from '@balancer/sdk';
@@ -13,7 +13,7 @@ import { BufferPoolData } from '../modules/sor/utils';
 const defaultAnvilRpcUrl = 'http://127.0.0.1:8555';
 
 export function getRpcProvider(httpRpc = defaultAnvilRpcUrl) {
-    return new providers.JsonRpcProvider(httpRpc);
+    return new JsonRpcProvider(httpRpc);
 }
 
 export function createRandomAddress() {

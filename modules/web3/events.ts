@@ -1,6 +1,12 @@
-import { Event } from '@ethersproject/contracts';
-import { Interface } from '@ethersproject/abi';
+import { Interface, LogDescription } from 'ethers';
 import { chunk } from 'lodash';
+
+export type DecodedEventLog = {
+    address: string;
+    topics?: readonly string[];
+    data?: string;
+    args?: Record<string, unknown>;
+};
 
 export const getEvents = async (
     fromBlock: number,
@@ -11,17 +17,20 @@ export const getEvents = async (
     rpcMaxBlockRange: number,
     abi?: any,
     maxAddresses = 4000,
-): Promise<Event[]> => {
-    let iEvents: Interface;
+): Promise<DecodedEventLog[]> => {
+    let iEvents: Interface | undefined;
     if (abi && abi.length > 0) {
         iEvents = new Interface(abi);
         // check if topics are event names, if so, encode them
         topics = topics.map((topic) => {
             if (topic.startsWith('0x')) {
                 return topic;
-            } else {
-                return iEvents.getEventTopic(topic);
             }
+            const fragment = iEvents?.getEvent(topic);
+            if (!fragment) {
+                throw new Error(`Unknown event ${topic}`);
+            }
+            return fragment.topicHash;
         });
     }
 
@@ -30,7 +39,7 @@ export const getEvents = async (
     const range = toBlock - fromBlock;
     const numBatches = Math.ceil(range / rpcMaxBlockRange);
 
-    const promises: Promise<Event[]>[] = [];
+    const promises: Promise<DecodedEventLog[]>[] = [];
 
     for (let i = 0; i < numBatches; i++) {
         const from = fromBlock + (i > 0 ? 1 : 0) + i * rpcMaxBlockRange;
@@ -65,7 +74,7 @@ export const getEvents = async (
                         e.includes('rate limit exceeded') ||
                         e.includes('Total number of requests exceeded'))
                 ) {
-                    return new Promise<Event[]>((resolve) => {
+                    return new Promise<DecodedEventLog[]>((resolve) => {
                         setTimeout(() => {
                             resolve(getEvents(from, to, addressChunk, topics, rpcUrl, rpcMaxBlockRange));
                         }, 1000);
@@ -74,7 +83,7 @@ export const getEvents = async (
 
                 // Allnodes addresses size limit
                 if (e.includes && e.includes('specify less number of addresses')) {
-                    return new Promise<Event[]>((resolve) => {
+                    return new Promise<DecodedEventLog[]>((resolve) => {
                         setTimeout(() => {
                             resolve(
                                 getEvents(
@@ -95,7 +104,7 @@ export const getEvents = async (
                 // Handle missing block in the RPC logs by retrying the request after 1s
                 if (e.includes && (e.includes('unknown block') || e.includes('after last accepted block'))) {
                     console.log(`Retrying getEvents for block ${from}-${to} on ${rpcUrl}`);
-                    return new Promise<Event[]>((resolve) => {
+                    return new Promise<DecodedEventLog[]>((resolve) => {
                         setTimeout(() => {
                             resolve(getEvents(from, to, addressChunk, topics, rpcUrl, rpcMaxBlockRange));
                         }, 1000);
@@ -111,7 +120,7 @@ export const getEvents = async (
 
     return Promise.all(promises)
         .then((res) => res.flat().filter((log) => log))
-        .then((logs) => decodeLogs(logs, iEvents));
+        .then((logs) => (iEvents ? decodeLogs(logs, iEvents) : logs));
 };
 
 const fetchLogs = async (
@@ -120,7 +129,7 @@ const fetchLogs = async (
     addresses: string[],
     topics: string[],
     rpcUrl: string,
-): Promise<Event[]> => {
+): Promise<DecodedEventLog[]> => {
     // Fetch logs with a raw json request until we support Viem or Ethers6
     const payload = {
         jsonrpc: '2.0',
@@ -145,7 +154,9 @@ const fetchLogs = async (
     })
         .then(
             (response) =>
-                response.json() as Promise<{ result: Event[] } | { error: { code: string; message: string } }>,
+                response.json() as Promise<
+                    { result: DecodedEventLog[] } | { error: { code: string; message: string } }
+                >,
         )
         .then((response) => {
             if ('error' in response) {
@@ -169,16 +180,15 @@ const fetchLogs = async (
     // })
 };
 
-const decodeLogs = (logs: Event[], iEvents: Interface): Event[] => {
+const decodeLogs = (logs: DecodedEventLog[], iEvents: Interface): DecodedEventLog[] => {
     return logs.map((log) => {
-        // Decode event args
-        const event = iEvents ? iEvents.parseLog(log) : undefined;
-        const args: any = {};
-        if (event) {
-            const argNames = iEvents.events[event.signature].inputs.map((input) => input.name);
-            for (let i = 0; i < argNames.length; i++) {
-                args[argNames[i]] = event.args[i];
-            }
+        const parsed: LogDescription | null =
+            log.topics && log.data ? iEvents.parseLog({ topics: log.topics, data: log.data }) : null;
+        const args: Record<string, unknown> = {};
+        if (parsed) {
+            parsed.fragment.inputs.forEach((input, index) => {
+                args[input.name] = parsed.args[index];
+            });
         }
 
         return {

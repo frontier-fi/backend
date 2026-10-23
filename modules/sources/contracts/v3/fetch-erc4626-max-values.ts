@@ -2,7 +2,6 @@ import { Chain, PrismaToken } from '@prisma/client';
 import { Multicaller3Viem } from '../../../web3/multicaller-viem';
 import MinimalErc4626Abi from '../abis/MinimalERC4626';
 import { formatUnits } from 'viem';
-import { AddressZero } from '@ethersproject/constants';
 import config from '../../../../config';
 
 /**
