@@ -7,9 +7,6 @@ import { SwapRepository } from '../repositories/events/types';
 import { SwapEvent } from '../../prisma/prisma-types';
 import _ from 'lodash';
 
-// Depdendency of Beets pricing handler - it needs cross chain sts price
-const stSaddress = '0xe5da20f15420ad15de0fa650600afc998bbe3955';
-
 export class PricingRepository {
     constructor(private swapRepository: SwapRepository) {}
 

@@ -1,8 +1,6 @@
 model PrismaUser {
     address                 String              @id
 
-    userSnapshots           PrismaUserPoolBalanceSnapshot[]
-
     walletBalances          PrismaUserWalletBalance[]
 }
 
@@ -29,25 +27,4 @@ model PrismaUserWalletBalance {
     token                   PrismaToken         @relation(fields:[tokenAddress, chain], references: [address, chain], onDelete: Cascade)
 
     @@index([poolId, chain])
-}
-
-
-model PrismaUserPoolBalanceSnapshot {
-    @@id([id, chain])
-
-    id                      String
-    userAddress             String
-    user                    PrismaUser          @relation(fields:[userAddress], references: [address])
-    chain                   Chain               
-    timestamp               Int
-
-    poolToken               String
-    poolId                  String?
-    pool                    PrismaPool?         @relation(fields:[poolId, chain], references:[id, chain])
-
-    walletBalance           String
-    totalBalance            String
-    percentShare            String
-    totalValueUSD           String
-    fees24h                 String
 }

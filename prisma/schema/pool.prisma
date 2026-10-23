@@ -41,8 +41,6 @@ model PrismaPool {
 
     userWalletBalances  PrismaUserWalletBalance[]
 
-    userPoolBalanceSnapshots    PrismaUserPoolBalanceSnapshot[]
-
     hook                Json?
 
     @@index([id, chain])
