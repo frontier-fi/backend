@@ -24,7 +24,8 @@ modules/sources/subgraphs/pools/generated/
 .github
 .do
 test
-scripts
+scripts/*
+!scripts/generate.ts
 **/*.test.ts
 **/*.spec.ts
 app-architecture.excalidraw
