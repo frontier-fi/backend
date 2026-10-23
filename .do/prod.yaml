@@ -8,6 +8,15 @@
 name: frontier-backend
 region: fra
 
+domains:
+  - domain: api.frontier.fi
+    type: primary
+    zone: frontier.fi
+
+# Same network as frontier-db. Private database hostnames only route inside this VPC.
+vpc:
+  id: 7f680f6e-a9d2-4ac1-9f9d-2a1f21046cc8
+
 databases:
   - name: db
     engine: PG
