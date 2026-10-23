@@ -15,6 +15,7 @@
         "generate": "graphql-codegen --config codegen.ts",
         "generate:api": "bun scripts/generate-api.ts",
         "sync-config": "bun scripts/sync-network-config.ts",
+        "sor-backtest": "bun scripts/sor-backtest.ts",
         "test": "vitest",
         "vitest": "vitest",
         "task": "bun run tasks/index.ts",
