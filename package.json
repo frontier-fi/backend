@@ -54,7 +54,6 @@
         "viem": "^2.57.10"
     },
     "devDependencies": {
-        "@changesets/cli": "^3.0.3",
         "@faker-js/faker": "^8.4.1",
         "@graphql-codegen/add": "^3.2.3",
         "@graphql-codegen/cli": "^2.16.5",

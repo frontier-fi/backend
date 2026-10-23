@@ -12,7 +12,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 # GraphQL clients are gitignored. DigitalOcean builds this image from git, so
 # codegen has to run here. Subgraph outputs are introspected from the Sepolia URLs.
-RUN PORT=4000 NODE_ENV=local DEPLOYMENT_ENV=canary ADMIN_API_KEY=build \
+RUN PORT=4000 NODE_ENV=staging DEPLOYMENT_ENV=staging ADMIN_API_KEY=build \
     bunx prisma generate --schema prisma/schema \
     && bun run generate \
     && bun run build

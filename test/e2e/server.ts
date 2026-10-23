@@ -28,8 +28,8 @@ export async function startServer(): Promise<void> {
         env: {
             ...process.env,
             PORT: String(PORT),
-            NODE_ENV: 'local',
-            DEPLOYMENT_ENV: 'canary',
+            NODE_ENV: 'staging',
+            DEPLOYMENT_ENV: 'staging',
             ADMIN_API_KEY,
             DATABASE_URL,
             WORKER: 'false',

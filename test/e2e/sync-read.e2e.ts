@@ -3,7 +3,7 @@ import { getAddress } from 'viem';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
     BAD_CHECKSUM,
-    CANARIES,
+    KNOWN_POOLS,
     LOWER_ADDRESS,
     MISSING_POOL,
     POOL_TYPES,
@@ -15,7 +15,7 @@ import { serverLogs, startServer, stopServer } from './server';
 
 let prisma: PrismaClient | undefined;
 let syncedIds: string[] = [];
-let quotePoolId = CANARIES[2].id;
+let quotePoolId = KNOWN_POOLS[2].id;
 let quoteTokenIn = '';
 let quoteTokenOut = '';
 
@@ -240,8 +240,8 @@ it('stores lowercase v3 pools, tokens, and reviews for chains this API knows', a
     expect(chains.has('SEPOLIA')).toBe(true);
 });
 
-it('reads the canary pools and the public list', async () => {
-    for (const canary of CANARIES) {
+it('reads the known pools and the public list', async () => {
+    for (const known of KNOWN_POOLS) {
         const result = data(
             await graphql<{
                 poolGetPool: {
@@ -255,23 +255,23 @@ it('reads the canary pools and the public list', async () => {
                     hook: { address: string; type: string } | null;
                 };
             }>(`query ($id: String!) { poolGetPool(id: $id, chain: SEPOLIA) { ${POOL_FIELDS} } }`, {
-                variables: { id: canary.id },
+                variables: { id: known.id },
             }),
         );
         const pool = result.poolGetPool;
-        expect(pool.id).toBe(canary.id);
-        expect(pool.address).toBe(canary.id);
+        expect(pool.id).toBe(known.id);
+        expect(pool.address).toBe(known.id);
         expect(pool.chain).toBe('SEPOLIA');
         expect(pool.protocolVersion).toBe(3);
-        expect(pool.type).toBe(canary.type);
-        expect(pool.__typename).toBe(canary.typename);
+        expect(pool.type).toBe(known.type);
+        expect(pool.__typename).toBe(known.typename);
         expect(pool.poolTokens.length).toBeGreaterThanOrEqual(2);
         for (const token of pool.poolTokens) expect(token.address).toMatch(LOWER_ADDRESS);
         if (pool.hook) {
             expect(pool.hook.type).toBe('UNKNOWN');
             expect(pool.hook.address).toMatch(LOWER_ADDRESS);
         }
-        expect(syncedIds).toContain(canary.id);
+        expect(syncedIds).toContain(known.id);
     }
 
     const weighted = data(

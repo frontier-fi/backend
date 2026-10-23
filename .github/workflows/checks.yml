@@ -19,10 +19,10 @@ jobs:
             - name: Generate GraphQL clients and API schema
               env:
                   PORT: 4000
-                  NODE_ENV: local
-                  DEPLOYMENT_ENV: canary
+                  NODE_ENV: staging
+                  DEPLOYMENT_ENV: staging
                   ADMIN_API_KEY: ci
-              run: bun prisma generate && bun run generate
+              run: bunx prisma generate --schema prisma/schema && bun run generate
             - name: Run build
               run: bun run build
             - name: Typecheck tests

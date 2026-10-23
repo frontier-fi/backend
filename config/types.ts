@@ -7,7 +7,7 @@ export interface WorkerJob {
     interval: number;
 }
 
-export type DeploymentEnv = 'canary' | 'main';
+export type DeploymentEnv = 'staging' | 'production';
 
 export interface NetworkData {
     chain: {
