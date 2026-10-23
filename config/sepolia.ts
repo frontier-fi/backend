@@ -11,8 +11,8 @@ export default <NetworkData>{
         gqlId: 'SEPOLIA',
     },
     subgraphs: {
-        vault: `https://api.subgraph.ormilabs.com/api/public/9298290c-99e5-4994-b44f-d1c4ec424e0d/subgraphs/vault-sepolia/b4662a4/gn`,
-        pools: `https://api.subgraph.ormilabs.com/api/public/9298290c-99e5-4994-b44f-d1c4ec424e0d/subgraphs/pools-sepolia/b4662a4/gn`,
+        vault: `https://api.subgraph.ormilabs.com/api/public/9298290c-99e5-4994-b44f-d1c4ec424e0d/subgraphs/vault-sepolia/latest/gn`,
+        pools: `https://api.subgraph.ormilabs.com/api/public/9298290c-99e5-4994-b44f-d1c4ec424e0d/subgraphs/pools-sepolia/latest/gn`,
     },
     eth: {
         address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
