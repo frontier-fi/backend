@@ -1,5 +1,6 @@
 // yarn vitest poolsV3/weighted/weightedPool.test.ts
 
+import { Token, TokenAmount } from '@balancer/sdk';
 import { parseEther } from 'viem';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
@@ -74,7 +75,7 @@ describe('SOR V3 Weighted Pool Tests', () => {
         const dynamicData = {};
 
         const directionalFeeHook = hookFactory.build({
-            name: hookType,
+            type: 'DIRECTIONAL_FEE',
             dynamicData: dynamicData,
             enableHookAdjustedAmounts: true,
             shouldCallAfterAddLiquidity: true,
@@ -137,5 +138,28 @@ describe('SOR V3 Weighted Pool Tests', () => {
             supportsUnbalancedLiquidity: false,
         };
         expect(poolState).toEqual(weightedPoolWithHook.getPoolState('DirectionalFee'));
+    });
+
+    test('swaps a small amount out and mutates balances only when asked', () => {
+        const tokenIn = weightedPool.tokens[0].token;
+        const tokenOut = weightedPool.tokens[1].token;
+        const amountIn = TokenAmount.fromRawAmount(tokenIn, 1_000_000n);
+        const first = weightedPool.swapGivenIn(tokenIn, tokenOut, amountIn);
+        const second = weightedPool.swapGivenIn(tokenIn, tokenOut, amountIn);
+
+        expect(first.amount).toBeGreaterThan(0n);
+        expect(second.amount).toBe(first.amount);
+
+        const mutated = weightedPool.swapGivenIn(tokenIn, tokenOut, amountIn, true);
+        const after = weightedPool.swapGivenIn(tokenIn, tokenOut, amountIn);
+        expect(mutated.amount).toBeGreaterThan(0n);
+        expect(after.amount).toBeLessThan(mutated.amount);
+    });
+
+    test('returns zero when removing BPT and unbalanced liquidity is disabled', () => {
+        const bpt = new Token(weightedPool.tokens[0].token.chainId, weightedPool.id, 18);
+        const out = weightedPool.swapGivenIn(bpt, weightedPool.tokens[0].token, TokenAmount.fromRawAmount(bpt, 1000n));
+
+        expect(out.amount).toBe(0n);
     });
 });

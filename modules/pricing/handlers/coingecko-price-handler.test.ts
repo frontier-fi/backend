@@ -1,6 +1,21 @@
 import { Chain } from '@prisma/client';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CoingeckoPriceHandler } from './coingecko-price-handler';
 import { TokenPriceData } from '../types';
+
+const { getMarketDataForTokenIds } = vi.hoisted(() => ({
+    getMarketDataForTokenIds: vi.fn(async (ids: string[]) =>
+        ids.filter(Boolean).map((id) => ({
+            id,
+            current_price: 2500.5,
+            last_updated: '2026-10-18T00:00:00.000Z',
+        })),
+    ),
+}));
+
+vi.mock('../../token/lib/coingecko-data.service', () => ({
+    coingeckoDataService: { getMarketDataForTokenIds },
+}));
 
 describe('CoingeckoPriceHandler', () => {
     const mockConfig = {

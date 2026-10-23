@@ -1,4 +1,4 @@
-import { getHookState } from './helpers';
+import { getHookState, isLiquidityManagement } from './helpers';
 import { PrismaPoolAndHookWithDynamic, HookData } from '../../../../prisma/prisma-types';
 import { parseEther, parseUnits } from 'viem';
 
@@ -88,5 +88,33 @@ describe('getHookState', () => {
         } as unknown as PrismaPoolAndHookWithDynamic;
 
         expect(getHookState(pool)).toBeUndefined();
+    });
+
+    it('returns undefined for a hook type the router does not model', () => {
+        const pool = {
+            id: 'lottery-pool',
+            hook: { type: 'LOTTERY' } as unknown as HookData,
+        } as unknown as PrismaPoolAndHookWithDynamic;
+
+        expect(getHookState(pool)).toBeUndefined();
+    });
+});
+
+describe('isLiquidityManagement', () => {
+    const flags = {
+        disableUnbalancedLiquidity: false,
+        enableAddLiquidityCustom: false,
+        enableDonation: true,
+        enableRemoveLiquidityCustom: false,
+    };
+
+    it('accepts the four vault flags', () => {
+        expect(isLiquidityManagement(flags)).toBe(true);
+    });
+
+    it('rejects a partial or empty value', () => {
+        expect(isLiquidityManagement(null)).toBeFalsy();
+        expect(isLiquidityManagement({ disableUnbalancedLiquidity: true })).toBe(false);
+        expect(isLiquidityManagement({ ...flags, enableDonation: 'yes' })).toBe(false);
     });
 });

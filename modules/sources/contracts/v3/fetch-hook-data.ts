@@ -7,7 +7,6 @@ import { HookData } from '../../../../prisma/prisma-types';
 export const hookCallsMap = {
     FEE_TAKING: hookCallFns.feeTakingHook,
     EXIT_FEE: hookCallFns.exitFeeHook,
-    STABLE_SURGE: hookCallFns.stableSurgeHook,
     MEV_TAX: hookCallFns.mevTaxHook,
 };
 

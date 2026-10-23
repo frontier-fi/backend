@@ -1,27 +1,12 @@
 import { randomBytes } from 'crypto';
-import { JsonRpcProvider } from 'ethers';
 import { Token } from '@balancer/sdk';
 import { PrismaPoolAndHookWithDynamic } from '../prisma/prisma-types';
 import { isSameAddress } from '@balancer/sdk';
 import { Address } from 'viem';
 import { BufferPoolData } from '../modules/sor/utils';
 
-// anvil --fork-url https://eth-mainnet.alchemyapi.io/v2/7gYoDJEw6-QyVP5hd2UfZyelzDIDemGz --port 8555 --fork-block-number=17878719
-
-// In CI we will use http://127.0.0.1:8555 to use the anvil fork;
-// const httpRpc = process.env.TEST_RPC_URL || 'https://cloudflare-eth.com';
-const defaultAnvilRpcUrl = 'http://127.0.0.1:8555';
-
-export function getRpcProvider(httpRpc = defaultAnvilRpcUrl) {
-    return new JsonRpcProvider(httpRpc);
-}
-
 export function createRandomAddress() {
     return '0x' + randomBytes(20).toString('hex');
-}
-
-export function sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function getDecimalsFromScalingFactor(scalingFactor: bigint): number {

@@ -100,7 +100,7 @@ describe('AaveApiAprHandler', () => {
         const aprItems = await handler.calculateAprForPools([mockPool]);
 
         // Verify client methods were called
-        expect(mockFetchIncentives).toHaveBeenCalledWith(1);
+        expect(mockFetchIncentives).toHaveBeenCalledWith('1');
         expect(mockFetchPrimeIncentives).toHaveBeenCalled();
 
         // Should have two items (one for regular and one for prime)
@@ -224,7 +224,7 @@ describe('AaveApiAprHandler', () => {
 
         const aprItems = await sepoliaHandler.calculateAprForPools([sepoliaPool]);
 
-        expect(mockFetchIncentives).toHaveBeenCalledWith(11155111);
+        expect(mockFetchIncentives).toHaveBeenCalledWith('11155111');
         expect(mockFetchPrimeIncentives).not.toHaveBeenCalled();
 
         expect(aprItems.length).toBe(1);

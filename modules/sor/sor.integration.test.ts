@@ -10,8 +10,7 @@ import { readTestData } from '../../test/testData/read/readTestData';
 import { PrismaPoolAndHookWithDynamic } from '../../prisma/prisma-types';
 import { getTokensFromPrismaPools } from '../../test/utils';
 import { formatUnits } from 'viem';
-import { BufferPoolData, getTokenPricesMap } from './utils/data';
-import { chainIdToChain } from '../../config/chain-id-to-chain';
+import { BufferPoolData } from './utils/data';
 
 // This test will run against all files added to test/testData/read
 // In order to add new scenarios, please add them to test/testData/config.json
@@ -38,7 +37,18 @@ describe('SOR V3 Swap Paths Integration Tests', () => {
 
         const amountRawSum = queryPaths.reduce((acc, path) => acc + path.amountRaw, 0n);
 
-        const tokenPrices = await getTokenPricesMap(chainIdToChain[Number(chainId)]);
+        // A flat price gives every token a USD limit. The recorded amounts come from pool
+        // math, and looking prices up would require the database.
+        const tokenPrices = new Map<string, number>();
+        for (const pool of prismaPools) {
+            for (const poolToken of pool.tokens) {
+                tokenPrices.set(poolToken.address.toLowerCase(), 1);
+            }
+        }
+        for (const bufferPool of bufferPools) {
+            tokenPrices.set(bufferPool.mainToken.address.toLowerCase(), 1);
+            tokenPrices.set(bufferPool.underlyingToken.address.toLowerCase(), 1);
+        }
 
         const sorPaths = (await SOR.getPathsWithPools(
             tokenIn,

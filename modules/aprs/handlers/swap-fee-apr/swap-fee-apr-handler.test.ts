@@ -60,4 +60,46 @@ describe('SwapFeeAprHandler', () => {
 
         expect(items.find((item) => item.type === 'SWAP_FEE_24H')?.apr).toBeCloseTo(1);
     });
+
+    it('uses the yield fee for a GyroE pool that is not protocol version 3', async () => {
+        queryRaw.mockResolvedValue([{ poolId: 'pool', dynamic_fees_24h: 0, fees_24h: 10 }]);
+
+        const items = await new SwapFeeAprHandler().calculateAprForPools([
+            pool({
+                type: PrismaPoolType.GYROE,
+                version: 1,
+                dynamicData: {
+                    totalLiquidity: 3650,
+                    protocolSwapFee: '0.9',
+                    protocolYieldFee: '0.5',
+                    aggregateSwapFee: '0',
+                    isInRecoveryMode: false,
+                },
+            }),
+        ]);
+
+        expect(items.find((item) => item.type === 'SWAP_FEE_24H')?.apr).toBeCloseTo(0.5);
+    });
+
+    it('skips a pool with no swaps or no liquidity', async () => {
+        queryRaw.mockResolvedValue([{ poolId: 'other', dynamic_fees_24h: 10, fees_24h: 10 }]);
+
+        const missing = await new SwapFeeAprHandler().calculateAprForPools([pool()]);
+        expect(missing).toEqual([]);
+
+        queryRaw.mockResolvedValue([{ poolId: 'pool', dynamic_fees_24h: 10, fees_24h: 10 }]);
+        const empty = await new SwapFeeAprHandler().calculateAprForPools([
+            pool({
+                dynamicData: {
+                    totalLiquidity: 0,
+                    protocolSwapFee: '0',
+                    protocolYieldFee: '0',
+                    aggregateSwapFee: '0',
+                    isInRecoveryMode: false,
+                },
+            }),
+        ]);
+
+        expect(empty.find((item) => item.type === 'SWAP_FEE_24H')?.apr).toBe(0);
+    });
 });
