@@ -386,7 +386,7 @@ it('reads the canary pools and the public list', async () => {
             tagged: poolGetPools(where: { chainIn: [SEPOLIA], tagIn: ["incentivized"], reviewedOnly: false }) { id }
             priced: poolGetPools(where: { chainIn: [SEPOLIA], minTvl: 0 }) { id }
             otherChain: poolGetPools(where: { chainIn: [SEPOLIA], chainNotIn: [MAINNET] }) { id }
-            aggregators: aggregatorPools(where: { chainIn: [SEPOLIA], protocolVersionIn: [3], poolTypeIn: [WEIGHTED, STABLE, GYROE], idIn: [$id], minTvl: 0 }) {
+            aggregators: aggregatorPools(where: { chainIn: [SEPOLIA], protocolVersionIn: [3], poolTypeIn: [WEIGHTED, STABLE, ECLP], idIn: [$id], minTvl: 0 }) {
                 id chain protocolVersion type address
             }
             legacyAggregators: poolGetAggregatorPools(where: { chainIn: [SEPOLIA], protocolVersionIn: [3] }) { id }

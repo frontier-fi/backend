@@ -66,7 +66,7 @@ describe('SwapFeeAprHandler', () => {
 
         const items = await new SwapFeeAprHandler().calculateAprForPools([
             pool({
-                type: PrismaPoolType.GYROE,
+                type: PrismaPoolType.ECLP,
                 version: 1,
                 dynamicData: {
                     totalLiquidity: 3650,

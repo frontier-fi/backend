@@ -18,7 +18,7 @@ import {
 import { prisma } from '../../../prisma/prisma-client';
 import { Chain, Prisma, PrismaUserWalletBalance } from '@prisma/client';
 import { fixedNumber } from '../../view-helpers/fixed-number';
-import { GyroData, StableData } from '../subgraph-pool';
+import { EclpData, StableData } from '../subgraph-pool';
 import { ZERO_ADDRESS } from '@balancer/sdk';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { GraphQLError } from 'graphql';
@@ -521,8 +521,8 @@ export class PoolGqlLoaderService {
                     ...(typeData as StableData),
                     ...mappedData,
                 };
-            case 'GYROE': {
-                const gyroData: GyroData = {
+            case 'ECLP': {
+                const eclpData: EclpData = {
                     alpha: '',
                     beta: '',
                     c: '',
@@ -537,12 +537,12 @@ export class PoolGqlLoaderService {
                     w: '',
                     z: '',
                     dSq: '',
-                    ...(typeData as Partial<GyroData>),
+                    ...(typeData as Partial<EclpData>),
                 };
                 return {
-                    __typename: 'GqlPoolGyro',
+                    __typename: 'GqlPoolEclp',
                     ...poolWithoutTypeData,
-                    ...gyroData,
+                    ...eclpData,
                     sqrtAlpha: '',
                     sqrtBeta: '',
                     root3Alpha: '',

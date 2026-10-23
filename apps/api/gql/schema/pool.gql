@@ -238,7 +238,7 @@ Supported pool types
 enum GqlPoolType {
     WEIGHTED
     STABLE
-    GYROE
+    ECLP
 }
 
 """
@@ -467,7 +467,7 @@ type GqlPoolWeighted implements GqlPoolBase {
     userBalance: GqlPoolUserBalance
 }
 
-type GqlPoolGyro implements GqlPoolBase {
+type GqlPoolEclp implements GqlPoolBase {
     id: ID!
     chain: GqlChain!
     vaultVersion: Int! @deprecated(reason: "use protocolVersion instead")
@@ -576,7 +576,7 @@ type GqlPoolStable implements GqlPoolBase {
 union GqlPoolUnion =
       GqlPoolWeighted
     | GqlPoolStable
-    | GqlPoolGyro
+    | GqlPoolEclp
 
 """
 All info on the pool token. It will also include the nested pool if the token is a BPT. It will only support 1 level of nesting.

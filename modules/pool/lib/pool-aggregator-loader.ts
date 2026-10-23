@@ -7,7 +7,7 @@ import {
     LiquidityManagement,
 } from '../../../apps/api/gql/generated-schema';
 import _ from 'lodash';
-import { GyroData, StableData } from '../subgraph-pool';
+import { EclpData, StableData } from '../subgraph-pool';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { zeroAddress } from 'viem';
@@ -414,10 +414,10 @@ export class PoolAggregatorLoader {
                     ...mappedData,
                     amp: (typeData as StableData).amp,
                 };
-            case 'GYROE':
+            case 'ECLP':
                 return {
                     ...mappedData,
-                    ...(typeData as GyroData),
+                    ...(typeData as EclpData),
                 };
         }
 

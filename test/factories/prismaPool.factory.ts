@@ -4,14 +4,14 @@ import { prismaPoolTokenFactory } from './prismaToken.factory';
 import { createRandomAddress } from '../utils';
 import { Chain, PrismaPoolType } from '@prisma/client';
 import { prismaPoolDynamicDataFactory } from './prismaPoolDynamicData.factory';
-import { GyroEParams } from '../../modules/sources/subgraphs/pools/generated/types';
+import { EclpParams } from '../../modules/sources/subgraphs/pools/generated/types';
 
 class PrismaPoolFactory extends Factory<PrismaPoolAndHookWithDynamic> {
     stable(amp?: string) {
         return this.params({ type: PrismaPoolType.STABLE, typeData: { amp: amp ?? '10' } });
     }
-    gyroE(gyroEParams: GyroEParams) {
-        return this.params({ id: gyroEParams.id, type: PrismaPoolType.GYROE, typeData: { ...gyroEParams } });
+    gyroE(eclpParams: EclpParams) {
+        return this.params({ id: eclpParams.id, type: PrismaPoolType.ECLP, typeData: { ...eclpParams } });
     }
 }
 

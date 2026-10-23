@@ -38,10 +38,10 @@ export const poolUpsertTransformerV3 = (
                 amp: poolData.stableParams!.amp,
             } as StableData;
             break;
-        case PoolType.GyroE:
-            type = PrismaPoolType.GYROE;
+        case PoolType.Eclp:
+            type = PrismaPoolType.ECLP;
             typeData = {
-                ...poolData.gyroEParams,
+                ...poolData.eclpParams,
             };
             break;
         default:

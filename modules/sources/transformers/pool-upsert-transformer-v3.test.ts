@@ -47,7 +47,7 @@ const pool = (factoryType: string, extra: Record<string, unknown> = {}) =>
         rateProviders: [{ address: RATE }],
         weightedParams: { weights: ['1'] },
         stableParams: { amp: '200' },
-        gyroEParams: { alpha: '1', beta: '2' },
+        eclpParams: { alpha: '1', beta: '2' },
         ...extra,
     }) as unknown as V3JoinedSubgraphPool;
 
@@ -94,20 +94,20 @@ function tokenRow(address: string, decimals: number, symbol: string, name: strin
 // Shapes returned by the Sepolia vault and pools subgraphs for the three pools with real liquidity.
 function sepoliaPool(kind: 'gyro' | 'stable' | 'weighted', extra: Record<string, unknown> = {}) {
     if (kind === 'gyro') {
-        return pool(PoolType.GyroE, {
+        return pool(PoolType.Eclp, {
             id: '0xbfa2c112f1987854c6922505d06a9d9e897e2bf9',
             symbol: 'ECLP-BPT',
             name: 'weth-usdc',
             swapFee: '0.001',
             totalShares: '1.000000944745439528',
-            factory: { type: PoolType.GyroE, id: '0xed6d268cadbea94c34e531c3401d41a882d66a8d', version: 2 },
+            factory: { type: PoolType.Eclp, id: '0xed6d268cadbea94c34e531c3401d41a882d66a8d', version: 2 },
             tokens: [
                 tokenRow(USDC, 6, 'USDC', 'USDC', 0, '2.116975', '1000000000000'),
                 tokenRow(WETH, 18, 'WETH', 'Wrapped Ether', 1, '0.000000100002116975', '1'),
             ],
             rateProviders: [{ address: ZERO }, { address: ZERO }],
             weightedParams: null,
-            gyroEParams: { alpha: '0.90909090909090909', beta: '1.1', lambda: '4' },
+            eclpParams: { alpha: '0.90909090909090909', beta: '1.1', lambda: '4' },
             hookConfig: hookOff,
             liquidityManagement: liquidityOn,
             ...extra,
@@ -156,14 +156,14 @@ describe('poolUpsertTransformerV3', () => {
     it('maps weighted, stable, and gyroE pools', () => {
         const weighted = poolUpsertTransformerV3(pool(PoolType.Weighted), Chain.SEPOLIA, 5);
         const stable = poolUpsertTransformerV3(pool(PoolType.Stable), Chain.SEPOLIA, 5);
-        const gyro = poolUpsertTransformerV3(pool(PoolType.GyroE), Chain.SEPOLIA, 5);
+        const gyro = poolUpsertTransformerV3(pool(PoolType.Eclp), Chain.SEPOLIA, 5);
 
         expect(weighted?.pool.type).toBe(PrismaPoolType.WEIGHTED);
         expect(weighted?.pool.protocolVersion).toBe(3);
         expect(weighted?.pool.id).toBe(POOL);
         expect(stable?.pool.type).toBe(PrismaPoolType.STABLE);
         expect(stable?.pool.typeData).toMatchObject({ amp: '200' });
-        expect(gyro?.pool.type).toBe(PrismaPoolType.GYROE);
+        expect(gyro?.pool.type).toBe(PrismaPoolType.ECLP);
         expect(gyro?.pool.typeData).toMatchObject({ alpha: '1', beta: '2' });
     });
 
@@ -246,7 +246,7 @@ describe('poolUpsertTransformerV3', () => {
 
         expect(gyro?.pool).toMatchObject({
             id: '0xbfa2c112f1987854c6922505d06a9d9e897e2bf9',
-            type: PrismaPoolType.GYROE,
+            type: PrismaPoolType.ECLP,
             symbol: 'ECLP-BPT',
             hook: undefined,
             typeData: { alpha: '0.90909090909090909', beta: '1.1', lambda: '4' },

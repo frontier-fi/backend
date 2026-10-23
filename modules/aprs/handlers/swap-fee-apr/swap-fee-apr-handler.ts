@@ -56,7 +56,7 @@ export class SwapFeeAprHandler implements AprHandler {
 
                 let protocolFee = pool.dynamicData.protocolSwapFee;
 
-                if (pool.type === 'GYROE') {
+                if (pool.type === 'ECLP') {
                     protocolFee = pool.dynamicData.protocolYieldFee || '0';
                 }
 

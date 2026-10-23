@@ -33,15 +33,15 @@ export function tokenCollectsYieldFee(token: PrismaPoolToken) {
 export function capturesYield(pool: PoolWithTypeAndFactory) {
     return (
         isWeightedPoolV2(pool) ||
-        isGyroEV2(pool) ||
+        isEclpV2(pool) ||
         pool.protocolVersion === 3
     );
 }
 
-export function isGyroPool(pool: PoolWithTypeAndFactory) {
-    return pool.type.includes('GYRO');
+export function isEclp(pool: PoolWithTypeAndFactory) {
+    return pool.type === 'ECLP';
 }
 
-export function isGyroEV2(pool: PoolWithTypeAndFactory) {
-    return pool.type === 'GYROE' && pool.version === 2;
+export function isEclpV2(pool: PoolWithTypeAndFactory) {
+    return pool.type === 'ECLP' && pool.version === 2;
 }

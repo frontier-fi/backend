@@ -14,11 +14,11 @@ export const DATABASE_URL = `postgresql://backend:let-me-in@127.0.0.1:5431/${DAT
 export const GRAPHQL_URL = `http://127.0.0.1:${PORT}/graphql`;
 export const HEALTH_URL = `http://127.0.0.1:${PORT}/health`;
 
-export const POOL_TYPES = ['WEIGHTED', 'STABLE', 'GYROE'] as const;
+export const POOL_TYPES = ['WEIGHTED', 'STABLE', 'ECLP'] as const;
 
 /** Live Sepolia pools the subgraph is expected to keep serving. */
 export const CANARIES = [
-    { id: '0xbfa2c112f1987854c6922505d06a9d9e897e2bf9', type: 'GYROE', typename: 'GqlPoolGyro' },
+    { id: '0xbfa2c112f1987854c6922505d06a9d9e897e2bf9', type: 'ECLP', typename: 'GqlPoolEclp' },
     { id: '0x6c0705aa00bbc8476ec0b6d94fa5aa492e75b697', type: 'STABLE', typename: 'GqlPoolStable' },
     { id: '0xd181617f85b6ff1728211c53c0a2b8108bd4a69d', type: 'WEIGHTED', typename: 'GqlPoolWeighted' },
 ] as const;
