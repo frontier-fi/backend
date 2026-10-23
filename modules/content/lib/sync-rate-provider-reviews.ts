@@ -1,30 +1,51 @@
+import { Chain } from '@prisma/client';
 import { prisma } from '../../../prisma/prisma-client';
+import { normalizeAddress } from '../../web3/addresses';
 import { githubChainToChain } from './github-helper';
 
 const RATEPROVIDER_REVIEW_URL =
     'https://raw.githubusercontent.com/balancer/code-review/main/rate-providers/registry.json';
 
+const knownChains = new Set<string>(Object.values(Chain));
+
 export const syncRateProviderReviews = async (): Promise<void> => {
     const rateProviders = await getRateProviderReviews();
+    const data = [];
+    let skipped = 0;
 
-    const data = rateProviders.map((item) => ({
-        reviewed: true,
-        name: item.name,
-        chain: item.chain,
-        summary: item.summary,
-        tokenAddress: item.asset.toLowerCase(),
-        rateProviderAddress: item.rateProviderAddress.toLowerCase(),
-        reviewUrl: item.review,
-        warnings: item.warnings.join(','),
-        upgradableComponents: item.upgradeableComponents.map((component) => ({
-            entryPoint: component.entrypoint,
-            implementationReviewed: component.implementationReviewed,
-        })),
-    }));
+    for (const item of rateProviders) {
+        // The registry covers every Balancer chain. Rows for chains we do not run have no enum value.
+        if (!item.chain || !knownChains.has(item.chain)) {
+            skipped += 1;
+            continue;
+        }
+        try {
+            data.push({
+                reviewed: true,
+                name: item.name,
+                chain: item.chain,
+                summary: item.summary,
+                tokenAddress: normalizeAddress(item.asset),
+                rateProviderAddress: normalizeAddress(item.rateProviderAddress),
+                reviewUrl: item.review,
+                warnings: (item.warnings ?? []).join(','),
+                upgradableComponents: (item.upgradeableComponents ?? []).map((component) => ({
+                    entryPoint: component.entrypoint,
+                    implementationReviewed: component.implementationReviewed,
+                })),
+            });
+        } catch {
+            skipped += 1;
+        }
+    }
+
+    if (skipped > 0) {
+        console.log(`syncRateProviderReviews skipped ${skipped} rows for chains or addresses this API does not use`);
+    }
 
     await prisma.$transaction([
         prisma.prismaPriceRateProviderData.deleteMany(),
-        prisma.prismaPriceRateProviderData.createMany({ data, skipDuplicates: true }),
+        ...(data.length > 0 ? [prisma.prismaPriceRateProviderData.createMany({ data, skipDuplicates: true })] : []),
     ]);
 };
 
