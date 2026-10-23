@@ -53,7 +53,7 @@ if "frontier-db" not in names:
     raise SystemExit(
         "Managed Postgres cluster frontier-db was not found in this account.\n"
         "Create it once in fra, then rerun this job:\n"
-        "  doctl databases create frontier-db --engine pg --version 16 --region fra1 --size db-s-1vcpu-2gb --num-nodes 1"
+        "  doctl databases create frontier-db --engine pg --version 18 --region fra1 --size db-s-1vcpu-1gb --storage-size-mib 10240 --num-nodes 1"
     )
 '
 

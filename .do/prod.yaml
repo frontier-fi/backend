@@ -11,7 +11,7 @@ region: fra
 databases:
   - name: db
     engine: PG
-    version: "16"
+    version: "18"
     production: true
     cluster_name: frontier-db
     db_name: frontier

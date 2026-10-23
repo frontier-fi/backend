@@ -1,7 +1,7 @@
 services:
     postgres:
         container_name: frontier-backend
-        image: postgres:17-alpine
+        image: postgres:18-alpine
         ports:
             - '5431:5432'
         environment:
@@ -9,7 +9,7 @@ services:
             POSTGRES_PASSWORD: let-me-in
             POSTGRES_DB: database
         volumes:
-            - frontier-pg:/var/lib/postgresql/data
+            - frontier-pg18:/var/lib/postgresql
         networks:
             - balancer
 
@@ -18,4 +18,4 @@ networks:
         name: balancer
 
 volumes:
-    frontier-pg:
+    frontier-pg18:

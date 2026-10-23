@@ -63,6 +63,7 @@
         "@graphql-codegen/typescript-operations": "^2.5.13",
         "@graphql-codegen/typescript-resolvers": "2.4.1",
         "@types/bun": "^1.4.3",
+        "@types/express": "^5.0.6",
         "@types/lodash": "^4.17.27",
         "@types/memory-cache": "^0.2.6",
         "@types/node": "^24.19.2",
