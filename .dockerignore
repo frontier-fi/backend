@@ -1,0 +1,30 @@
+.idea/
+.vscode/
+.claude/
+.DS_Store
+
+.env
+
+node_modules/
+dist/
+*.log
+
+debug
+debug.ts
+profiles/
+
+# bun run generate runs in the image build.
+apps/api/gql/generated-schema*.ts
+apps/api/gql/schema/__mocks__/
+modules/sources/subgraphs/vault/generated/
+modules/sources/subgraphs/pools/generated/
+
+# committed, but not compiled into the image
+.git
+.github
+.do
+test
+scripts
+**/*.test.ts
+**/*.spec.ts
+app-architecture.excalidraw

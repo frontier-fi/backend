@@ -1,5 +1,3 @@
-version: '3'
-
 services:
     postgres:
         container_name: frontier-backend
@@ -11,7 +9,7 @@ services:
             POSTGRES_PASSWORD: let-me-in
             POSTGRES_DB: database
         volumes:
-            - data:/var/lib/postgresql/data
+            - frontier-pg:/var/lib/postgresql/data
         networks:
             - balancer
 
@@ -20,4 +18,4 @@ networks:
         name: balancer
 
 volumes:
-    data:
+    frontier-pg:
