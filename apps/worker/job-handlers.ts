@@ -5,12 +5,7 @@ import { PricingService } from '../../modules/pricing/pricing-service';
 import moment from 'moment';
 import { chainIdToChain } from '../../config/chain-id-to-chain';
 import { Chain } from '@prisma/client';
-import {
-    SnapshotsController,
-    PoolController,
-    EventController,
-    TokenYieldsController,
-} from '../../modules/controllers';
+import { SnapshotsController, PoolController, EventController, TokenYieldsController } from '../../modules/controllers';
 import { updateVolumeAndFees } from '../../modules/actions/pool/update-volume-and-fees';
 import { TokenController } from '../../modules/controllers/token-controller';
 import config from '../../config';
@@ -35,6 +30,10 @@ async function runIfNotAlreadyRunning(
         return;
     }
 
+    const checkInId = Sentry.captureCheckIn(
+        { monitorSlug: jobId, status: 'in_progress' },
+        sentryMonitorConfig(jobIntervalMs(id, chainId)),
+    );
     const startJobTime = moment();
 
     try {
@@ -46,19 +45,25 @@ async function runIfNotAlreadyRunning(
 
         const durationSuccess = moment.duration(moment().diff(startJobTime)).asSeconds();
         console.log(`Successful job ${jobId}-done`, durationSuccess);
-    } catch (error: any) {
+        Sentry.captureCheckIn({ monitorSlug: jobId, status: 'ok', checkInId, duration: durationSuccess });
+    } catch (error: unknown) {
         const duration = moment.duration(moment().diff(startJobTime)).asSeconds();
-        console.log(`Error job ${jobId}-error`, duration, error.message || error);
+        const message = error instanceof Error ? error.message : String(error);
+        console.log(`Error job ${jobId}-error`, duration, message);
+        Sentry.captureException(error);
+        Sentry.captureCheckIn({ monitorSlug: jobId, status: 'error', checkInId, duration });
         next(error);
     } finally {
         runningJobs.delete(jobId);
-        res.sendStatus(200);
+        if (!res.headersSent) {
+            res.sendStatus(200);
+        }
     }
 }
 
 export function configureWorkerRoutes(app: Express) {
     app.post('/', async (req, res, next) => {
-        Sentry.withIsolationScope(async (scope) => {
+        await Sentry.withIsolationScope(async (scope) => {
             const job = req.body as { name: string; chain: string };
             const sentryTransactionName = `${job.name}-${job.chain}`;
 
@@ -69,9 +74,8 @@ export function configureWorkerRoutes(app: Express) {
             scope.setTag('job', job.name);
             scope.setTag('chain', job.chain);
 
-            // Start profiling span for the job
-            Sentry.startSpan({ op: 'job', name: sentryTransactionName }, () => {
-                setupJobHandlers(job.name, job.chain, res, next);
+            await Sentry.startSpan({ op: 'job', name: sentryTransactionName }, async () => {
+                await setupJobHandlers(job.name, job.chain, res, next);
             });
         });
     });
@@ -221,3 +225,30 @@ const setupJobHandlers = async (name: string, chainId: string, res: any, next: N
             console.log(`Unhandled job type ${name}`);
     }
 };
+
+function jobIntervalMs(name: string, chainId: string): number | undefined {
+    const chain = chainIdToChain[chainId];
+    if (!chain) return undefined;
+    return config[chain].workerJobs.find((job) => job.name === name)?.interval;
+}
+
+// Sentry cron intervals are whole minutes at the smallest. Sub-minute jobs round up to one minute.
+function sentryMonitorConfig(intervalMs: number | undefined): {
+    schedule: { type: 'interval'; value: number; unit: 'minute' | 'hour' | 'day' };
+    checkinMargin: number;
+    maxRuntime: number;
+} {
+    const intervalMinutes = Math.max(1, Math.round((intervalMs ?? 60_000) / 60_000));
+    const schedule =
+        intervalMinutes % (24 * 60) === 0
+            ? { type: 'interval' as const, value: intervalMinutes / (24 * 60), unit: 'day' as const }
+            : intervalMinutes % 60 === 0
+              ? { type: 'interval' as const, value: intervalMinutes / 60, unit: 'hour' as const }
+              : { type: 'interval' as const, value: intervalMinutes, unit: 'minute' as const };
+
+    return {
+        schedule,
+        checkinMargin: Math.max(1, Math.ceil(intervalMinutes / 5)),
+        maxRuntime: Math.max(5, intervalMinutes * 2),
+    };
+}
