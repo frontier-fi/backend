@@ -379,7 +379,12 @@ export class PoolGqlLoaderService {
               }
             : {};
 
+        const tokenFilters: Prisma.PrismaPoolWhereInput[] = [];
+        if (allTokensFilter.length > 0) tokenFilters.push({ OR: allTokensFilter });
+        if (allTokensFilterNot.length > 0) tokenFilters.push({ OR: allTokensFilterNot });
+
         const filterArgs: Prisma.PrismaPoolWhereInput = {
+            ...(tokenFilters.length > 0 ? { AND: tokenFilters } : {}),
             dynamicData: {
                 totalSharesNum: {
                     gt: 0.000000000001,
@@ -403,7 +408,6 @@ export class PoolGqlLoaderService {
                 gt: where?.createTime?.gt || undefined,
                 lt: where?.createTime?.lt || undefined,
             },
-            AND: [{ OR: allTokensFilter }, { OR: allTokensFilterNot }],
             id: {
                 in: where?.idIn?.map((id) => id.toLowerCase()) || undefined,
                 notIn: where?.idNotIn?.map((id) => id.toLowerCase()) || undefined,

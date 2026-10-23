@@ -28,7 +28,14 @@ export const syncPools = async (
 
     const onchainData = await fetchPoolSyncData(viemClient, vault, dbPools, BigInt(blockNumber));
 
-    const upserts = dbPools.map((pool) => _.mergeWith({ pool }, onchainData[pool.id], mergeArraysById));
+    const skipped = dbPools.filter((pool) => !Array.isArray(onchainData[pool.id]?.poolToken));
+    if (skipped.length > 0) {
+        console.log(`syncPools skipped ${skipped.length} pools with no on-chain token data on ${chain}`);
+    }
+
+    const upserts = dbPools
+        .filter((pool) => Array.isArray(onchainData[pool.id]?.poolToken))
+        .map((pool) => _.mergeWith({ pool }, onchainData[pool.id], mergeArraysById));
 
     // USD Pricing
     const prices = await prisma.prismaTokenCurrentPrice
@@ -37,7 +44,7 @@ export const syncPools = async (
                 chain: chain,
                 tokenAddress: {
                     in: Object.values(onchainData)
-                        .flatMap((item) => item.poolToken)
+                        .flatMap((item) => item?.poolToken ?? [])
                         .map((token) => token.address),
                 },
             },

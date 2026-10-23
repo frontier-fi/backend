@@ -40,20 +40,24 @@ export function PoolController(tracer?: any) {
 
             return ids;
         },
+        async updateLiquidityValuesForAllPools(chain: Chain) {
+            await updateLiquidityValuesForPools(chain);
+            return 'success';
+        },
         async updateLifeTimeValues(chain: Chain) {
             const updates = await updateLifetimeValues(chain);
             return updates;
         },
         async addPoolsV3(chain: Chain, syncNewPoolsOnly = true) {
+            const network = config[chain];
+            if (!network?.subgraphs?.vault || !network.subgraphs.pools) {
+                throw new Error(`Chain not configured: ${chain}`);
+            }
+
             const {
                 subgraphs: { vault, pools: poolsUrl },
                 contracts: { Vault: vaultAddress },
-            } = config[chain];
-
-            // Guard against unconfigured chains
-            if (!vault || !poolsUrl) {
-                throw new Error(`Chain not configured: ${chain}`);
-            }
+            } = network;
 
             const viemClient = getViemClient(chain);
 
@@ -112,16 +116,21 @@ export function PoolController(tracer?: any) {
          * @param chainId
          */
         async syncPoolsV3(chain: Chain) {
+            const network = config[chain];
+            if (
+                !network?.contracts?.Vault ||
+                !network.contracts.Router ||
+                !network.subgraphs?.vault ||
+                !network.subgraphs.pools
+            ) {
+                throw new Error(`Chain not configured: ${chain}`);
+            }
+
             const {
                 subgraphs: { vault, pools },
                 contracts: { Vault: vaultAddress, Router: routerAddress },
                 acceptableSGLag,
-            } = config[chain];
-
-            // Guard against unconfigured chains
-            if (!vaultAddress || !routerAddress || !vault || !pools) {
-                throw new Error(`Chain not configured: ${chain}`);
-            }
+            } = network;
 
             const viemClient = getViemClient(chain);
             const subgraphClient = getVaultSubgraphClient(vault, chain);
