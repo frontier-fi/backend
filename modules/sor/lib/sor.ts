@@ -56,7 +56,7 @@ export class SOR {
                     case 'STABLE':
                         basePools.push(StablePoolV3.fromPrismaPool(prismaPool));
                         break;
-                    case 'GYROE':
+                    case 'ECLP':
                         basePools.push(GyroECLPPool.fromPrismaPool(prismaPool));
                         break;
                     default:

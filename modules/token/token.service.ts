@@ -60,7 +60,11 @@ export class TokenService {
         let tokens: PrismaToken[] | null = this.cache.get(`${ALL_TOKENS_CACHE_KEY}:${chain}`);
         if (!tokens) {
             tokens = await prisma.prismaToken.findMany({ where: { chain: chain } });
-            this.cache.put(`${ALL_TOKENS_CACHE_KEY}:${chain}`, tokens, 5 * 60 * 1000);
+            // An empty list must not be cached. A quote before the first sync would
+            // otherwise hide every token added during the next five minutes.
+            if (tokens.length > 0) {
+                this.cache.put(`${ALL_TOKENS_CACHE_KEY}:${chain}`, tokens, 5 * 60 * 1000);
+            }
         }
         if (addresses) {
             const wanted = new Set(addresses.map((address) => normalizeAddress(address)));

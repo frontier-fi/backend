@@ -18,7 +18,7 @@ import {
 import { prisma } from '../../../prisma/prisma-client';
 import { Chain, Prisma, PrismaUserWalletBalance } from '@prisma/client';
 import { fixedNumber } from '../../view-helpers/fixed-number';
-import { GyroData, StableData } from '../subgraph-pool';
+import { EclpData, StableData } from '../subgraph-pool';
 import { ZERO_ADDRESS } from '@balancer/sdk';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { GraphQLError } from 'graphql';
@@ -379,7 +379,12 @@ export class PoolGqlLoaderService {
               }
             : {};
 
+        const tokenFilters: Prisma.PrismaPoolWhereInput[] = [];
+        if (allTokensFilter.length > 0) tokenFilters.push({ OR: allTokensFilter });
+        if (allTokensFilterNot.length > 0) tokenFilters.push({ OR: allTokensFilterNot });
+
         const filterArgs: Prisma.PrismaPoolWhereInput = {
+            ...(tokenFilters.length > 0 ? { AND: tokenFilters } : {}),
             dynamicData: {
                 totalSharesNum: {
                     gt: 0.000000000001,
@@ -403,7 +408,6 @@ export class PoolGqlLoaderService {
                 gt: where?.createTime?.gt || undefined,
                 lt: where?.createTime?.lt || undefined,
             },
-            AND: [{ OR: allTokensFilter }, { OR: allTokensFilterNot }],
             id: {
                 in: where?.idIn?.map((id) => id.toLowerCase()) || undefined,
                 notIn: where?.idNotIn?.map((id) => id.toLowerCase()) || undefined,
@@ -517,8 +521,8 @@ export class PoolGqlLoaderService {
                     ...(typeData as StableData),
                     ...mappedData,
                 };
-            case 'GYROE': {
-                const gyroData: GyroData = {
+            case 'ECLP': {
+                const eclpData: EclpData = {
                     alpha: '',
                     beta: '',
                     c: '',
@@ -533,12 +537,12 @@ export class PoolGqlLoaderService {
                     w: '',
                     z: '',
                     dSq: '',
-                    ...(typeData as Partial<GyroData>),
+                    ...(typeData as Partial<EclpData>),
                 };
                 return {
-                    __typename: 'GqlPoolGyro',
+                    __typename: 'GqlPoolEclp',
                     ...poolWithoutTypeData,
-                    ...gyroData,
+                    ...eclpData,
                     sqrtAlpha: '',
                     sqrtBeta: '',
                     root3Alpha: '',

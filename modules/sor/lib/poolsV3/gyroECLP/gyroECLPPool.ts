@@ -6,7 +6,7 @@ import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
 import { chainToChainId as chainToIdMap } from '../../../../../config/chain-id-to-chain';
-import { GyroData } from '../../../../pool/subgraph-pool';
+import { EclpData } from '../../../../pool/subgraph-pool';
 import { TokenPairData } from '../../../../sources/contracts/v3/fetch-tokenpair-data';
 
 import { BasePoolMethodsV3 } from '../basePoolMethodsV3';
@@ -51,7 +51,7 @@ export class GyroECLPPool extends BasePoolV3 implements BasePoolMethodsV3 {
 
         const totalShares = parseEther(pool.dynamicData.totalShares);
 
-        const gyroData = pool.typeData as GyroData;
+        const gyroData = pool.typeData as EclpData;
 
         const gyroEParams: GyroEParams = {
             alpha: parseEther(gyroData.alpha),
@@ -137,6 +137,7 @@ export class GyroECLPPool extends BasePoolV3 implements BasePoolMethodsV3 {
 
     public getPoolState(hookName?: string): GyroECLPState {
         const poolState: GyroECLPState = {
+            // balancer-maths still calls this curve GYROE. The API and database use ECLP.
             poolType: 'GYROE',
             poolAddress: this.address,
             swapFee: this.swapFee,

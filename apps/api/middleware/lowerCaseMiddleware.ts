@@ -2,8 +2,10 @@ import { NextFunction, Request, Response, json } from 'express';
 import { parse, print, visit } from 'graphql';
 import { normalizeAddress } from '../../../modules/web3/addresses';
 
+// Case-insensitive so camelCase arguments such as tokenAddress match too.
+// `id` is anchored so chainId and similar fields are left alone.
 const LOWER_REGEX =
-    /id|poolId|poolIdIn|address|addresses|userAddress|tokensIn|tokensNotIn|tokenInIn|tokenOutIn|tokenIn|tokenOut|idIn|idNotIn/;
+    /(^id$|^idin$|^idnotin$|poolid|address|tokensin|tokensnotin|tokeninin|tokenoutin|tokenin|tokenout)/i;
 
 const UPPER_REGEX = /categories/;
 const EVM_ADDRESS = /^0x[a-fA-F0-9]{40}$/;

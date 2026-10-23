@@ -84,7 +84,7 @@ function gyroPool(typeData: Record<string, string>, extra: Record<string, unknow
         id: RECORDED.pool,
         address: RECORDED.pool,
         chain: Chain.SEPOLIA,
-        type: 'GYROE',
+        type: 'ECLP',
         protocolVersion: 3,
         typeData,
         tokens: [tokenOut, tokenIn],

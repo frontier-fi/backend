@@ -70,6 +70,11 @@ const balancerResolvers: Resolvers = {
 
             return PoolController().addPoolsV3(chain, false);
         },
+        poolUpdateLiquidityValuesForAllPools: async (_parent, { chain }, context) => {
+            isAdminRoute(context);
+
+            return PoolController().updateLiquidityValuesForAllPools(chain);
+        },
         poolReloadAllPoolAprs: async (_parent, { chain }, context) => {
             isAdminRoute(context);
 

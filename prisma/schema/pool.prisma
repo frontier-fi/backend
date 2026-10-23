@@ -51,7 +51,7 @@ model PrismaPool {
 enum PrismaPoolType {
     WEIGHTED
     STABLE
-    GYROE
+    ECLP
 }
 
 model PrismaPoolDynamicData {

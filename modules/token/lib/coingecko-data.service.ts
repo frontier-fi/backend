@@ -69,16 +69,24 @@ const requestRateLimiter = new RateLimiter({ tokensPerInterval: tokensPerMinute,
 //max 10 addresses per request because of URI size limit, pro is max 180 because of URI limit
 const addressChunkSize = env.COINGECKO_API_KEY ? 180 : 20;
 export class CoingeckoDataService {
-    private readonly baseUrl: string;
-    private readonly fiatParam: string;
-    private readonly apiKeyParam: string;
+    private readonly apiKey: string;
+    private readonly fiatParam = 'usd';
+    /** Demo keys are rejected by pro-api.coingecko.com with error 10011. */
+    private useDemoApi = false;
 
     constructor() {
-        this.baseUrl = env.COINGECKO_API_KEY
-            ? 'https://pro-api.coingecko.com/api/v3'
-            : 'https://api.coingecko.com/api/v3';
-        this.fiatParam = 'usd';
-        this.apiKeyParam = env.COINGECKO_API_KEY ? `&x_cg_pro_api_key=${env.COINGECKO_API_KEY}` : '';
+        this.apiKey = env.COINGECKO_API_KEY ?? '';
+    }
+
+    private rootUrl(): string {
+        if (this.apiKey && !this.useDemoApi) return 'https://pro-api.coingecko.com/api/v3';
+        return 'https://api.coingecko.com/api/v3';
+    }
+
+    private authHeaders(): Record<string, string> {
+        if (!this.apiKey) return {};
+        if (this.useDemoApi) return { 'x-cg-demo-api-key': this.apiKey };
+        return { 'x-cg-pro-api-key': this.apiKey };
     }
 
     public async syncCoingeckoIds() {
@@ -93,6 +101,12 @@ export class CoingeckoDataService {
                 },
             },
         });
+
+        // Sepolia is excluded above, and it is the only configured chain. Skip the
+        // coin-list request when there is nothing to map.
+        if (allTokens.length === 0) {
+            return;
+        }
 
         const coinIds = await this.getCoinIdList();
         const platformToChain = Object.fromEntries(
@@ -154,9 +168,14 @@ export class CoingeckoDataService {
         const remainingRequests = await requestRateLimiter.removeTokens(1);
         console.log('Remaining coingecko requests', remainingRequests);
 
-        const response = await fetch(this.baseUrl + endpoint + this.apiKeyParam);
+        const response = await fetch(this.rootUrl() + endpoint, { headers: this.authHeaders() });
 
         if (!response.ok) {
+            const body = await response.text();
+            if (!this.useDemoApi && body.includes('"error_code":10011')) {
+                this.useDemoApi = true;
+                return this.get(endpoint);
+            }
             if (response.status === 429) {
                 throw Error(`Coingecko ratelimit: ${response.status} ${response.statusText}`);
             }

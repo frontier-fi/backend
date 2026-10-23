@@ -64,7 +64,7 @@ export async function getBasePoolsFromDb(
 
 async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> {
     const type = {
-        in: ['WEIGHTED', 'STABLE', 'GYROE'] as PrismaPoolType[],
+        in: ['WEIGHTED', 'STABLE', 'ECLP'] as PrismaPoolType[],
     };
 
     let pools = [] as SORDbPool[];

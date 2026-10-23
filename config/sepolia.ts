@@ -29,7 +29,7 @@ export default <NetworkData>{
     },
     rpcUrl: env.DRPC_API_KEY
         ? `https://lb.drpc.live/sepolia/${env.DRPC_API_KEY}`
-        : 'https://gateway.tenderly.co/public/sepolia',
+        : 'https://sepolia.gateway.tenderly.co',
     rpcMaxBlockRange: 10000,
     acceptableSGLag: 100, // ~1min
     protocolToken: 'bal',

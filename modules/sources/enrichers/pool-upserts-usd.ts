@@ -11,6 +11,10 @@ export const enrichPoolUpsertsUsd = <T>(
     },
     prices: { [address: string]: number },
 ) => {
+    if (!Array.isArray(data.poolToken)) {
+        return data as T;
+    }
+
     const poolToken = data.poolToken.map((token) => ({
         ...token,
         balanceUSD: parseFloat(token.balance) * prices[token.id.split('-')[1]] || 0,
