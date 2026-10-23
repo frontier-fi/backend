@@ -1,5 +1,6 @@
 import { VaultPoolFragment as VaultSubgraphPoolFragment } from '../subgraphs/vault/generated/types';
 import { Chain } from '@prisma/client';
+import { normalizeAddress } from '../../web3/addresses';
 
 /**
  * Extracts pool tokens from the vault subgraph pools and adds the BPT token as well.
@@ -16,14 +17,14 @@ export function tokensTransformer(
     return vaultSubgraphPools.flatMap((pool) => {
         return [
             ...pool.tokens.map((token) => ({
-                address: token.address,
+                address: normalizeAddress(token.address),
                 decimals: token.decimals,
                 name: token.name,
                 symbol: token.symbol,
                 chain: chain,
             })),
             {
-                address: pool.address,
+                address: normalizeAddress(pool.address),
                 decimals: 18,
                 name: pool.name,
                 symbol: pool.symbol,

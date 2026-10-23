@@ -3,6 +3,7 @@ import { AprHandler, PoolAPRData } from '../../types';
 import config from '../../../../config';
 import { chainIdToChain } from '../../../../config/chain-id-to-chain';
 import { env } from '../../../../apps/env';
+import { addressesMatch } from '../../../web3/addresses';
 
 const opportunityUrl =
     'https://api.merkl.xyz/v4/opportunities/?test=false&status=LIVE&campaigns=true&mainProtocolId=balancer&page=0&items=100';
@@ -179,12 +180,7 @@ export class MerklAprHandler implements AprHandler {
             const pools = affectedPools.filter(
                 (pool) =>
                     pool.chain === chainIdToChain[opportunity.chainId] &&
-                    pool.tokens.some((token) =>
-                        aaveTokenMappings.get(token.address.toLowerCase())
-                            ? aaveTokenMappings.get(token.address.toLowerCase()) ===
-                              opportunity.explorerAddress.toLowerCase()
-                            : token.address === opportunity.explorerAddress.toLowerCase(),
-                    ),
+                    pool.tokens.some((token) => this.tokenMatchesExplorer(token.address, opportunity.explorerAddress, aaveTokenMappings)),
             );
 
             for (const pool of pools) {
@@ -195,9 +191,7 @@ export class MerklAprHandler implements AprHandler {
                 const tvl = pool.tokens.map((t) => t.balanceUSD).reduce((a, b) => a + b, 0);
                 const tokenTvl =
                     pool.tokens.find((token) =>
-                        aaveTokenMappings.get(token.address.toLowerCase())
-                            ? aaveTokenMappings.get(token.address) === opportunity.explorerAddress.toLowerCase()
-                            : token.address === opportunity.explorerAddress.toLowerCase(),
+                        this.tokenMatchesExplorer(token.address, opportunity.explorerAddress, aaveTokenMappings),
                     )?.balanceUSD || 0;
 
                 const tokenShareOfPoolTvl = tokenTvl === 0 || tvl === 0 ? 0 : tokenTvl / tvl;
@@ -239,7 +233,7 @@ export class MerklAprHandler implements AprHandler {
         for (const opportunity of opportunities) {
             const pool = affectedPools.find(
                 (pool) =>
-                    pool.address === opportunity.identifier.toLowerCase() &&
+                    addressesMatch(pool.address, opportunity.identifier) &&
                     pool.chain === chainIdToChain[opportunity.chainId],
             );
 
@@ -258,6 +252,11 @@ export class MerklAprHandler implements AprHandler {
         }
 
         return aprs.filter((item) => item !== null);
+    }
+
+    private tokenMatchesExplorer(tokenAddress: string, explorerAddress: string, mappings: Map<string, string>): boolean {
+        const mapped = mappings.get(tokenAddress.toLowerCase());
+        return addressesMatch(mapped ?? tokenAddress, explorerAddress);
     }
 
     private async getTokenMappings(assets?: any[]) {

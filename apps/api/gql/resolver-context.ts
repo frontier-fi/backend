@@ -1,4 +1,5 @@
 import { Request } from 'express';
+import { normalizeAddress } from '../../../modules/web3/addresses';
 
 function getHeader(req: Request, key: string): string | undefined {
     const value = req.headers[key.toLowerCase()];
@@ -19,7 +20,7 @@ export async function resolverContext(req: Request) {
 
     // Initialize context if it doesn't exist
     return {
-        accountAddress: accountAddress ? accountAddress.toLowerCase() : null,
+        accountAddress: accountAddress ? normalizeAddress(accountAddress) : null,
         adminApiKey: adminApiKey ?? null,
         chainId: chainId ?? null,
         req,

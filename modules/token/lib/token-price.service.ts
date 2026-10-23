@@ -7,6 +7,7 @@ import moment from 'moment-timezone';
 import { GqlTokenChartDataRange } from '../../../apps/api/gql/generated-schema';
 import { Cache, CacheClass } from 'memory-cache';
 import config from '../../../config';
+import { addressesMatch } from '../../web3/addresses';
 
 export class TokenPriceService {
     cache: CacheClass<string, any> = new Cache<string, any>();
@@ -216,7 +217,8 @@ export class TokenPriceService {
     private addNativeEthPrice(chains: Chain[], tokenPrices: { tokenAddress: string; chain: Chain }[]) {
         for (const chain of chains) {
             const wethPrice = tokenPrices.find(
-                (tokenPrice) => tokenPrice.tokenAddress === config[chain].weth.address && tokenPrice.chain === chain,
+                (tokenPrice) =>
+                    addressesMatch(tokenPrice.tokenAddress, config[chain].weth.address) && tokenPrice.chain === chain,
             );
 
             if (wethPrice) {

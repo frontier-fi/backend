@@ -21,6 +21,7 @@ import {
 } from '../../apps/api/gql/generated-schema';
 import { Dictionary } from 'lodash';
 import config from '../../config';
+import { addressesMatch, normalizeAddress } from '../web3/addresses';
 import murmurhash from 'murmurhash';
 
 const TOKEN_PRICES_CACHE_KEY = `token:prices:current`;
@@ -37,7 +38,7 @@ export class TokenService {
         return prisma.prismaToken.findUnique({
             where: {
                 address_chain: {
-                    address: address.toLowerCase(),
+                    address: normalizeAddress(address),
                     chain,
                 },
             },
@@ -62,14 +63,15 @@ export class TokenService {
             this.cache.put(`${ALL_TOKENS_CACHE_KEY}:${chain}`, tokens, 5 * 60 * 1000);
         }
         if (addresses) {
-            return tokens.filter((token) => addresses.includes(token.address));
+            const wanted = new Set(addresses.map((address) => normalizeAddress(address)));
+            return tokens.filter((token) => wanted.has(token.address.toLowerCase()));
         }
         return tokens;
     }
 
     public async getTokenDefinition(address: string, chain: Chain): Promise<GqlToken | undefined> {
         const token = await prisma.prismaToken.findUnique({
-            where: { address_chain: { address: address, chain: chain } },
+            where: { address_chain: { address: normalizeAddress(address), chain: chain } },
             include: { types: true },
         });
 
@@ -153,7 +155,9 @@ export class TokenService {
         console.timeEnd('prismaToken.findMany');
 
         for (const chain of chains) {
-            const weth = tokens.find((token) => token.chain === chain && token.address === config[chain].weth.address);
+            const weth = tokens.find(
+                (token) => token.chain === chain && addressesMatch(token.address, config[chain].weth.address),
+            );
 
             if (weth) {
                 tokens.push({
@@ -320,7 +324,7 @@ export class TokenService {
         const token = await prisma.prismaToken.findUnique({
             where: {
                 address_chain: {
-                    address: tokenAddress.toLowerCase(),
+                    address: normalizeAddress(tokenAddress),
                     chain: chain,
                 },
             },
@@ -339,7 +343,7 @@ export class TokenService {
     public async getTokensDynamicData(tokenAddresses: string[], chain: Chain): Promise<PrismaTokenDynamicData[]> {
         const tokens = await prisma.prismaToken.findMany({
             where: {
-                address: { in: tokenAddresses.map((address) => address.toLowerCase()) },
+                address: { in: tokenAddresses.map((address) => normalizeAddress(address)) },
                 chain: chain,
             },
             include: {

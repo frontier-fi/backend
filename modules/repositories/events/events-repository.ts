@@ -3,6 +3,7 @@ import { prisma } from '../../../prisma/prisma-client';
 import { JoinExitEvent, SwapEvent } from '../../../prisma/prisma-types';
 import type { SwapStats } from './types';
 import { daysAgo, now } from '../../common/time';
+import { normalizeAddress } from '../../web3/addresses';
 
 const orderBy: Prisma.PrismaPoolEventOrderByWithRelationInput[] = [
     { blockTimestamp: 'desc' },
@@ -34,10 +35,10 @@ export const eventsRepository = {
             chain,
             ...(poolId
                 ? {
-                      poolId,
+                      poolId: normalizeAddress(poolId),
                       ...(userAddress
                           ? {
-                                userAddress: userAddress.toLowerCase(),
+                                userAddress: normalizeAddress(userAddress),
                             }
                           : {}),
                   }
@@ -339,8 +340,8 @@ export const eventsRepository = {
             ON s.timestamp = j.timestamp
           ORDER BY timestamp`;
 
-        params.push(tokenA.toLowerCase());
-        params.push(tokenB.toLowerCase());
+        params.push(normalizeAddress(tokenA));
+        params.push(normalizeAddress(tokenB));
 
         const results = (await prisma.$queryRawUnsafe(query, ...params)) as any[];
 

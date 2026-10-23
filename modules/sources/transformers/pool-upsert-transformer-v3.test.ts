@@ -5,14 +5,24 @@ import { PoolType } from '../subgraphs/pools/generated/types';
 import { V3JoinedSubgraphPool } from '../subgraphs';
 import { poolUpsertTransformerV3 } from './pool-upsert-transformer-v3';
 
+const POOL = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const FACTORY = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const TOKEN = '0xcccccccccccccccccccccccccccccccccccccccc';
+const RATE = '0xdddddddddddddddddddddddddddddddddddddddd';
+const FEE_MANAGER = '0x1111111111111111111111111111111111111111';
+const CREATOR = '0x2222222222222222222222222222222222222222';
+const PARENT = '0x3333333333333333333333333333333333333333';
+const CHILD = '0x4444444444444444444444444444444444444444';
+const NESTED = '0x5555555555555555555555555555555555555555';
+
 const pool = (factoryType: string, extra: Record<string, unknown> = {}) =>
     ({
-        id: '0xABC',
+        id: POOL,
         symbol: 'P',
         name: 'Pool',
-        swapFeeManager: '0xfee',
+        swapFeeManager: FEE_MANAGER,
         pauseManager: null,
-        poolCreator: '0xcreator',
+        poolCreator: CREATOR,
         blockTimestamp: '10',
         swapFee: '0.01',
         totalShares: '1',
@@ -20,10 +30,10 @@ const pool = (factoryType: string, extra: Record<string, unknown> = {}) =>
         isInRecoveryMode: false,
         liquidityManagement: {},
         hookConfig: null,
-        factory: { type: factoryType, id: '0xFACTORY', version: 1 },
+        factory: { type: factoryType, id: FACTORY, version: 1 },
         tokens: [
             {
-                address: '0xTOKEN',
+                address: TOKEN,
                 decimals: 18,
                 symbol: 'T',
                 name: 'Token',
@@ -34,7 +44,7 @@ const pool = (factoryType: string, extra: Record<string, unknown> = {}) =>
                 nestedPool: null,
             },
         ],
-        rateProviders: [{ address: '0xRATE' }],
+        rateProviders: [{ address: RATE }],
         weightedParams: { weights: ['1'] },
         stableParams: { amp: '200' },
         gyroEParams: { alpha: '1', beta: '2' },
@@ -150,7 +160,7 @@ describe('poolUpsertTransformerV3', () => {
 
         expect(weighted?.pool.type).toBe(PrismaPoolType.WEIGHTED);
         expect(weighted?.pool.protocolVersion).toBe(3);
-        expect(weighted?.pool.id).toBe('0xabc');
+        expect(weighted?.pool.id).toBe(POOL);
         expect(stable?.pool.type).toBe(PrismaPoolType.STABLE);
         expect(stable?.pool.typeData).toMatchObject({ amp: '200' });
         expect(gyro?.pool.type).toBe(PrismaPoolType.GYROE);
@@ -161,13 +171,14 @@ describe('poolUpsertTransformerV3', () => {
         expect(poolUpsertTransformerV3(pool('ReClamm'), Chain.SEPOLIA, 5)).toBeNull();
     });
 
-    it('lowercases ids, stores the BPT token, and keeps weights only on weighted pools', () => {
+    it('stores a checksummed address in lowercase and keeps weights only on weighted pools', () => {
+        const checksummedPool = '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14';
         const weighted = poolUpsertTransformerV3(
             pool(PoolType.Weighted, {
-                id: '0xABCDEF',
+                id: checksummedPool,
                 tokens: [
                     {
-                        address: '0xTOKEN',
+                        address: TOKEN,
                         decimals: 6,
                         symbol: 'USDC',
                         name: 'USDC',
@@ -179,17 +190,17 @@ describe('poolUpsertTransformerV3', () => {
                     },
                 ],
                 weightedParams: { weights: ['0.5'] },
-                rateProviders: [{ address: '0xRATE' }],
+                rateProviders: [{ address: RATE }],
             }),
             Chain.SEPOLIA,
             5,
         );
 
-        expect(weighted?.pool.id).toBe('0xabcdef');
-        expect(weighted?.pool.factory).toBe('0xfactory');
-        expect(weighted?.tokens.map((token) => token.address)).toEqual(['0xTOKEN', '0xABCDEF']);
+        expect(weighted?.pool.id).toBe(checksummedPool.toLowerCase());
+        expect(weighted?.pool.factory).toBe(FACTORY);
+        expect(weighted?.tokens.map((token) => token.address)).toEqual([TOKEN, checksummedPool.toLowerCase()]);
         expect(weighted?.poolToken[0].weight).toBe('0.5');
-        expect(weighted?.poolToken[0].priceRateProvider).toBe('0xrate');
+        expect(weighted?.poolToken[0].priceRateProvider).toBe(RATE);
         expect(weighted?.poolToken[0].exemptFromProtocolYieldFee).toBe(true);
         expect(weighted?.poolDynamicData.totalShares).toBe(parseEther('1').toString());
 
@@ -202,7 +213,7 @@ describe('poolUpsertTransformerV3', () => {
             pool(PoolType.Weighted, {
                 tokens: [
                     {
-                        address: '0xPARENT',
+                        address: PARENT,
                         decimals: 18,
                         symbol: 'BPT',
                         name: 'Nested',
@@ -211,8 +222,8 @@ describe('poolUpsertTransformerV3', () => {
                         paysYieldFees: true,
                         scalingFactor: '1',
                         nestedPool: {
-                            id: '0xNESTED',
-                            tokens: [{ address: '0xCHILD', nestedPool: { id: '0xNESTED' } }],
+                            id: NESTED,
+                            tokens: [{ address: CHILD, nestedPool: { id: NESTED } }],
                         },
                     },
                 ],
@@ -222,10 +233,10 @@ describe('poolUpsertTransformerV3', () => {
         );
 
         expect(nested?.poolExpandedTokens).toEqual([
-            { poolId: '0xabc', chain: Chain.SEPOLIA, tokenAddress: '0xparent', nestedPoolId: '0xnested' },
-            { poolId: '0xabc', chain: Chain.SEPOLIA, tokenAddress: '0xchild', nestedPoolId: '0xnested' },
+            { poolId: POOL, chain: Chain.SEPOLIA, tokenAddress: PARENT, nestedPoolId: NESTED },
+            { poolId: POOL, chain: Chain.SEPOLIA, tokenAddress: CHILD, nestedPoolId: NESTED },
         ]);
-        expect(nested?.poolToken[0].nestedPoolId).toBe('0xnested');
+        expect(nested?.poolToken[0].nestedPoolId).toBe(NESTED);
     });
 
     it('maps the live Sepolia GyroE, stable, and weighted pools', () => {

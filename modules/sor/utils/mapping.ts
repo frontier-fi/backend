@@ -13,7 +13,7 @@ import { SwapKind, TokenAmount, BatchSwapStep, DEFAULT_USERDATA, SingleSwap } fr
 import { formatUnits } from 'viem';
 import { PathWithAmount } from '../lib/path';
 import { Chain } from '@prisma/client';
-import { replaceZeroAddressWithEth } from '../../web3/addresses';
+import { addressesMatch, replaceZeroAddressWithEth } from '../../web3/addresses';
 import { GqlSorSwap } from '../../../apps/api/gql/generated-schema';
 import { getInputAmount, getOutputAmount } from '../lib/utils/helpers';
 import { GetSwapPathsInput } from '../types';
@@ -26,7 +26,8 @@ export async function mapToGetSwapPathsInput(
     const amountToken = args.swapType === 'EXACT_IN' ? args.tokenIn : args.tokenOut;
     const amount = await getTokenAmountHuman(amountToken, args.swapAmount, args.chain);
     const wethIsEth =
-        args.tokenIn === config[args.chain].eth.address || args.tokenOut === config[args.chain].eth.address;
+        addressesMatch(args.tokenIn, config[args.chain].eth.address) ||
+        addressesMatch(args.tokenOut, config[args.chain].eth.address);
 
     return {
         chain: args.chain,

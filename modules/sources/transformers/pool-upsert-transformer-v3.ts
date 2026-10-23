@@ -5,6 +5,7 @@ import { V3JoinedSubgraphPool } from '../subgraphs';
 import { parseEther } from 'viem';
 import { PoolUpsertData } from '../../../prisma/prisma-types';
 import { hookTransformer } from './hook-transformer';
+import { normalizeAddress } from '../../web3/addresses';
 import _ from 'lodash';
 
 // Subgraph to DB format transformation
@@ -49,17 +50,17 @@ export const poolUpsertTransformerV3 = (
 
     return {
         pool: {
-            id: poolData.id.toLowerCase(),
+            id: normalizeAddress(poolData.id),
             chain: chain,
             protocolVersion: 3,
-            address: poolData.id.toLowerCase(),
+            address: normalizeAddress(poolData.id),
             decimals: 18,
             symbol: poolData.symbol,
             name: poolData.name,
-            swapFeeManager: poolData.swapFeeManager,
-            pauseManager: poolData.pauseManager,
-            poolCreator: poolData.poolCreator,
-            factory: poolData.factory.id.toLowerCase(),
+            swapFeeManager: normalizeAddress(poolData.swapFeeManager),
+            pauseManager: poolData.pauseManager ? normalizeAddress(poolData.pauseManager) : null,
+            poolCreator: poolData.poolCreator ? normalizeAddress(poolData.poolCreator) : null,
+            factory: normalizeAddress(poolData.factory.id),
             type: type,
             typeData: typeData,
             version: poolData.factory.version,
@@ -69,14 +70,14 @@ export const poolUpsertTransformerV3 = (
         },
         tokens: [
             ...poolData.tokens.map((token) => ({
-                address: token.address,
+                address: normalizeAddress(token.address),
                 decimals: token.decimals,
                 symbol: token.symbol,
                 name: token.name,
                 chain,
             })),
             {
-                address: poolData.id,
+                address: normalizeAddress(poolData.id),
                 decimals: 18,
                 symbol: poolData.symbol,
                 name: poolData.name,
@@ -84,7 +85,7 @@ export const poolUpsertTransformerV3 = (
             },
         ],
         poolDynamicData: {
-            id: poolData.id,
+            id: normalizeAddress(poolData.id),
             swapFee: String(poolData.swapFee),
             totalShares: String(parseEther(poolData.totalShares)),
             totalSharesNum: Number(poolData.totalShares),
@@ -93,23 +94,23 @@ export const poolUpsertTransformerV3 = (
             blockNumber,
         },
         poolToken: poolData.tokens.map((token, i) => ({
-            id: `${poolData.id}-${token.address}`.toLowerCase(),
-            poolId: poolData.id.toLowerCase(),
+            id: `${normalizeAddress(poolData.id)}-${normalizeAddress(token.address)}`,
+            poolId: normalizeAddress(poolData.id),
             chain: chain,
-            address: token.address.toLowerCase(),
+            address: normalizeAddress(token.address),
             index: token.index,
-            nestedPoolId: token.nestedPool?.id.toLowerCase() ?? null,
-            priceRateProvider: poolData.rateProviders![i].address.toLowerCase(),
+            nestedPoolId: token.nestedPool ? normalizeAddress(token.nestedPool.id) : null,
+            priceRateProvider: normalizeAddress(poolData.rateProviders![i].address),
             exemptFromProtocolYieldFee: !token.paysYieldFees,
             scalingFactor: token.scalingFactor,
             balance: token.balance,
             weight: poolData.weightedParams ? poolData.weightedParams.weights[token.index] ?? null : null,
         })),
         poolExpandedTokens: allTokens.map((token) => ({
-            poolId: poolData.id.toLowerCase(),
+            poolId: normalizeAddress(poolData.id),
             chain,
-            tokenAddress: token.address.toLowerCase(),
-            nestedPoolId: token.nestedPool?.id.toLowerCase() || null,
+            tokenAddress: normalizeAddress(token.address),
+            nestedPoolId: token.nestedPool ? normalizeAddress(token.nestedPool.id) : null,
         })),
     };
 };

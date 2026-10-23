@@ -1,21 +1,28 @@
 import { NextFunction, Request, Response, json } from 'express';
 import { parse, print, visit } from 'graphql';
+import { normalizeAddress } from '../../../modules/web3/addresses';
 
 const LOWER_REGEX =
     /id|poolId|poolIdIn|address|addresses|userAddress|tokensIn|tokensNotIn|tokenInIn|tokenOutIn|tokenIn|tokenOut|idIn|idNotIn/;
 
 const UPPER_REGEX = /categories/;
+const EVM_ADDRESS = /^0x[a-fA-F0-9]{40}$/;
+
+function normalizeQueryValue(value: string): string {
+    if (EVM_ADDRESS.test(value)) return normalizeAddress(value);
+    return value.toLowerCase();
+}
 
 // Recursively convert values of poolId, address, id to lowercase
 // Used when passing variables to queries
 const convertLetterCase = (obj: Record<string, any>) => {
     for (let key in obj) {
         if (typeof obj[key] === 'string' && LOWER_REGEX.test(key)) {
-            obj[key] = obj[key].toLowerCase();
+            obj[key] = normalizeQueryValue(obj[key]);
         } else if (typeof obj[key] === 'string' && UPPER_REGEX.test(key)) {
             obj[key] = obj[key].toUpperCase();
         } else if (Array.isArray(obj[key]) && LOWER_REGEX.test(key)) {
-            obj[key] = obj[key].map((item: string) => item.toLowerCase());
+            obj[key] = obj[key].map((item: string) => normalizeQueryValue(item));
         } else if (Array.isArray(obj[key]) && UPPER_REGEX.test(key)) {
             obj[key] = obj[key].map((item: string) => item.toUpperCase());
         } else if (typeof obj[key] === 'object' && obj[key] !== null) {
@@ -36,7 +43,7 @@ const casedQueryParams = (query: string): string => {
                     if (value.kind === 'StringValue') {
                         return {
                             ...value,
-                            value: value.value.toLowerCase(),
+                            value: normalizeQueryValue(value.value),
                         };
                     }
                     return value;
@@ -71,7 +78,7 @@ const casedQueryParams = (query: string): string => {
             if (LOWER_REGEX.test(node.name.value)) {
                 if (node.value.kind === 'StringValue') {
                     // Convert the argument value to lowercase
-                    const value = node.value.value.toLowerCase();
+                    const value = normalizeQueryValue(node.value.value);
                     return {
                         ...node,
                         value: {
@@ -84,7 +91,7 @@ const casedQueryParams = (query: string): string => {
                         if (value.kind === 'StringValue') {
                             return {
                                 ...value,
-                                value: value.value.toLowerCase(),
+                                value: normalizeQueryValue(value.value),
                             };
                         }
                         return value;
@@ -136,9 +143,8 @@ const casedQueryParams = (query: string): string => {
 };
 
 /**
- * Middleware to convert all query parameters to lowercase.
- * This middleware is useful when the database query is implementend with case-sensitive filters.
- * It ensures that the query parameters 'poolId', 'address', and 'id' are converted to lowercase.
+ * Middleware that normalizes address arguments before they reach case-sensitive database filters.
+ * A 20-byte address is checksum-checked and stored lowercase. A bad checksum is rejected.
  *
  * @param req The request object
  * @param res The response object

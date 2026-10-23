@@ -4,21 +4,27 @@ import { GqlHook } from '../../../apps/api/gql/generated-schema';
 import { V3JoinedSubgraphPool } from '../subgraphs';
 import { zeroAddress } from 'viem';
 import config from '../../../config';
+import { addressesMatch, normalizeAddress } from '../../web3/addresses';
 
 export const hookTransformer = (poolData: V3JoinedSubgraphPool, chain: Chain): HookData | undefined => {
     // A v3 pool with no hook still carries a hook config whose address is 0x0.
     const hookConfig =
-        poolData.hookConfig && poolData.hookConfig.hook.address !== zeroAddress ? poolData.hookConfig : undefined;
+        poolData.hookConfig && !addressesMatch(poolData.hookConfig.hook.address, zeroAddress)
+            ? poolData.hookConfig
+            : undefined;
 
     if (!hookConfig) {
         return undefined;
     }
 
     const { hook, ...hookFlags } = hookConfig;
-    const type = config[chain].hooks?.[hook.address] ?? 'UNKNOWN';
+    const registered = Object.entries(config[chain].hooks ?? {}).find(([address]) =>
+        addressesMatch(address, hook.address),
+    );
+    const type = registered?.[1] ?? 'UNKNOWN';
 
     return {
-        address: hook.address.toLowerCase(),
+        address: normalizeAddress(hook.address),
         type,
         ...hookFlags,
     };

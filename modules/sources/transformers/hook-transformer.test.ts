@@ -28,7 +28,7 @@ describe('hookTransformer', () => {
     });
 
     it('stores any other address as UNKNOWN and keeps the vault flags', () => {
-        const hook = hookTransformer(pool('0xBB1761AF481364A6BD7FDBDB8CFA23ABD85F0263'), Chain.SEPOLIA);
+        const hook = hookTransformer(pool('0xbb1761af481364a6bd7fdbdb8cfa23abd85f0263'), Chain.SEPOLIA);
 
         expect(hook).toMatchObject({
             address: '0xbb1761af481364a6bd7fdbdb8cfa23abd85f0263',

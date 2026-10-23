@@ -2,7 +2,7 @@ import { tokenService } from '../../token/token.service';
 import { Chain } from '@prisma/client';
 import { chainToChainId as chainToIdMap } from '../../../config/chain-id-to-chain';
 import { GqlSorGetSwapPaths } from '../../../apps/api/gql/generated-schema';
-import { replaceZeroAddressWithEth } from '../../web3/addresses';
+import { addressesMatch, replaceZeroAddressWithEth } from '../../web3/addresses';
 import { Address } from 'viem';
 import { Token, TokenAmount } from '@balancer/sdk';
 import config from '../../../config';
@@ -24,7 +24,7 @@ export async function getTokenAmountRaw(tokenAddr: string, rawAmount: string, ch
  * @returns
  */
 export const getToken = async (tokenAddr: string, chain: Chain): Promise<Token> => {
-    if (tokenAddr === config[chain].eth.address) {
+    if (addressesMatch(tokenAddr, config[chain].eth.address)) {
         return new Token(parseInt(chainToIdMap[chain]), config[chain].weth.address as Address, 18);
     } else {
         const decimals = await tokenService.getTokenDecimals(tokenAddr, chain);

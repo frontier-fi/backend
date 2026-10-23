@@ -13,7 +13,7 @@
  *
  * WETH, and ETH when that export exists, come from
  * https://github.com/frontier-fi/deployments/blob/main/src/constants.ts
- * The stored address is lowercase.
+ * Every address written into the config is EIP-55 checksummed.
  *
  * Subgraph URLs, hooks, and fees stay as written. The config file has to exist already.
  *
@@ -22,6 +22,7 @@
 
 import { readFileSync, writeFileSync } from 'fs';
 import path from 'path';
+import { getAddress, isAddress } from 'viem';
 
 const LOOKUP_URL = 'https://raw.githubusercontent.com/frontier-fi/deployments/main/addresses/_lookup.json';
 const CONSTANTS_URL = 'https://raw.githubusercontent.com/frontier-fi/deployments/main/src/constants.ts';
@@ -62,7 +63,7 @@ function activeContracts(network: LookupFile[string]): Record<string, string> {
     return Object.fromEntries(
         [...chosen.entries()]
             .sort(([left], [right]) => left.localeCompare(right))
-            .map(([name, value]) => [name, value.address]),
+            .map(([name, value]) => [name, checksumAddress(value.address)]),
     );
 }
 
@@ -84,14 +85,14 @@ function indexMulticall(entries: MulticallEntry[]): Map<number, string> {
     const resolved = new Map<number, string>();
     for (const [chainId, addresses] of byChain) {
         if (addresses.length === 1) {
-            resolved.set(chainId, addresses[0]);
+            resolved.set(chainId, checksumAddress(addresses[0]));
             continue;
         }
         const canonical = addresses.find((address) => address.toLowerCase() === CANONICAL_MULTICALL3.toLowerCase());
         if (!canonical) {
             throw new Error(`Chain ${chainId} has multiple Multicall3 addresses: ${addresses.join(', ')}`);
         }
-        resolved.set(chainId, canonical);
+        resolved.set(chainId, checksumAddress(canonical));
     }
     return resolved;
 }
@@ -128,8 +129,15 @@ function replaceInBlock(source: string, blockName: string, key: string, value: s
     return source.replace(blockPattern, `$1${body}$3`);
 }
 
+function checksumAddress(address: string): string {
+    if (!isAddress(address)) {
+        throw new Error(`Invalid address ${address}`);
+    }
+    return getAddress(address);
+}
+
 function setTokenBlock(source: string, blockName: string, published: string): string {
-    return replaceInBlock(source, blockName, 'address', published.toLowerCase());
+    return replaceInBlock(source, blockName, 'address', checksumAddress(published));
 }
 
 function contractsBlock(contracts: Record<string, string>): string {
@@ -154,7 +162,12 @@ function upsertContracts(source: string, contracts: Record<string, string>): str
 function setMulticall3(source: string, address: string): string {
     const pattern = /^(\s*multicall3:\s*')[^']+(')/m;
     if (!pattern.test(source)) throw new Error('multicall3 is missing');
-    let next = source.replace(pattern, `$1${address}$2`);
+    let next = source.replace(pattern, `$1${checksumAddress(address)}$2`);
+    const maker = /^(\s*multicall:\s*')(0x[a-fA-F0-9]{40})(')/m;
+    const makerMatch = next.match(maker);
+    if (makerMatch) {
+        next = next.replace(maker, `$1${checksumAddress(makerMatch[2])}$3`);
+    }
     const comment = '    // Multicall3 from https://github.com/mds1/multicall deployments.json.';
     if (!next.includes('github.com/mds1/multicall')) {
         next = next.replace(/^(\s*multicall:)/m, `${comment}\n$1`);
