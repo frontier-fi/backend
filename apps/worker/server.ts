@@ -17,7 +17,7 @@ export async function startWorkerServer() {
         return; // Do nothing
     });
 
-    app.listen(env.PORT, () => {
+    app.listen(env.PORT, '0.0.0.0', () => {
         console.log(`Worker listening on port ${env.PORT}`);
     });
 }

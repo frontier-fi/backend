@@ -1,94 +1,55 @@
-import { EnvType, load } from 'ts-dotenv';
+import { existsSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
+import { EnvType, load } from 'ts-dotenv';
 
 type Env = EnvType<typeof schema>;
 
 export const schema = {
     PORT: Number,
     NODE_ENV: String,
-    DEFAULT_CHAIN_ID: String,
     DEPLOYMENT_ENV: String,
     ADMIN_API_KEY: String,
-    SANITY_API_TOKEN: String,
-    SENTRY_DSN: String,
-    SENTRY_AUTH_TOKEN: String,
-    SENTRY_TRACES_SAMPLE_RATE: {
-        optional: true,
-        type: String,
-    },
-    SENTRY_PROFILES_SAMPLE_RATE: {
-        optional: true,
-        type: String,
-    },
-    AWS_REGION: String,
-    PROTOCOL: {
-        optional: true,
-        type: String,
-    },
-    DRPC_API_KEY: {
-        optional: true,
-        type: String,
-    },
-    DRPC_BEETS_API_KEY: {
-        optional: true,
-        type: String,
-    },
-    COINGECKO_API_KEY: {
-        optional: true,
-        type: String,
-    },
-    THEGRAPH_API_KEY_FANTOM: {
-        optional: true,
-        type: String,
-    },
-    THEGRAPH_API_KEY_BALANCER: {
-        optional: true,
-        type: String,
-    },
-    WORKER_QUEUE_URL: {
-        optional: true,
-        type: String,
-    },
     DATABASE_URL: String,
-    SUPERFORM_API_KEY: {
-        optional: true,
-        type: String,
-    },
-    SOR_POOLS_CACHE_TTL_SECONDS: {
-        type: String,
-        default: '10',
-    },
-    SOR_SERVICE_URL: {
-        type: String,
-        default: 'http://sor-internal-75e33c0e4ea5363e.elb.eu-central-1.amazonaws.com/graphql',
-    },
-    SOR_INSTANCE: {
-        type: Boolean,
-        default: false,
-    },
-    PAXOS_APR_KEY: {
-        type: String,
-        optional: true,
-    },
-    TOKENLOGIC_API_KEY: {
-        type: String,
-        optional: true,
-    },
-    FUUL_HYPURR_API_KEY: {
-        type: String,
-        optional: true,
-    },
-    MERKL_API_KEY: {
-        type: String,
-        optional: true,
-    },
-    DIRECT_API_KEY: {
-        type: String,
-        optional: true,
-    },
+    DRPC_API_KEY: { type: String, optional: true },
+    COINGECKO_API_KEY: { type: String, optional: true },
+    MERKL_API_KEY: { type: String, optional: true },
+    WORKER_QUEUE_URL: { type: String, optional: true },
+    SENTRY_DSN: { type: String, optional: true },
+    SENTRY_TRACES_SAMPLE_RATE: { type: String, optional: true },
+    SENTRY_PROFILES_SAMPLE_RATE: { type: String, optional: true },
+    SOR_POOLS_CACHE_TTL_SECONDS: { type: String, default: '10' },
+    SOR_SERVICE_URL: { type: String, default: 'http://localhost:4000/graphql' },
+    SOR_INSTANCE: { type: Boolean, default: false },
 };
 
+function projectRoot(): string {
+    let dir = __dirname;
+    for (let i = 0; i < 5; i++) {
+        if (existsSync(resolve(dir, 'package.json'))) {
+            return dir;
+        }
+        const parent = resolve(dir, '..');
+        if (parent === dir) {
+            break;
+        }
+        dir = parent;
+    }
+    return process.cwd();
+}
+
+const envPath = resolve(projectRoot(), '.env');
+
+// ts-dotenv throws when the file is missing. Containers get configuration from
+// the platform environment, so create an empty file and let process env win.
+if (!existsSync(envPath)) {
+    try {
+        writeFileSync(envPath, '');
+    } catch {
+        // A read-only filesystem still fails inside load(), with the original error.
+    }
+}
+
 export const env: Env = load(schema, {
-    path: resolve(__dirname, `../../.env`),
+    path: envPath,
     overrideProcessEnv: true,
 });
