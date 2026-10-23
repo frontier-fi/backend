@@ -17,6 +17,7 @@
         "sync-config": "bun scripts/sync-network-config.ts",
         "sor-backtest": "bun scripts/sor-backtest.ts",
         "test": "vitest",
+        "test:e2e": "vitest run --config vitest.e2e.config.mts",
         "vitest": "vitest",
         "task": "bun run tasks/index.ts",
         "mutation": "sh scripts/run_mutation.sh",

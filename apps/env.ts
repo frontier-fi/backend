@@ -51,5 +51,7 @@ if (!existsSync(envPath)) {
 
 export const env: Env = load(schema, {
     path: envPath,
-    overrideProcessEnv: true,
+    // Process environment wins. Containers and the e2e harness set PORT and
+    // DATABASE_URL themselves; the file only fills keys that are still unset.
+    overrideProcessEnv: false,
 });
