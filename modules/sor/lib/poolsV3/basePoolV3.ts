@@ -13,20 +13,20 @@ export class BasePoolV3 {
     public readonly chain: Chain;
     public readonly id: Hex;
     public readonly address: string;
-    public declare readonly poolType: PoolType | string;
+    declare public readonly poolType: PoolType | string;
     public readonly swapFee: bigint;
     public readonly aggregateSwapFee: bigint;
     public readonly tokenPairs: TokenPairData[];
 
     public totalShares: bigint;
 
-    public declare tokens: BasePoolToken[];
+    declare public tokens: BasePoolToken[];
 
     public readonly hookState: HookState | undefined;
     public readonly liquidityManagement: LiquidityManagement;
 
     protected vault: Vault;
-    protected declare poolState: PoolState;
+    declare protected poolState: PoolState;
 
     constructor(
         id: Hex,

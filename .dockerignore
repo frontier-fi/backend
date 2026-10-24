@@ -28,4 +28,5 @@ scripts/*
 !scripts/generate.ts
 **/*.test.ts
 **/*.spec.ts
+stellate.ts
 app-architecture.excalidraw

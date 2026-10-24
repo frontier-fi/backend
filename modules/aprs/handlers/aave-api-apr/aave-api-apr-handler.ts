@@ -9,7 +9,10 @@ import { AaveChanClientInterface, AaveChanResponse, AaveChanClient } from './aav
 export class AaveApiAprHandler implements AprHandler {
     private client: AaveChanClientInterface;
 
-    constructor(private readonly chainId: string, injectedClient?: AaveChanClientInterface) {
+    constructor(
+        private readonly chainId: string,
+        injectedClient?: AaveChanClientInterface,
+    ) {
         // Create a default client if not present
         this.client = injectedClient || new AaveChanClient(chainId);
     }

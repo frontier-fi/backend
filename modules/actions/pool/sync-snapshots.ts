@@ -348,52 +348,52 @@ async function getPoolTokenBalancesAtBlocks(
     const balancesMap: Record<number, { address: string; balance: string; index: number }[]> = {};
 
     // Process blocks in batches
-        for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
-            const batch = blocks.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
+        const batch = blocks.slice(i, i + BATCH_SIZE);
 
-            // Create a promise for each block in the batch
-            const promises = batch.map(async (block) => {
-                try {
-                    const result = await client.readContract({
-                        address: config[pool.chain].contracts.Vault as `0x${string}`,
-                        abi: parseAbi([
-                            'function getPoolTokenInfo(address pool) external view returns (address[] memory tokens, uint256[] memory tokenInfo, uint256[] memory balancesRaw, uint256[] memory lastBalancesLiveScaled18)',
-                        ]),
-                        functionName: 'getPoolTokenInfo',
-                        blockNumber: BigInt(block.number),
-                        args: [pool.address as `0x${string}`],
-                    });
+        // Create a promise for each block in the batch
+        const promises = batch.map(async (block) => {
+            try {
+                const result = await client.readContract({
+                    address: config[pool.chain].contracts.Vault as `0x${string}`,
+                    abi: parseAbi([
+                        'function getPoolTokenInfo(address pool) external view returns (address[] memory tokens, uint256[] memory tokenInfo, uint256[] memory balancesRaw, uint256[] memory lastBalancesLiveScaled18)',
+                    ]),
+                    functionName: 'getPoolTokenInfo',
+                    blockNumber: BigInt(block.number),
+                    args: [pool.address as `0x${string}`],
+                });
 
-                    const tokens = (result as any)[0].map((address: string, index: number) => ({
-                        address,
-                        balance: formatUnits((result as any)[2][index], decimalsMap[address.toLowerCase()]),
-                        index,
-                    }));
+                const tokens = (result as any)[0].map((address: string, index: number) => ({
+                    address,
+                    balance: formatUnits((result as any)[2][index], decimalsMap[address.toLowerCase()]),
+                    index,
+                }));
 
-                    return {
-                        timestamp: block.timestamp,
-                        tokens,
-                    };
-                } catch (error) {
-                    console.error(
-                        `Failed to get pool token balances for pool ${pool.id} at block ${block.number} (timestamp: ${block.timestamp}):`,
-                        error,
-                    );
-                    return {
-                        timestamp: block.timestamp,
-                        tokens: [],
-                    };
-                }
-            });
-
-            // Wait for all promises in this batch to resolve
-            const results = await Promise.all(promises);
-
-            // Add results to the map
-            for (const result of results) {
-                balancesMap[result.timestamp] = result.tokens;
+                return {
+                    timestamp: block.timestamp,
+                    tokens,
+                };
+            } catch (error) {
+                console.error(
+                    `Failed to get pool token balances for pool ${pool.id} at block ${block.number} (timestamp: ${block.timestamp}):`,
+                    error,
+                );
+                return {
+                    timestamp: block.timestamp,
+                    tokens: [],
+                };
             }
-        }
+        });
 
-        return balancesMap;
+        // Wait for all promises in this batch to resolve
+        const results = await Promise.all(promises);
+
+        // Add results to the map
+        for (const result of results) {
+            balancesMap[result.timestamp] = result.tokens;
+        }
+    }
+
+    return balancesMap;
 }

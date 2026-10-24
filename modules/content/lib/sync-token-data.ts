@@ -1,10 +1,7 @@
 import { prisma } from '../../../prisma/prisma-client';
 import { chainIdToChain, chainToChainId as chainToIdMap } from '../../../config/chain-id-to-chain';
 import { Chain, PrismaTokenTypeOption } from '@prisma/client';
-
-const TOKEN_LIST_URL = 'https://raw.githubusercontent.com/balancer/tokenlists/main/generated/balancer.tokenlist.json';
-
-const BLOCKED_TOKENS_URL = 'https://raw.githubusercontent.com/balancer/blocklist/refs/heads/main/tokens/blocked.csv';
+import { contentSources } from '../../../config/content-sources';
 
 interface WhitelistedTokenList {
     name: string;
@@ -25,7 +22,7 @@ interface WhitelistedToken {
 }
 
 export async function syncTokenContentData(chains: Chain[]): Promise<void> {
-    const response = await fetch(TOKEN_LIST_URL);
+    const response = await fetch(contentSources.tokenList);
     if (!response.ok) {
         throw new Error(`Failed to fetch token list: ${response.statusText}`);
     }
@@ -89,7 +86,7 @@ async function syncBlockedTokens() {
             select: { id: true, tokenAddress: true, chain: true, type: true },
             where: { type: PrismaTokenTypeOption.BLOCKED_V3 },
         }),
-        fetch(BLOCKED_TOKENS_URL).then(async (response) => {
+        fetch(contentSources.blockedTokens).then(async (response) => {
             if (!response.ok) {
                 throw new Error(`Failed to fetch blocked tokens: ${response.statusText}`);
             }
@@ -108,10 +105,7 @@ async function syncBlockedTokens() {
                 protocolVersion: parseInt(protocolVersion),
             };
         })
-        .filter(
-            (token) =>
-                token.tokenAddress && token.chain && token.protocolVersion === 3,
-        );
+        .filter((token) => token.tokenAddress && token.chain && token.protocolVersion === 3);
 
     const existingTokensInDB = await prisma.prismaToken.findMany({
         where: {

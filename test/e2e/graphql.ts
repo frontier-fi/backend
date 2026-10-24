@@ -57,8 +57,12 @@ export function data<T>(result: GraphqlResult<T>): T {
 }
 
 export function expectRejectedAddress(result: GraphqlResult<unknown>): void {
-    const message = `${result.status} ${result.raw}`.toLowerCase();
-    if (!message.includes('invalid address')) {
-        throw new Error(`Expected a bad checksum to be rejected\n${result.status} ${result.raw}\n${serverLogs()}`);
+    const error = result.body.errors?.[0];
+    const rejected =
+        result.status === 400 && error?.extensions?.code === 'BAD_USER_INPUT' && /invalid address/i.test(error.message);
+    if (!rejected) {
+        throw new Error(
+            `Expected a 400 BAD_USER_INPUT for a bad checksum\n${result.status} ${result.raw}\n${serverLogs()}`,
+        );
     }
 }

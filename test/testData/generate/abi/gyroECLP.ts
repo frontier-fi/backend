@@ -137,9 +137,7 @@ export const gyroECLPAbi = [
         type: 'error',
     },
     {
-        inputs: [
-            { internalType: 'uint256', name: 'deadline', type: 'uint256' },
-        ],
+        inputs: [{ internalType: 'uint256', name: 'deadline', type: 'uint256' }],
         name: 'ERC2612ExpiredSignature',
         type: 'error',
     },
@@ -327,9 +325,7 @@ export const gyroECLPAbi = [
             },
         ],
         name: 'computeBalance',
-        outputs: [
-            { internalType: 'uint256', name: 'newBalance', type: 'uint256' },
-        ],
+        outputs: [{ internalType: 'uint256', name: 'newBalance', type: 'uint256' }],
         stateMutability: 'view',
         type: 'function',
     },
@@ -721,9 +717,7 @@ export const gyroECLPAbi = [
     {
         inputs: [],
         name: 'getVault',
-        outputs: [
-            { internalType: 'contract IVault', name: '', type: 'address' },
-        ],
+        outputs: [{ internalType: 'contract IVault', name: '', type: 'address' }],
         stateMutability: 'view',
         type: 'function',
     },
@@ -810,9 +804,7 @@ export const gyroECLPAbi = [
         type: 'function',
     },
     {
-        inputs: [
-            { internalType: 'bytes4', name: 'interfaceId', type: 'bytes4' },
-        ],
+        inputs: [{ internalType: 'bytes4', name: 'interfaceId', type: 'bytes4' }],
         name: 'supportsInterface',
         outputs: [{ internalType: 'bool', name: '', type: 'bool' }],
         stateMutability: 'view',

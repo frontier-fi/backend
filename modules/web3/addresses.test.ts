@@ -1,5 +1,5 @@
 import { getAddress } from 'viem';
-import { addressesMatch, normalizeAddress } from './addresses';
+import { addressesMatch, InvalidAddressError, normalizeAddress } from './addresses';
 
 const WETH = '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14';
 
@@ -17,6 +17,19 @@ describe('normalizeAddress', () => {
 
     it('rejects a value that is not an address', () => {
         expect(() => normalizeAddress('0xabc')).toThrow(/Invalid address/);
+    });
+
+    it('marks a rejected address as user input', () => {
+        const error = (() => {
+            try {
+                normalizeAddress('0xabc');
+            } catch (caught) {
+                return caught;
+            }
+        })();
+
+        expect(error).toBeInstanceOf(InvalidAddressError);
+        expect((error as InvalidAddressError).extensions.code).toBe('BAD_USER_INPUT');
     });
 });
 

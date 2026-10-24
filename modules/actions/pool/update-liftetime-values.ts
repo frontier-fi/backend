@@ -53,13 +53,16 @@ const getHoldersCount = async (chain: Chain) => {
         },
     });
 
-    const pools = holders.reduce((acc, item) => {
-        const { poolId, chain } = item;
-        if (!poolId) return acc;
-        acc[`${poolId}-${chain}`] ||= 0;
-        acc[`${poolId}-${chain}`] += item._count.userAddress;
-        return acc;
-    }, {} as Record<string, number>);
+    const pools = holders.reduce(
+        (acc, item) => {
+            const { poolId, chain } = item;
+            if (!poolId) return acc;
+            acc[`${poolId}-${chain}`] ||= 0;
+            acc[`${poolId}-${chain}`] += item._count.userAddress;
+            return acc;
+        },
+        {} as Record<string, number>,
+    );
 
     return pools;
 };
@@ -77,15 +80,18 @@ const getSwapLifetimeValues = async (chain: Chain) => {
         },
     });
 
-    const lifetimeValues = swapLifetimeValues.reduce((acc, { poolId, chain, _sum }) => {
-        const key = `${poolId}-${chain}`;
-        if (!acc[key]) {
-            acc[key] = { lifetimeSwapFees: 0, lifetimeVolume: 0 };
-        }
-        acc[key].lifetimeSwapFees += _sum.fees24h || 0;
-        acc[key].lifetimeVolume += _sum.volume24h || 0;
-        return acc;
-    }, {} as Record<string, { lifetimeSwapFees: number; lifetimeVolume: number }>);
+    const lifetimeValues = swapLifetimeValues.reduce(
+        (acc, { poolId, chain, _sum }) => {
+            const key = `${poolId}-${chain}`;
+            if (!acc[key]) {
+                acc[key] = { lifetimeSwapFees: 0, lifetimeVolume: 0 };
+            }
+            acc[key].lifetimeSwapFees += _sum.fees24h || 0;
+            acc[key].lifetimeVolume += _sum.volume24h || 0;
+            return acc;
+        },
+        {} as Record<string, { lifetimeSwapFees: number; lifetimeVolume: number }>,
+    );
 
     return lifetimeValues;
 };

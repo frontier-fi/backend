@@ -1,8 +1,6 @@
 export const vaultExplorerAbi = [
     {
-        inputs: [
-            { internalType: 'contract IVault', name: 'vault', type: 'address' },
-        ],
+        inputs: [{ internalType: 'contract IVault', name: 'vault', type: 'address' }],
         stateMutability: 'nonpayable',
         type: 'constructor',
     },
@@ -123,9 +121,7 @@ export const vaultExplorerAbi = [
         type: 'function',
     },
     {
-        inputs: [
-            { internalType: 'contract IERC20', name: 'token', type: 'address' },
-        ],
+        inputs: [{ internalType: 'contract IERC20', name: 'token', type: 'address' }],
         name: 'getBufferBalance',
         outputs: [
             { internalType: 'uint256', name: '', type: 'uint256' },
@@ -159,9 +155,7 @@ export const vaultExplorerAbi = [
         type: 'function',
     },
     {
-        inputs: [
-            { internalType: 'contract IERC20', name: 'token', type: 'address' },
-        ],
+        inputs: [{ internalType: 'contract IERC20', name: 'token', type: 'address' }],
         name: 'getBufferTotalShares',
         outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
         stateMutability: 'view',
@@ -539,9 +533,7 @@ export const vaultExplorerAbi = [
     {
         inputs: [{ internalType: 'address', name: 'pool', type: 'address' }],
         name: 'getPoolTokens',
-        outputs: [
-            { internalType: 'contract IERC20[]', name: '', type: 'address[]' },
-        ],
+        outputs: [{ internalType: 'contract IERC20[]', name: '', type: 'address[]' }],
         stateMutability: 'view',
         type: 'function',
     },
@@ -553,9 +545,7 @@ export const vaultExplorerAbi = [
         type: 'function',
     },
     {
-        inputs: [
-            { internalType: 'contract IERC20', name: 'token', type: 'address' },
-        ],
+        inputs: [{ internalType: 'contract IERC20', name: 'token', type: 'address' }],
         name: 'getReservesOf',
         outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
         stateMutability: 'view',
@@ -569,9 +559,7 @@ export const vaultExplorerAbi = [
         type: 'function',
     },
     {
-        inputs: [
-            { internalType: 'contract IERC20', name: 'token', type: 'address' },
-        ],
+        inputs: [{ internalType: 'contract IERC20', name: 'token', type: 'address' }],
         name: 'getTokenDelta',
         outputs: [{ internalType: 'int256', name: '', type: 'int256' }],
         stateMutability: 'view',

@@ -67,10 +67,7 @@ export class SwapsPriceHandler implements PriceHandler {
 
     private getAcceptedTokens(tokens: TokenPriceData[]): TokenPriceData[] {
         return tokens.filter(
-            (token) =>
-                !token.types.includes('BPT') &&
-                token.latestSwaps &&
-                token.latestSwaps.length > 0,
+            (token) => !token.types.includes('BPT') && token.latestSwaps && token.latestSwaps.length > 0,
         );
     }
 }

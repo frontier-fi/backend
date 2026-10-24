@@ -70,7 +70,11 @@ describe('BufferPool', () => {
             underlyingToken: { address: UNDERLYING, decimals: 18, balance: 0n },
         });
         expect(
-            emptyUnderlying.getLimitAmountSwap(emptyUnderlying.tokens[1].token, emptyUnderlying.tokens[0].token, SwapKind.GivenIn),
+            emptyUnderlying.getLimitAmountSwap(
+                emptyUnderlying.tokens[1].token,
+                emptyUnderlying.tokens[0].token,
+                SwapKind.GivenIn,
+            ),
         ).toBe(10n * WAD);
     });
 
@@ -85,9 +89,9 @@ describe('BufferPool', () => {
         expect(
             pool.swapGivenInGreaterThanBufferLimit(underlying, main, TokenAmount.fromRawAmount(underlying, WAD)),
         ).toBe(false);
-        expect(pool.swapGivenOutGreaterThanBufferLimit(main, underlying, TokenAmount.fromRawAmount(underlying, 11n * WAD))).toBe(
-            true,
-        );
+        expect(
+            pool.swapGivenOutGreaterThanBufferLimit(main, underlying, TokenAmount.fromRawAmount(underlying, 11n * WAD)),
+        ).toBe(true);
     });
 
     test('a copy quotes the same amount', () => {

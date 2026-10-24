@@ -133,7 +133,7 @@ describe('BptPriceHandler', () => {
             const priceItems = await handler.calculatePricesForTokens(tokens);
 
             expect(priceItems).toHaveLength(2);
-            expect(priceItems.every(item => item.address !== '0xtoken1')).toBe(true);
+            expect(priceItems.every((item) => item.address !== '0xtoken1')).toBe(true);
         });
 
         it('should skip tokens without matching pool data', async () => {

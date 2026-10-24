@@ -7,11 +7,13 @@ import {
     LOWER_ADDRESS,
     MISSING_POOL,
     POOL_TYPES,
+    SEPOLIA_CHAIN_ID,
     VALID_CHECKSUM,
 } from './config';
 import { createPrisma, dropDatabase, migrate, recreateDatabase } from './database';
 import { data, expectRejectedAddress, graphql } from './graphql';
-import { serverLogs, startServer, stopServer } from './server';
+import { serverLogs, sorLogs, startServer, startSor, startWorker, stopServer, stopSor, stopWorker } from './server';
+import { postJob, runJob } from './worker';
 
 let prisma: PrismaClient | undefined;
 let syncedIds: string[] = [];
@@ -36,11 +38,15 @@ beforeAll(async () => {
     await recreateDatabase();
     await migrate();
     prisma = createPrisma();
+    await startSor();
     await startServer();
+    await startWorker();
 }, 180_000);
 
 afterAll(async () => {
+    await stopWorker();
     await stopServer();
+    await stopSor();
     await prisma?.$disconnect();
     await dropDatabase();
 });
@@ -145,28 +151,33 @@ it('reads an empty database', async () => {
     expect(empty.sorGetSwapPaths.swaps).toEqual([]);
 });
 
-it('rejects a bad checksum and accepts a valid one', async () => {
+it('rejects a bad checksum with BAD_USER_INPUT and accepts a valid one', async () => {
     const variable = await graphql('query ($id: String!) { poolGetPool(id: $id, chain: SEPOLIA) { id } }', {
         variables: { id: BAD_CHECKSUM },
     });
     expectRejectedAddress(variable);
 
-    const inline = await graphql(
-        `query { poolGetPool(id: "${BAD_CHECKSUM}", chain: SEPOLIA) { id } }`,
-    );
+    const inline = await graphql(`query { poolGetPool(id: "${BAD_CHECKSUM}", chain: SEPOLIA) { id } }`);
     expectRejectedAddress(inline);
 
-    const header = await graphql('{ poolGetPoolsCount }', {
-        headers: { AccountAddress: BAD_CHECKSUM },
+    const valid = await graphql('query ($id: String!) { poolGetPool(id: $id, chain: SEPOLIA) { id } }', {
+        variables: { id: VALID_CHECKSUM },
     });
-    expectRejectedAddress(header);
+    expect(valid.status).toBe(200);
+    expect(valid.body.errors?.[0]?.extensions?.code).toBe('NOT_FOUND');
 
-    const accepted = data(
+    // The API no longer reads AccountAddress, so a bad value must not fail the request.
+    const ignoredHeader = data(
         await graphql<{ poolGetPoolsCount: number }>('{ poolGetPoolsCount }', {
-            headers: { AccountAddress: VALID_CHECKSUM },
+            headers: { AccountAddress: BAD_CHECKSUM },
         }),
     );
-    expect(accepted.poolGetPoolsCount).toBe(0);
+    expect(ignoredHeader.poolGetPoolsCount).toBe(0);
+
+    const syntax = await graphql('{ poolGetPoolsCount ');
+    expect(syntax.status).toBe(400);
+    expect(syntax.body.errors?.[0]?.extensions?.code).toBe('GRAPHQL_PARSE_FAILED');
+
     expect(await db().prismaPool.count()).toBe(0);
 });
 
@@ -279,7 +290,9 @@ it('reads the known pools and the public list', async () => {
             poolGetPool: { id: string; poolTokens: { address: string }[] };
         }>(`query { poolGetPool(id: "${quotePoolId}", chain: SEPOLIA) { id poolTokens { address } } }`),
     );
-    const tokens = weighted.poolGetPool.poolTokens.map((token) => token.address).filter((address) => address !== quotePoolId);
+    const tokens = weighted.poolGetPool.poolTokens
+        .map((token) => token.address)
+        .filter((address) => address !== quotePoolId);
     expect(tokens.length).toBeGreaterThanOrEqual(2);
     quoteTokenIn = tokens[0];
     quoteTokenOut = tokens[1];
@@ -296,12 +309,22 @@ it('reads the known pools and the public list', async () => {
         await graphql<{
             poolGetPools: { id: string; address: string; chain: string; protocolVersion: number; type: string }[];
             poolGetPoolsCount: number;
-        }>(`{
-            poolGetPools(where: { chainIn: [SEPOLIA], protocolVersionIn: [3] }, orderBy: totalLiquidity, orderDirection: desc) {
-                id address chain protocolVersion type
+        }>(`
+            {
+                poolGetPools(
+                    where: { chainIn: [SEPOLIA], protocolVersionIn: [3] }
+                    orderBy: totalLiquidity
+                    orderDirection: desc
+                ) {
+                    id
+                    address
+                    chain
+                    protocolVersion
+                    type
+                }
+                poolGetPoolsCount(where: { chainIn: [SEPOLIA], protocolVersionIn: [3] })
             }
-            poolGetPoolsCount(where: { chainIn: [SEPOLIA], protocolVersionIn: [3] })
-        }`),
+        `),
     );
     expect(list.poolGetPools.length).toBeGreaterThan(0);
     expect(list.poolGetPoolsCount).toBe(list.poolGetPools.length);
@@ -331,10 +354,14 @@ it('reads the known pools and the public list', async () => {
 
     const searched = data(
         await graphql<{ poolGetPools: { id: string }[]; poolGetPoolsCount: number }>(
-            `query ($id: String!) {
-                poolGetPools(textSearch: $id, where: { chainIn: [SEPOLIA] }) { id }
-                poolGetPoolsCount(textSearch: $id, where: { chainIn: [SEPOLIA] })
-            }`,
+            `
+                query ($id: String!) {
+                    poolGetPools(textSearch: $id, where: { chainIn: [SEPOLIA] }) {
+                        id
+                    }
+                    poolGetPoolsCount(textSearch: $id, where: { chainIn: [SEPOLIA] })
+                }
+            `,
             { variables: { id: getAddress(listedId) } },
         ),
     );
@@ -381,16 +408,43 @@ it('reads the known pools and the public list', async () => {
             otherChain: { id: string }[];
             aggregators: { id: string; chain: string; protocolVersion: number; type: string; address: string }[];
             legacyAggregators: { id: string }[];
-        }>(`query ($id: String!) {
-            unhooked: poolGetPools(where: { chainIn: [SEPOLIA], hasHook: false }) { id }
-            tagged: poolGetPools(where: { chainIn: [SEPOLIA], tagIn: ["incentivized"], reviewedOnly: false }) { id }
-            priced: poolGetPools(where: { chainIn: [SEPOLIA], minTvl: 0 }) { id }
-            otherChain: poolGetPools(where: { chainIn: [SEPOLIA], chainNotIn: [MAINNET] }) { id }
-            aggregators: aggregatorPools(where: { chainIn: [SEPOLIA], protocolVersionIn: [3], poolTypeIn: [WEIGHTED, STABLE, ECLP], idIn: [$id], minTvl: 0 }) {
-                id chain protocolVersion type address
-            }
-            legacyAggregators: poolGetAggregatorPools(where: { chainIn: [SEPOLIA], protocolVersionIn: [3] }) { id }
-        }`, { variables: { id: quotePoolId } }),
+        }>(
+            `
+                query ($id: String!) {
+                    unhooked: poolGetPools(where: { chainIn: [SEPOLIA], hasHook: false }) {
+                        id
+                    }
+                    tagged: poolGetPools(where: { chainIn: [SEPOLIA], tagIn: ["incentivized"], reviewedOnly: false }) {
+                        id
+                    }
+                    priced: poolGetPools(where: { chainIn: [SEPOLIA], minTvl: 0 }) {
+                        id
+                    }
+                    otherChain: poolGetPools(where: { chainIn: [SEPOLIA], chainNotIn: [MAINNET] }) {
+                        id
+                    }
+                    aggregators: aggregatorPools(
+                        where: {
+                            chainIn: [SEPOLIA]
+                            protocolVersionIn: [3]
+                            poolTypeIn: [WEIGHTED, STABLE, ECLP]
+                            idIn: [$id]
+                            minTvl: 0
+                        }
+                    ) {
+                        id
+                        chain
+                        protocolVersion
+                        type
+                        address
+                    }
+                    legacyAggregators: poolGetAggregatorPools(where: { chainIn: [SEPOLIA], protocolVersionIn: [3] }) {
+                        id
+                    }
+                }
+            `,
+            { variables: { id: quotePoolId } },
+        ),
     );
     expect(otherFilters.unhooked.length).toBeGreaterThan(0);
     expect(Array.isArray(otherFilters.tagged)).toBe(true);
@@ -415,9 +469,7 @@ it('reads the known pools and the public list', async () => {
     expect(quotedToken?.decimals).toBeGreaterThan(0);
 
     const allTokens = data(
-        await graphql<{ tokenGetTokens: { address: string }[] }>(
-            '{ tokenGetTokens(chains: [SEPOLIA]) { address } }',
-        ),
+        await graphql<{ tokenGetTokens: { address: string }[] }>('{ tokenGetTokens(chains: [SEPOLIA]) { address } }'),
     );
     expect(allTokens.tokenGetTokens.length).toBeGreaterThan(1);
 
@@ -428,13 +480,53 @@ it('reads the known pools and the public list', async () => {
             poolEvents: unknown[];
             protocolMetricsChain: { chainId: string; poolCount: string };
             protocolMetricsAggregated: { poolCount: string; chains: { poolCount: string }[] };
-        }>(`query ($id: String!) {
-            poolGetFeaturedPools(chains: [SEPOLIA]) { poolId primary description pool { id protocolVersion } }
-            poolGetSnapshots(id: $id, chain: SEPOLIA, range: THIRTY_DAYS) { id poolId timestamp totalLiquidity amounts }
-            poolEvents(first: 5, skip: 0, where: { chainIn: [SEPOLIA], poolId: $id, type: SWAP }) { id chain type poolId }
-            protocolMetricsChain(chain: SEPOLIA) { chainId poolCount totalLiquidity swapFee24h swapVolume24h surplus24h yieldCapture24h numLiquidityProviders }
-            protocolMetricsAggregated(chains: [SEPOLIA]) { poolCount totalLiquidity chains { chainId poolCount } }
-        }`, { variables: { id: quotePoolId } }),
+        }>(
+            `
+                query ($id: String!) {
+                    poolGetFeaturedPools(chains: [SEPOLIA]) {
+                        poolId
+                        primary
+                        description
+                        pool {
+                            id
+                            protocolVersion
+                        }
+                    }
+                    poolGetSnapshots(id: $id, chain: SEPOLIA, range: THIRTY_DAYS) {
+                        id
+                        poolId
+                        timestamp
+                        totalLiquidity
+                        amounts
+                    }
+                    poolEvents(first: 5, skip: 0, where: { chainIn: [SEPOLIA], poolId: $id, type: SWAP }) {
+                        id
+                        chain
+                        type
+                        poolId
+                    }
+                    protocolMetricsChain(chain: SEPOLIA) {
+                        chainId
+                        poolCount
+                        totalLiquidity
+                        swapFee24h
+                        swapVolume24h
+                        surplus24h
+                        yieldCapture24h
+                        numLiquidityProviders
+                    }
+                    protocolMetricsAggregated(chains: [SEPOLIA]) {
+                        poolCount
+                        totalLiquidity
+                        chains {
+                            chainId
+                            poolCount
+                        }
+                    }
+                }
+            `,
+            { variables: { id: quotePoolId } },
+        ),
     );
     expect(surrounding.poolGetFeaturedPools).toEqual([]);
     expect(surrounding.poolGetSnapshots).toEqual([]);
@@ -446,10 +538,9 @@ it('reads the known pools and the public list', async () => {
 });
 
 it('returns not found for an unknown pool', async () => {
-    const missing = await graphql(
-        'query ($id: String!) { poolGetPool(id: $id, chain: SEPOLIA) { id } }',
-        { variables: { id: MISSING_POOL } },
-    );
+    const missing = await graphql('query ($id: String!) { poolGetPool(id: $id, chain: SEPOLIA) { id } }', {
+        variables: { id: MISSING_POOL },
+    });
     expect(missing.body.errors?.[0]?.extensions?.code).toBe('NOT_FOUND');
     expect(missing.body.errors?.[0]?.message).toMatch(/does not exist/i);
 });
@@ -465,9 +556,7 @@ it('reports a chain that has no config and does not write its pools', async () =
             poolReloadPools: { type: string; chain: string; success: boolean; error: string | null }[];
         }>('mutation { poolReloadPools(chains: [BASE]) { type chain success error } }', { admin: true }),
     );
-    expect(reloaded.poolReloadPools).toEqual([
-        expect.objectContaining({ type: 'v3', chain: 'BASE', success: false }),
-    ]);
+    expect(reloaded.poolReloadPools).toEqual([expect.objectContaining({ type: 'v3', chain: 'BASE', success: false })]);
     expect(reloaded.poolReloadPools[0].error).toMatch(/chain not configured/i);
 
     const onchain = data(
@@ -513,13 +602,28 @@ it('initializes wallet balances and reads them back', async () => {
 
     const pool = data(
         await graphql<{
-            poolGetPool: { id: string; userBalance: { walletBalance: string; totalBalance: string; totalBalanceUsd: number } | null };
+            poolGetPool: {
+                id: string;
+                userBalance: { walletBalance: string; totalBalance: string; totalBalanceUsd: number } | null;
+            };
             poolGetPools: { id: string }[];
         }>(
-            `query ($id: String!, $user: String!) {
-                poolGetPool(id: $id, chain: SEPOLIA, userAddress: $user) { id userBalance { walletBalance totalBalance walletBalanceUsd totalBalanceUsd } }
-                poolGetPools(where: { chainIn: [SEPOLIA], userAddress: $user }) { id }
-            }`,
+            `
+                query ($id: String!, $user: String!) {
+                    poolGetPool(id: $id, chain: SEPOLIA, userAddress: $user) {
+                        id
+                        userBalance {
+                            walletBalance
+                            totalBalance
+                            walletBalanceUsd
+                            totalBalanceUsd
+                        }
+                    }
+                    poolGetPools(where: { chainIn: [SEPOLIA], userAddress: $user }) {
+                        id
+                    }
+                }
+            `,
             { variables: { id: getAddress(balance!.poolId!), user: getAddress(balance!.userAddress) } },
         ),
     );
@@ -528,17 +632,13 @@ it('initializes wallet balances and reads them back', async () => {
     expect(pool.poolGetPools.map((item) => item.id)).toContain(balance!.poolId);
 });
 
-it('syncs token content, reloads types, and deletes one type', async () => {
-    const definitions = data(
-        await graphql<{ tokenSyncTokenDefinitions: string }>('mutation { tokenSyncTokenDefinitions }', { admin: true }),
-    );
-    expect(definitions.tokenSyncTokenDefinitions).toBe('success');
+it('syncs token content through the worker, reloads types, and deletes one type', async () => {
+    await runJob('sync-token-content-data');
 
     const reloaded = data(
-        await graphql<{ tokenReloadAllTokenTypes: string }>(
-            'mutation { tokenReloadAllTokenTypes(chain: SEPOLIA) }',
-            { admin: true },
-        ),
+        await graphql<{ tokenReloadAllTokenTypes: string }>('mutation { tokenReloadAllTokenTypes(chain: SEPOLIA) }', {
+            admin: true,
+        }),
     );
     expect(reloaded.tokenReloadAllTokenTypes).toBe('success');
 
@@ -616,19 +716,52 @@ it('reloads swaps and then returns those events', async () => {
                 tokenOut?: { address: string; amount: string };
                 tokens?: { address: string; amount: string }[];
             }[];
-        }>(`query ($poolId: String!) {
-            poolEvents(first: 20, where: { chainIn: [SEPOLIA], poolId: $poolId }) {
-                __typename id chain type poolId tx userAddress
-                ... on GqlPoolSwapEventV3 { tokenIn { address amount } tokenOut { address amount } }
-                ... on GqlPoolAddRemoveEventV3 { tokens { address amount } }
-            }
-        }`, { variables: { poolId: getAddress(quotePoolId) } }),
+        }>(
+            `
+                query ($poolId: String!) {
+                    poolEvents(first: 20, where: { chainIn: [SEPOLIA], poolId: $poolId }) {
+                        __typename
+                        id
+                        chain
+                        type
+                        poolId
+                        tx
+                        userAddress
+                        ... on GqlPoolSwapEventV3 {
+                            tokenIn {
+                                address
+                                amount
+                            }
+                            tokenOut {
+                                address
+                                amount
+                            }
+                        }
+                        ... on GqlPoolAddRemoveEventV3 {
+                            tokens {
+                                address
+                                amount
+                            }
+                        }
+                    }
+                }
+            `,
+            { variables: { poolId: getAddress(quotePoolId) } },
+        ),
     );
 
     const anyEvents = data(
-        await graphql<{ poolEvents: { type: string; poolId: string; userAddress: string }[] }>(
-            `{ poolEvents(first: 10, where: { chainIn: [SEPOLIA], type: SWAP }) { id type poolId userAddress tx } }`,
-        ),
+        await graphql<{ poolEvents: { type: string; poolId: string; userAddress: string }[] }>(`
+            {
+                poolEvents(first: 10, where: { chainIn: [SEPOLIA], type: SWAP }) {
+                    id
+                    type
+                    poolId
+                    userAddress
+                    tx
+                }
+            }
+        `),
     );
     expect(anyEvents.poolEvents.length).toBeGreaterThan(0);
     for (const event of anyEvents.poolEvents) {
@@ -651,14 +784,8 @@ it('reloads swaps and then returns those events', async () => {
     }
 });
 
-it('reloads prices, liquidity, snapshots, and aprs', async () => {
-    const prices = data(
-        await graphql<{ tokenReloadTokenPrices: boolean }>(
-            'mutation { tokenReloadTokenPrices(chains: [SEPOLIA]) }',
-            { admin: true },
-        ),
-    );
-    expect(prices.tokenReloadTokenPrices).toBe(true);
+it('updates prices through the worker, then reloads liquidity, snapshots, and aprs', async () => {
+    await runJob('update-token-prices');
 
     const current = data(
         await graphql<{
@@ -667,13 +794,42 @@ it('reloads prices, liquidity, snapshots, and aprs', async () => {
             tokenGetRelativePriceChartData: { price: string }[];
             tokenGetTokenDynamicData: { tokenAddress: string; price: number } | null;
             tokenGetTokensDynamicData: { tokenAddress: string; price: number }[];
-        }>(`query ($tokenIn: String!, $tokenOut: String!) {
-            tokenGetCurrentPrices(chains: [SEPOLIA]) { address chain price updatedAt updatedBy }
-            tokenGetHistoricalPrices(addresses: [$tokenIn, $tokenOut], chain: SEPOLIA, range: ALL) { address chain prices { timestamp price } }
-            tokenGetRelativePriceChartData(tokenIn: $tokenIn, tokenOut: $tokenOut, range: ALL, chain: SEPOLIA) { id timestamp price }
-            tokenGetTokenDynamicData(address: $tokenIn, chain: SEPOLIA) { tokenAddress price updatedAt }
-            tokenGetTokensDynamicData(addresses: [$tokenIn, $tokenOut], chain: SEPOLIA) { tokenAddress price }
-        }`, { variables: { tokenIn: quoteTokenIn, tokenOut: quoteTokenOut } }),
+        }>(
+            `
+                query ($tokenIn: String!, $tokenOut: String!) {
+                    tokenGetCurrentPrices(chains: [SEPOLIA]) {
+                        address
+                        chain
+                        price
+                        updatedAt
+                        updatedBy
+                    }
+                    tokenGetHistoricalPrices(addresses: [$tokenIn, $tokenOut], chain: SEPOLIA, range: ALL) {
+                        address
+                        chain
+                        prices {
+                            timestamp
+                            price
+                        }
+                    }
+                    tokenGetRelativePriceChartData(tokenIn: $tokenIn, tokenOut: $tokenOut, range: ALL, chain: SEPOLIA) {
+                        id
+                        timestamp
+                        price
+                    }
+                    tokenGetTokenDynamicData(address: $tokenIn, chain: SEPOLIA) {
+                        tokenAddress
+                        price
+                        updatedAt
+                    }
+                    tokenGetTokensDynamicData(addresses: [$tokenIn, $tokenOut], chain: SEPOLIA) {
+                        tokenAddress
+                        price
+                    }
+                }
+            `,
+            { variables: { tokenIn: quoteTokenIn, tokenOut: quoteTokenOut } },
+        ),
     );
     expect(Array.isArray(current.tokenGetCurrentPrices)).toBe(true);
     for (const price of current.tokenGetCurrentPrices) {
@@ -707,9 +863,24 @@ it('reloads prices, liquidity, snapshots, and aprs', async () => {
 
     const snapshotRows = data(
         await graphql<{ poolGetSnapshots: { poolId: string; timestamp: number; amounts: string[] }[] }>(
-            `query ($id: String!) {
-                poolGetSnapshots(id: $id, chain: SEPOLIA, range: ALL_TIME) { id poolId chain timestamp totalLiquidity sharePrice volume24h fees24h surplus24h totalShares swapsCount amounts }
-            }`,
+            `
+                query ($id: String!) {
+                    poolGetSnapshots(id: $id, chain: SEPOLIA, range: ALL_TIME) {
+                        id
+                        poolId
+                        chain
+                        timestamp
+                        totalLiquidity
+                        sharePrice
+                        volume24h
+                        fees24h
+                        surplus24h
+                        totalShares
+                        swapsCount
+                        amounts
+                    }
+                }
+            `,
             { variables: { id: getAddress(quotePoolId) } },
         ),
     );
@@ -721,12 +892,31 @@ it('reloads prices, liquidity, snapshots, and aprs', async () => {
     }
 
     const aprs = data(
-        await graphql<{ poolReloadAllPoolAprs: string }>(
-            'mutation { poolReloadAllPoolAprs(chain: SEPOLIA) }',
-            { admin: true },
-        ),
+        await graphql<{ poolReloadAllPoolAprs: string }>('mutation { poolReloadAllPoolAprs(chain: SEPOLIA) }', {
+            admin: true,
+        }),
     );
     expect(aprs.poolReloadAllPoolAprs).toBe('success');
+});
+
+it('runs the remaining global jobs through the worker', async () => {
+    for (const name of [
+        'sync-rate-provider-reviews',
+        'sync-erc4626-data',
+        'sync-categories',
+        'fetch-token-yields',
+        'sync-token-tvl',
+        'global-purge-old-tokenprices',
+    ]) {
+        await runJob(name);
+    }
+
+    expect(await db().prismaPriceRateProviderData.count({ where: { chain: 'SEPOLIA' } })).toBeGreaterThan(0);
+    const erc4626Reviews = await db().prismaErc4626ReviewData.findMany({ select: { chain: true } });
+    expect(erc4626Reviews.length).toBeGreaterThan(0);
+    expect(erc4626Reviews.every((review) => review.chain === 'SEPOLIA' || review.chain === 'MAINNET')).toBe(true);
+
+    expect((await postJob({ name: 'not-a-job', chain: SEPOLIA_CHAIN_ID })).status).toBe(400);
 });
 
 it('caches protocol metrics', async () => {
@@ -741,10 +931,28 @@ it('caches protocol metrics', async () => {
         await graphql<{
             protocolMetricsChain: { chainId: string; poolCount: string; totalLiquidity: string };
             protocolMetricsAggregated: { poolCount: string; chains: { chainId: string; poolCount: string }[] };
-        }>(`{
-            protocolMetricsChain(chain: SEPOLIA) { chainId poolCount totalLiquidity swapVolume24h swapFee24h numLiquidityProviders }
-            protocolMetricsAggregated(chains: [SEPOLIA]) { poolCount totalLiquidity swapVolume24h chains { chainId poolCount totalLiquidity } }
-        }`),
+        }>(`
+            {
+                protocolMetricsChain(chain: SEPOLIA) {
+                    chainId
+                    poolCount
+                    totalLiquidity
+                    swapVolume24h
+                    swapFee24h
+                    numLiquidityProviders
+                }
+                protocolMetricsAggregated(chains: [SEPOLIA]) {
+                    poolCount
+                    totalLiquidity
+                    swapVolume24h
+                    chains {
+                        chainId
+                        poolCount
+                        totalLiquidity
+                    }
+                }
+            }
+        `),
     );
     expect(metrics.protocolMetricsChain.chainId).toBe('11155111');
     expect(Number(metrics.protocolMetricsChain.poolCount)).toBeGreaterThan(0);
@@ -883,4 +1091,5 @@ it('quotes an exact-in and an exact-out swap', async () => {
     expect(withHooks.sorGetSwapPaths.protocolVersion).toBe(3);
     expect(Number.isFinite(Number(withHooks.sorGetSwapPaths.returnAmount))).toBe(true);
     expect(serverLogs().includes('[server exit')).toBe(false);
+    expect(sorLogs().includes('[sor exit')).toBe(false);
 });

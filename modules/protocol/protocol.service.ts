@@ -107,11 +107,9 @@ export class ProtocolService {
             !pool.dynamicData ? 0 : pool.dynamicData.protocolYieldCapture24h,
         );
 
-        const balancerV1Tvl = await this.getBalancerV1Tvl(chain);
-
         const protocolData = {
             chainId: `${config[chain].chain.id}`,
-            totalLiquidity: `${totalLiquidity + balancerV1Tvl}`,
+            totalLiquidity: `${totalLiquidity}`,
             totalSwapFee: '0',
             totalSwapVolume: '0',
             poolCount: `${poolCount}`,
@@ -127,20 +125,6 @@ export class ProtocolService {
         this.cache.put(`${PROTOCOL_METRICS_CACHE_KEY}:${chain}`, protocolData, 60 * 30 * 1000);
 
         return protocolData;
-    }
-
-    private async getBalancerV1Tvl(chain: Chain): Promise<number> {
-        if (chain !== 'MAINNET') {
-            return 0;
-        }
-
-        const response = await fetch('https://api.llama.fi/tvl/balancer-v1');
-        if (response.status !== 200) {
-            return 0;
-        }
-        const data = (await response.json()) as number;
-
-        return data;
     }
 }
 
