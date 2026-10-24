@@ -114,15 +114,18 @@ export class CoingeckoDataService {
                 .filter(([chain, _]) => chain !== 'SEPOLIA') // Sepolia is not in CG
                 .map(([chain, chainConfig]) => [chainConfig.coingecko.platformId, chain]),
         );
-        const coinMap = coinIds.reduce((acc, coin) => {
-            for (const [platform, address] of Object.entries(coin.platforms)) {
-                if (platformToChain[platform]) {
-                    // tokenAddress-chain
-                    acc[`${address.toLowerCase()}-${platformToChain[platform]}`] = coin.id;
+        const coinMap = coinIds.reduce(
+            (acc, coin) => {
+                for (const [platform, address] of Object.entries(coin.platforms)) {
+                    if (platformToChain[platform]) {
+                        // tokenAddress-chain
+                        acc[`${address.toLowerCase()}-${platformToChain[platform]}`] = coin.id;
+                    }
                 }
-            }
-            return acc;
-        }, {} as Record<string, string>);
+                return acc;
+            },
+            {} as Record<string, string>,
+        );
 
         const updates = allTokens
             .map((token) => {

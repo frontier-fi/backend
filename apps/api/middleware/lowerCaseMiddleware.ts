@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response, json } from 'express';
-import { parse, print, visit } from 'graphql';
-import { normalizeAddress } from '../../../modules/web3/addresses';
+import { GraphQLError, parse, print, visit } from 'graphql';
+import { InvalidAddressError, normalizeAddress } from '../../../modules/web3/addresses';
+import { MAX_TOKENS } from '../apollo/armor';
 
 // Case-insensitive so camelCase arguments such as tokenAddress match too.
 // `id` is anchored so chainId and similar fields are left alone.
@@ -24,9 +25,9 @@ const convertLetterCase = (obj: Record<string, any>) => {
         } else if (typeof obj[key] === 'string' && UPPER_REGEX.test(key)) {
             obj[key] = obj[key].toUpperCase();
         } else if (Array.isArray(obj[key]) && LOWER_REGEX.test(key)) {
-            obj[key] = obj[key].map((item: string) => normalizeQueryValue(item));
+            obj[key] = obj[key].map((item: unknown) => (typeof item === 'string' ? normalizeQueryValue(item) : item));
         } else if (Array.isArray(obj[key]) && UPPER_REGEX.test(key)) {
-            obj[key] = obj[key].map((item: string) => item.toUpperCase());
+            obj[key] = obj[key].map((item: unknown) => (typeof item === 'string' ? item.toUpperCase() : item));
         } else if (typeof obj[key] === 'object' && obj[key] !== null) {
             convertLetterCase(obj[key]);
         }
@@ -35,7 +36,7 @@ const convertLetterCase = (obj: Record<string, any>) => {
 
 const casedQueryParams = (query: string): string => {
     // Parse the query into an AST
-    const ast = parse(query);
+    const ast = parse(query, { maxTokens: MAX_TOKENS });
 
     // Visit each node in the AST
     const modifiedAst = visit(ast, {
@@ -146,27 +147,36 @@ const casedQueryParams = (query: string): string => {
 
 /**
  * Middleware that normalizes address arguments before they reach case-sensitive database filters.
- * A 20-byte address is checksum-checked and stored lowercase. A bad checksum is rejected.
+ * A 20-byte address is checksum-checked and stored lowercase. A bad checksum is answered with
+ * a 400 BAD_USER_INPUT error before the request reaches Apollo.
  *
  * @param req The request object
  * @param res The response object
  * @param next The next function
  */
 export async function lowerCaseMiddleware(req: Request, res: Response, next: NextFunction) {
-    json()(req, res, (err) => {
+    json()(req, res, () => {
         if (req.method === 'POST' && req.is('application/json') && req.body) {
             try {
                 const { query, variables } = req.body;
 
-                if (variables) {
+                if (variables && typeof variables === 'object') {
                     convertLetterCase(variables);
                 }
 
-                if (query) {
+                if (typeof query === 'string') {
                     // Replacing the original query with the lowercase one
                     req.body.query = casedQueryParams(query);
                 }
             } catch (error) {
+                if (error instanceof InvalidAddressError) {
+                    res.status(400).json({ errors: [{ message: error.message, extensions: error.extensions }] });
+                    return;
+                }
+                // A syntax error: leave the query as sent, so Apollo answers with GRAPHQL_PARSE_FAILED.
+                if (error instanceof GraphQLError) {
+                    return next();
+                }
                 return next(error);
             }
         }

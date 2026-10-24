@@ -3,19 +3,25 @@ name: Checks
 on:
     - pull_request
 
+permissions:
+    contents: read
+
 jobs:
+    # The production ruleset requires this job by name.
     Build:
         runs-on: ubuntu-latest
         env:
             DATABASE_URL: postgresql://build:build@localhost:5432/build?schema=public
         steps:
-            - uses: actions/checkout@v7
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - name: Use Bun
-              uses: oven-sh/setup-bun@v2
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
-                  bun-version: latest
+                  bun-version-file: .bun-version
             - name: Install deps
               run: bun install --frozen-lockfile
+            - name: Check formatting
+              run: bun run format:check
             - name: Generate GraphQL clients and API schema
               env:
                   PORT: 4000
@@ -23,6 +29,8 @@ jobs:
                   DEPLOYMENT_ENV: staging
                   ADMIN_API_KEY: ci
               run: bunx prisma generate --schema prisma/schema && bun run generate
+            - name: Run unit tests
+              run: bun run test -- run
             - name: Run build
               run: bun run build
             - name: Typecheck tests

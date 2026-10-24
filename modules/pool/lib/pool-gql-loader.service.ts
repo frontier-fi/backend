@@ -186,8 +186,8 @@ export class PoolGqlLoaderService {
             const query =
                 Prisma.raw(`SELECT p.id, p.chain FROM "PrismaPool" p LEFT JOIN "PrismaPoolDynamicData" d on (p.id = d."poolId") WHERE p.search_vector @@ websearch_to_tsquery('simple', '${searchQuery}') AND d."totalSharesNum" > 0.000000000001 AND NOT ('BLACK_LISTED' = ANY(p.categories)) AND ${filters}
             ORDER BY d."${orderColumn}" ${
-                    args.orderDirection && args.orderDirection === 'asc' ? 'ASC' : 'DESC'
-                } LIMIT ${limit} OFFSET ${offset}`);
+                args.orderDirection && args.orderDirection === 'asc' ? 'ASC' : 'DESC'
+            } LIMIT ${limit} OFFSET ${offset}`);
 
             const searchResults = await prisma.$queryRaw<{ id: string }[]>(query);
 
@@ -447,8 +447,8 @@ export class PoolGqlLoaderService {
             ...(where?.hasHook !== undefined && where.hasHook
                 ? { hook: { path: ['address'], string_starts_with: '0x' } }
                 : where?.hasHook !== undefined && !where.hasHook
-                ? { hook: { equals: Prisma.DbNull } }
-                : {}),
+                  ? { hook: { equals: Prisma.DbNull } }
+                  : {}),
         };
 
         if (!textSearch) {
@@ -543,9 +543,6 @@ export class PoolGqlLoaderService {
                     __typename: 'GqlPoolEclp',
                     ...poolWithoutTypeData,
                     ...eclpData,
-                    sqrtAlpha: '',
-                    sqrtBeta: '',
-                    root3Alpha: '',
                     ...mappedData,
                 };
             }
@@ -558,10 +555,7 @@ export class PoolGqlLoaderService {
         };
     }
 
-    private getUserBalance(
-        pool: PrismaPoolMinimal,
-        userWalletBalances: PrismaUserWalletBalance[],
-    ): GqlPoolUserBalance {
+    private getUserBalance(pool: PrismaPoolMinimal, userWalletBalances: PrismaUserWalletBalance[]): GqlPoolUserBalance {
         let bptPrice = 0;
         if (pool.dynamicData && pool.dynamicData.totalLiquidity > 0 && parseFloat(pool.dynamicData.totalShares) > 0) {
             bptPrice = pool.dynamicData.totalLiquidity / parseFloat(pool.dynamicData.totalShares);
@@ -714,22 +708,7 @@ const getOrderBy = (args: QueryPoolGetPoolsArgs) => {
 
 const sanitizeInput = (input: any) => `${input}`.replace(/[^a-zA-Z0-9._ ]/g, '').trim();
 
-const sanitiseTextSearch = (textSearch: string) => {
-    let searchQuery = sanitizeInput(textSearch).toLowerCase();
-
-    // Replace terms like LBP and BTF
-    const replacements = {
-        lbp: 'LIQUIDITY_BOOTSTRAPPING',
-    };
-
-    // Apply replacements for whole words only
-    for (const [key, value] of Object.entries(replacements)) {
-        const wordRegex = new RegExp(`\\b${key}\\b`, 'g');
-        searchQuery = searchQuery.replace(wordRegex, value);
-    }
-
-    return searchQuery;
-};
+const sanitiseTextSearch = (textSearch: string) => sanitizeInput(textSearch).toLowerCase();
 
 const searchFilters = (args: QueryPoolGetPoolsArgs) => {
     let where = '1=1 ';

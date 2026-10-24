@@ -12,59 +12,124 @@ concurrency:
 permissions:
     contents: read
 
+env:
+    IMAGE: ghcr.io/frontier-fi/backend
+
 jobs:
+    # Every component of the app runs this one image, pinned by digest in .do/prod.yaml.
     build:
         runs-on: ubuntu-latest
-        env:
-            DATABASE_URL: postgresql://build:build@localhost:5432/build?schema=public
+        timeout-minutes: 30
+        permissions:
+            contents: read
+            packages: write
+        outputs:
+            digest: ${{ steps.image.outputs.digest }}
         steps:
-            - uses: actions/checkout@v7
-            - name: Use Bun
-              uses: oven-sh/setup-bun@v2
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+            - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
               with:
-                  bun-version: latest
-            - name: Install deps
-              run: bun install --frozen-lockfile
-            - name: Generate GraphQL clients and API schema
-              env:
-                  PORT: 4000
-                  NODE_ENV: staging
-                  DEPLOYMENT_ENV: staging
-                  ADMIN_API_KEY: ci
-              run: bunx prisma generate --schema prisma/schema && bun run generate
-            - name: Run build
-              run: bun run build
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+            - name: Build and push image
+              id: image
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+              with:
+                  context: .
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ env.IMAGE }}:${{ github.sha }}
+                  # The digest then names the image itself, not an index that wraps it with attestations.
+                  provenance: false
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
 
     deploy:
         needs: build
         runs-on: ubuntu-latest
         timeout-minutes: 45
+        environment: production
+        # Filled into the placeholders of .do/prod.yaml by the deploy action.
+        env:
+            IMAGE_DIGEST: ${{ needs.build.outputs.digest }}
+            ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+            DRPC_API_KEY: ${{ secrets.DRPC_API_KEY }}
+            COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+            STELLATE_LOGGING_TOKEN: ${{ secrets.STELLATE_LOGGING_TOKEN }}
+            STELLATE_ORIGIN_SECRET: ${{ secrets.STELLATE_ORIGIN_SECRET }}
         steps:
-            - uses: actions/checkout@v7
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Check DigitalOcean token
-              id: token
+            # The action pastes values into the spec as text, and fills an unset one with an empty
+            # string, which replaces the live secret.
+            - name: Check secrets
+              id: secrets
               env:
                   DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
               run: |
                   if [ -z "$DIGITALOCEAN_ACCESS_TOKEN" ]; then
                       echo "ready=false" >> "$GITHUB_OUTPUT"
-                      echo "DIGITALOCEAN_ACCESS_TOKEN is unset. Skipping DigitalOcean deploy."
+                      echo "DIGITALOCEAN_ACCESS_TOKEN is unset. Skipping the DigitalOcean deploy."
+                      exit 0
+                  fi
+                  names=$(grep -v '^ *#' .do/prod.yaml | grep -oP '\$\{\K[A-Z][A-Z0-9_]*(?=\})' | sort -u || true)
+                  for name in $names; do
+                      value="${!name:-}"
+                      if [ -z "$value" ]; then
+                          echo "::error::.do/prod.yaml uses $name, which is empty in this job. Secrets also need a line in the env of this job."
+                          exit 1
+                      fi
+                      if [[ "$value" == *"'"* || "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+                          echo "::error::$name contains a single quote or a line break, which breaks .do/prod.yaml."
+                          exit 1
+                      fi
+                  done
+                  echo "ready=true" >> "$GITHUB_OUTPUT"
+
+            - name: Deploy app
+              if: steps.secrets.outputs.ready == 'true'
+              uses: digitalocean/app_action/deploy@cc55bc9b848d25f9c1c9f831cf843fbab3fbfb15 # v2.0.11
+              with:
+                  token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+                  app_spec_location: .do/prod.yaml
+                  print_deploy_logs: true
+
+    stellate:
+        needs: deploy
+        runs-on: ubuntu-latest
+        environment: production
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            # Without the origin secret, Stellate would stop sending it and the API would reject the edge.
+            - name: Check Stellate secrets
+              id: secrets
+              env:
+                  STELLATE_TOKEN: ${{ secrets.STELLATE_TOKEN }}
+                  STELLATE_ORIGIN_SECRET: ${{ secrets.STELLATE_ORIGIN_SECRET }}
+              run: |
+                  if [ -z "$STELLATE_TOKEN" ] || [ -z "$STELLATE_ORIGIN_SECRET" ]; then
+                      echo "ready=false" >> "$GITHUB_OUTPUT"
+                      echo "STELLATE_TOKEN or STELLATE_ORIGIN_SECRET is unset. Skipping the Stellate push."
                   else
                       echo "ready=true" >> "$GITHUB_OUTPUT"
                   fi
 
-            - name: Install doctl
-              if: steps.token.outputs.ready == 'true'
-              uses: digitalocean/action-doctl@v2
+            - name: Use Bun
+              if: steps.secrets.outputs.ready == 'true'
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
-                  token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+                  bun-version-file: .bun-version
 
-            - name: Deploy app
-              if: steps.token.outputs.ready == 'true'
+            - name: Install deps
+              if: steps.secrets.outputs.ready == 'true'
+              run: bun install --frozen-lockfile
+
+            - name: Push Stellate config
+              if: steps.secrets.outputs.ready == 'true'
               env:
-                  DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-                  ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
-                  DRPC_API_KEY: ${{ secrets.DRPC_API_KEY }}
-                  COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
-              run: bash scripts/deploy-digitalocean.sh
+                  STELLATE_TOKEN: ${{ secrets.STELLATE_TOKEN }}
+                  STELLATE_ORIGIN_SECRET: ${{ secrets.STELLATE_ORIGIN_SECRET }}
+              run: bunx stellate push

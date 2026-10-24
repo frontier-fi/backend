@@ -34,12 +34,7 @@ describe('fetchMaxValues', () => {
     });
 
     it('formats maxDeposit and maxWithdraw for each wrapper, using the vault as the receiver', async () => {
-        multicall.mockResolvedValue([
-            ok(1_500_000n),
-            ok(2_500_000n),
-            ok(3n * 10n ** 18n),
-            ok(4n * 10n ** 18n),
-        ]);
+        multicall.mockResolvedValue([ok(1_500_000n), ok(2_500_000n), ok(3n * 10n ** 18n), ok(4n * 10n ** 18n)]);
 
         const values = await fetchMaxValues(Chain.SEPOLIA, [token(USDC_WRAPPER, 6), token(WETH_WRAPPER, 18)]);
 
@@ -48,7 +43,11 @@ describe('fetchMaxValues', () => {
             [WETH_WRAPPER]: { maxDeposit: '3', maxWithdraw: '4' },
         });
 
-        const contracts = multicall.mock.calls[0][0].contracts as { address: string; functionName: string; args: string[] }[];
+        const contracts = multicall.mock.calls[0][0].contracts as {
+            address: string;
+            functionName: string;
+            args: string[];
+        }[];
         expect(contracts.map((call) => [call.address, call.functionName, call.args[0]])).toEqual([
             [USDC_WRAPPER, 'maxDeposit', VAULT],
             [USDC_WRAPPER, 'maxWithdraw', VAULT],

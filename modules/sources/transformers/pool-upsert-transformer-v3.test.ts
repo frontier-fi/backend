@@ -77,7 +77,15 @@ const liquidityOn = {
     enableRemoveLiquidityCustom: false,
 };
 
-function tokenRow(address: string, decimals: number, symbol: string, name: string, index: number, balance: string, scalingFactor: string) {
+function tokenRow(
+    address: string,
+    decimals: number,
+    symbol: string,
+    name: string,
+    index: number,
+    balance: string,
+    scalingFactor: string,
+) {
     return {
         address,
         decimals,

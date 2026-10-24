@@ -4,18 +4,13 @@ import { DATABASE_NAME, DATABASE_URL, repoRoot } from './config';
 
 function run(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
     return new Promise((resolve, reject) => {
-        execFile(
-            command,
-            args,
-            { cwd: repoRoot, env, maxBuffer: 20 * 1024 * 1024 },
-            (error, stdout, stderr) => {
-                if (error) {
-                    reject(new Error(`${command} ${args.join(' ')} failed\n${stderr || stdout}\n${error.message}`));
-                    return;
-                }
-                resolve(stdout);
-            },
-        );
+        execFile(command, args, { cwd: repoRoot, env, maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) => {
+            if (error) {
+                reject(new Error(`${command} ${args.join(' ')} failed\n${stderr || stdout}\n${error.message}`));
+                return;
+            }
+            resolve(stdout);
+        });
     });
 }
 

@@ -4,12 +4,12 @@ This module provides a new implementation for pool APR calculations with improve
 
 ## Key Features
 
--   Decoupling of database operations from APR calculations
--   Ability to calculate APRs without writing to the database (for testing/debugging)
--   Only writes to the database when APR values change
--   Support for individual pool updates
--   Clear separation of responsibilities with the Repository pattern
--   Declarative configuration for chain-specific calculators
+- Decoupling of database operations from APR calculations
+- Ability to calculate APRs without writing to the database (for testing/debugging)
+- Only writes to the database when APR values change
+- Support for individual pool updates
+- Clear separation of responsibilities with the Repository pattern
+- Declarative configuration for chain-specific calculators
 
 ## Architecture
 
@@ -71,9 +71,9 @@ The module uses a declarative approach to configure which handlers are used for 
 
 This approach makes it easy to:
 
--   Add or remove handlers for specific chains
--   Configure handlers parameters
--   Understand at a glance which chains use which handlers
+- Add or remove handlers for specific chains
+- Configure handlers parameters
+- Understand at a glance which chains use which handlers
 
 ### Adding New Handlers
 

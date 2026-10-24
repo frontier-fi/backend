@@ -5,6 +5,8 @@ import { chainIdToChain } from '../../../../config/chain-id-to-chain';
 import { env } from '../../../../apps/env';
 import { addressesMatch } from '../../../web3/addresses';
 
+// Merkl has no protocol id for Frontier yet, so pool campaigns are looked up under Balancer's.
+// Token campaigns below do not depend on the protocol.
 const opportunityUrl =
     'https://api.merkl.xyz/v4/opportunities/?test=false&status=LIVE&campaigns=true&mainProtocolId=balancer&page=0&items=100';
 
@@ -180,7 +182,9 @@ export class MerklAprHandler implements AprHandler {
             const pools = affectedPools.filter(
                 (pool) =>
                     pool.chain === chainIdToChain[opportunity.chainId] &&
-                    pool.tokens.some((token) => this.tokenMatchesExplorer(token.address, opportunity.explorerAddress, aaveTokenMappings)),
+                    pool.tokens.some((token) =>
+                        this.tokenMatchesExplorer(token.address, opportunity.explorerAddress, aaveTokenMappings),
+                    ),
             );
 
             for (const pool of pools) {
@@ -254,7 +258,11 @@ export class MerklAprHandler implements AprHandler {
         return aprs.filter((item) => item !== null);
     }
 
-    private tokenMatchesExplorer(tokenAddress: string, explorerAddress: string, mappings: Map<string, string>): boolean {
+    private tokenMatchesExplorer(
+        tokenAddress: string,
+        explorerAddress: string,
+        mappings: Map<string, string>,
+    ): boolean {
         const mapped = mappings.get(tokenAddress.toLowerCase());
         return addressesMatch(mapped ?? tokenAddress, explorerAddress);
     }

@@ -1,6 +1,11 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+    resolve: {
+        // Vite would load graphql's ESM build for source files while Apollo loads the CJS build,
+        // and graphql rejects schema objects that come from the other copy.
+        alias: [{ find: /^graphql$/, replacement: 'graphql/index.js' }],
+    },
     test: {
         globals: true,
         environment: 'node',

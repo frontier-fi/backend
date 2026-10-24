@@ -37,13 +37,13 @@ export class BptPriceHandler implements PriceHandler {
 
         try {
             // Get unique chains from accepted tokens
-            const chains = [...new Set(acceptedTokens.map(token => token.chain))];
-            
+            const chains = [...new Set(acceptedTokens.map((token) => token.chain))];
+
             // Fetch pools with dynamic data
             const pools = await this.db.prismaPool.findMany({
-                where: { 
-                    dynamicData: { totalLiquidity: { gt: 0.1 } }, 
-                    chain: { in: chains } 
+                where: {
+                    dynamicData: { totalLiquidity: { gt: 0.1 } },
+                    chain: { in: chains },
                 },
                 include: { dynamicData: true },
             });
@@ -51,9 +51,7 @@ export class BptPriceHandler implements PriceHandler {
             const priceItems: PriceItem[] = [];
 
             for (const token of acceptedTokens) {
-                const pool = pools.find(
-                    (pool) => pool.address === token.address && pool.chain === token.chain
-                );
+                const pool = pools.find((pool) => pool.address === token.address && pool.chain === token.chain);
 
                 if (
                     pool?.dynamicData &&
@@ -61,7 +59,7 @@ export class BptPriceHandler implements PriceHandler {
                     parseFloat(pool.dynamicData.totalShares) !== 0
                 ) {
                     const price = pool.dynamicData.totalLiquidity / parseFloat(pool.dynamicData.totalShares);
-                    
+
                     priceItems.push({
                         address: token.address,
                         chain: token.chain,
