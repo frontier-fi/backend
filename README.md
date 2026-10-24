@@ -168,16 +168,17 @@ Dependabot proposes updates to the pinned GitHub Actions and Docker base images 
 
 ## Stellate
 
-Stellate caches responses and rate-limits clients in front of the API. `stellate.ts` holds its configuration, and every query needs a cache rule there; a unit test checks that. The Deploy workflow pushes the file after each production deployment once the `STELLATE_TOKEN` and `STELLATE_ORIGIN_SECRET` secrets exist.
+Stellate caches responses, rate-limits clients and answers CORS preflights at `https://frontier-api.stellate.sh`. It forwards requests to `https://api-origin.frontier.fi/graphql` with the `x-stellate-origin-secret` header.
 
-Setting it up takes these steps, in this order:
+`stellate.ts` holds the configuration, and every query needs a cache rule there; a unit test checks that. The Deploy workflow pushes the file after each production deployment, with the `STELLATE_TOKEN` and `STELLATE_ORIGIN_SECRET` secrets of the `production` environment, so changes made in the Stellate dashboard don't last.
 
-1. Deploy once, so that the app serves `api-origin.frontier.fi`. `.do/prod.yaml` lists it as an alias.
-2. In the `frontier-api` Stellate service, set the origin to `https://api-origin.frontier.fi/graphql`, and create a personal access token.
-3. Generate a secret with `openssl rand -hex 32`. Add it as the `STELLATE_ORIGIN_SECRET` secret of the `production` environment, add the token as `STELLATE_TOKEN`, and push the configuration once with `bunx stellate push`, using the same two values as environment variables.
-4. Add `api.frontier.fi` as the custom domain in Stellate. Then, in `.do/prod.yaml`, make `api-origin.frontier.fi` the primary domain and remove `api.frontier.fi`. Deploy, and create a CNAME from `api.frontier.fi` to `stellate.map.fastly.net`. Wait until Stellate serves HTTPS on it.
-5. Uncomment `STELLATE_ORIGIN_SECRET` on the `api` component in `.do/prod.yaml` and deploy. It takes the value of the secret from step 3. From then on the origin only answers requests that came through Stellate, apart from `/health`.
+`api.frontier.fi` still points straight at the app, and the origin doesn't require the header yet. Moving `api.frontier.fi` onto Stellate needs a paid Stellate plan, for the custom domain. Then, in this order:
 
-Step 5 must come last: with the secret set while `api.frontier.fi` still points at the app, every public request is rejected.
+1. Add `api.frontier.fi` as the custom domain of the `frontier-api` service.
+2. In `.do/prod.yaml`, make `api-origin.frontier.fi` the primary domain, remove `api.frontier.fi`, and deploy. App Platform can't renew the certificate of a domain that resolves elsewhere.
+3. Create a CNAME from `api.frontier.fi` to `stellate.map.fastly.net`, and wait until Stellate serves HTTPS on it.
+4. Uncomment `STELLATE_ORIGIN_SECRET` on the `api` component in `.do/prod.yaml` and deploy. From then on, the origin only answers requests that came through Stellate, apart from `/health`.
 
-Independently of these steps, the `STELLATE_LOGGING_TOKEN` secret lets the `api` component send request metrics and the schema to Stellate. It only records requests that did not come through the Stellate edge, so it covers the traffic before the cutover. After the cutover the edge records the metrics, and the plugin keeps uploading the schema on each start.
+Step 4 must come last: with the secret set while `api.frontier.fi` still points at the app, every public request is rejected.
+
+The `STELLATE_LOGGING_TOKEN` secret lets the `api` component send request metrics and the schema to Stellate, for requests that did not come through the edge.
