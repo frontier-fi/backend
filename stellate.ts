@@ -9,8 +9,9 @@ const config: Config = {
     config: {
         name: 'frontier-api',
         originUrl: 'https://api-origin.frontier.fi/graphql',
-        // Read through the edge, so the request carries the origin secret below.
-        schema: 'https://api.frontier.fi/graphql',
+        // The repo's SDL, not the live endpoint: the CLI bundles graphql 16.12, which can't introspect a
+        // schema served by graphql 16.14, where @deprecated also applies to DIRECTIVE_DEFINITION.
+        schema: 'apps/api/gql/schema/*.gql',
         headers: process.env.STELLATE_ORIGIN_SECRET
             ? { 'x-stellate-origin-secret': process.env.STELLATE_ORIGIN_SECRET }
             : null,
