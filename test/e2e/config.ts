@@ -14,6 +14,15 @@ export const DATABASE_URL = `postgresql://backend:let-me-in@127.0.0.1:5431/${DAT
 export const GRAPHQL_URL = `http://127.0.0.1:${PORT}/graphql`;
 export const HEALTH_URL = `http://127.0.0.1:${PORT}/health`;
 
+export const WORKER_PORT = 4011;
+export const WORKER_URL = `http://127.0.0.1:${WORKER_PORT}/`;
+export const WORKER_HEALTH_URL = `http://127.0.0.1:${WORKER_PORT}/health`;
+
+export const SOR_PORT = 4012;
+export const SOR_URL = `http://127.0.0.1:${SOR_PORT}/graphql`;
+export const SOR_HEALTH_URL = `http://127.0.0.1:${SOR_PORT}/health`;
+export const SEPOLIA_CHAIN_ID = '11155111';
+
 export const POOL_TYPES = ['WEIGHTED', 'STABLE', 'ECLP'] as const;
 
 /** Live Sepolia pools the subgraph is expected to keep serving. */

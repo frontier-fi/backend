@@ -18,10 +18,6 @@ export function isWeightedPoolV2(pool: PoolWithTypeAndFactory) {
     return pool.type === 'WEIGHTED' && pool.version >= 2;
 }
 
-export function isComposableStablePool(_pool: PoolWithTypeAndFactory) {
-    return false;
-}
-
 export function collectsYieldFee(pool: PoolWithTypeAndFactory) {
     return capturesYield(pool) && !pool.dynamicData?.isInRecoveryMode;
 }
@@ -31,11 +27,7 @@ export function tokenCollectsYieldFee(token: PrismaPoolToken) {
 }
 
 export function capturesYield(pool: PoolWithTypeAndFactory) {
-    return (
-        isWeightedPoolV2(pool) ||
-        isEclpV2(pool) ||
-        pool.protocolVersion === 3
-    );
+    return isWeightedPoolV2(pool) || isEclpV2(pool) || pool.protocolVersion === 3;
 }
 
 export function isEclp(pool: PoolWithTypeAndFactory) {

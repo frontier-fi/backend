@@ -60,34 +60,8 @@ export const activeChainWorkerJobsGeneric: WorkerJob[] = [
     },
 ];
 
-export const deprecatedChainWorkerJobs: WorkerJob[] = [
-    {
-        name: 'update-liquidity-for-inactive-pools',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(40, 'minutes') : every(20, 'minutes'),
-    },
-    {
-        name: 'user-sync-wallet-balances-for-all-pools',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(20, 'minutes') : every(40, 'seconds'),
-    },
-    {
-        name: 'update-fee-volume-yield-all-pools',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(120, 'minutes') : every(60, 'minutes'),
-    },
-    {
-        name: 'update-pool-apr',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(60, 'minutes') : every(5, 'minutes'),
-    },
-    {
-        name: 'sync-erc4626-onchain-data',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(120, 'minutes') : every(45, 'minutes'),
-    },
-    {
-        name: 'sync-changed-pools',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(4, 'hours') : every(1, 'hours'),
-    },
-];
-
-export const activeChainWorkerJobsGlobal: WorkerJob[] = [
+// Scheduled once, not per chain. Each of these handlers covers every configured chain.
+export const globalWorkerJobs: WorkerJob[] = [
     {
         name: 'update-token-prices',
         interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(10, 'minutes') : every(3, 'minutes'),

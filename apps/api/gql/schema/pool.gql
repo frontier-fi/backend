@@ -507,9 +507,6 @@ type GqlPoolEclp implements GqlPoolBase {
 
     alpha: String!
     beta: String!
-    sqrtAlpha: String!
-    sqrtBeta: String!
-    root3Alpha: String!
     c: String!
     s: String!
     lambda: String!
@@ -573,10 +570,7 @@ type GqlPoolStable implements GqlPoolBase {
     userBalance: GqlPoolUserBalance
 }
 
-union GqlPoolUnion =
-      GqlPoolWeighted
-    | GqlPoolStable
-    | GqlPoolEclp
+union GqlPoolUnion = GqlPoolWeighted | GqlPoolStable | GqlPoolEclp
 
 """
 All info on the pool token. It will also include the nested pool if the token is a BPT. It will only support 1 level of nesting.
@@ -837,12 +831,12 @@ input GqlPoolFilter {
     categoryIn: [GqlPoolFilterCategory!] @deprecated(reason: "Use tagIn instead")
     categoryNotIn: [GqlPoolFilterCategory!] @deprecated(reason: "Use tagNotIn instead")
     """
-    For list of tags see: https://github.com/balancer/metadata/blob/main/pools/index.json
+    For list of tags see: https://github.com/frontier-fi/metadata/blob/main/pools/tags/index.json
     Use uppercase
     """
     tagIn: [String!]
     """
-    For list of tags see: https://github.com/balancer/metadata/blob/main/pools/index.json
+    For list of tags see: https://github.com/frontier-fi/metadata/blob/main/pools/tags/index.json
     Use uppercase
     """
     tagNotIn: [String!]

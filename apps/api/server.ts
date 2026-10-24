@@ -6,7 +6,13 @@ import helmet from 'helmet';
 import * as http from 'http';
 import { env } from '../env';
 import { loadRestRoutes } from './rest-routes';
-import { corsMiddleware, lowerCaseMiddleware } from './middleware';
+import {
+    corsMiddleware,
+    jsonErrorHandler,
+    lowerCaseMiddleware,
+    ORIGIN_SECRET_HEADER,
+    requireOriginSecret,
+} from './middleware';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
 import { ApolloServerPluginUsageReporting } from '@apollo/server/plugin/usageReporting';
 import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin/landingPage/default';
@@ -15,6 +21,9 @@ import { schema } from './gql/generated-schema-ast';
 import { resolvers } from './gql/resolvers';
 import { ResolverContext, resolverContext } from './gql/resolver-context';
 import { apolloSentryPlugin } from './apollo/sentry-plugin';
+import { apolloProtection } from './apollo/armor';
+import { stellateLoggerPlugin } from './apollo/stellate-logger';
+import type { Stoppable } from '../shutdown';
 
 const configureHelmet = (app: express.Express) => {
     app.use(helmet.dnsPrefetchControl());
@@ -29,20 +38,28 @@ const configureHelmet = (app: express.Express) => {
 };
 
 const configureMiddlewares = (app: express.Express) => {
+    app.use(requireOriginSecret(env.STELLATE_ORIGIN_SECRET));
     app.use(corsMiddleware);
     app.use(lowerCaseMiddleware);
 };
 
 const configureApolloServer = async (httpServer: http.Server, app: express.Express) => {
-    const plugins = [ApolloServerPluginDrainHttpServer({ httpServer }), apolloSentryPlugin];
+    const protection = apolloProtection();
+    const plugins = [...protection.plugins, ApolloServerPluginDrainHttpServer({ httpServer }), apolloSentryPlugin];
 
     plugins.push(ApolloServerPluginLandingPageLocalDefault({ document: examplePoolsQuery }));
+
+    const stellatePlugin = stellateLoggerPlugin(env);
+    if (stellatePlugin) {
+        plugins.push(stellatePlugin);
+    }
 
     if (process.env.APOLLO_SCHEMA_REPORTING === 'true') {
         plugins.push(
             ApolloServerPluginUsageReporting({
                 sendVariableValues: { all: true },
-                sendHeaders: { all: true },
+                // Apollo only drops authorization and cookie headers on its own.
+                sendHeaders: { exceptNames: ['AdminApiKey', ORIGIN_SECRET_HEADER] },
             }),
         );
     }
@@ -52,6 +69,7 @@ const configureApolloServer = async (httpServer: http.Server, app: express.Expre
         typeDefs: schema,
         introspection: true,
         cache: 'bounded',
+        ...protection,
         plugins,
     });
 
@@ -68,18 +86,24 @@ const configureApolloServer = async (httpServer: http.Server, app: express.Expre
     return server;
 };
 
-export const startApiServer = async () => {
+export const startApiServer = async (): Promise<Stoppable> => {
     const app = express();
 
     loadRestRoutes(app);
-    setupExpressErrorHandler(app);
     configureHelmet(app);
     configureMiddlewares(app);
 
     const httpServer = http.createServer(app);
 
-    await configureApolloServer(httpServer, app);
+    const apollo = await configureApolloServer(httpServer, app);
+
+    // Error handlers only see errors from routes registered before them.
+    setupExpressErrorHandler(app);
+    app.use(jsonErrorHandler);
 
     await new Promise<void>((resolve) => httpServer.listen({ port: env.PORT, host: '0.0.0.0' }, resolve));
     console.log(`🚀 Server ready at http://localhost:${env.PORT}/graphql`);
+
+    // The drain plugin closes the HTTP server and lets requests in flight finish first.
+    return { stop: () => apollo.stop() };
 };

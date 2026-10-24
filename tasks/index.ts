@@ -16,9 +16,12 @@ import { PricingService } from '../modules/pricing';
 import { ContentController } from '../modules/content/content-controller';
 import { UserBalancesController } from '../modules/user/user-balances-controller';
 
+// Price seeding copies from the deployed API, so a local database starts with production prices.
+const PRICE_SOURCE_API = 'https://api.frontier.fi/graphql';
+
 /**
  * Used to run jobs or mutations locally from the command line
- * e.g. `yarn task sync-pools-v3 11155111`
+ * e.g. `bun run task sync-pools-v3 11155111`
  *
  * @param job
  * @param chain
@@ -127,7 +130,7 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
         // await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3, 0);
         // await PoolController().addPoolsV3(chain, false);
         // get all current prices first to
-        const endpoint = 'https://api-v3.balancer.fi/graphql';
+        const endpoint = PRICE_SOURCE_API;
         const currentPricesQuery = gql`
             {
                 tokenGetCurrentPrices(chains: [${chain}]) {
@@ -156,7 +159,7 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
             const historicalPricesQuery = gql`
                 {
                     tokenGetHistoricalPrices(
-                        chain: MAINNET
+                        chain: ${chain}
                         range: SEVEN_DAY
                         addresses: [${tokensList}]
                     ) {
@@ -238,7 +241,7 @@ run()
     .catch((e) => console.error(e));
 
 async function syncCurrentPricesFromApi(chain: Chain) {
-    const endpoint = 'https://api-v3.balancer.fi/graphql';
+    const endpoint = PRICE_SOURCE_API;
 
     const query = gql`
             {

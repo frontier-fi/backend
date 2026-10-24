@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { EnvType, load } from 'ts-dotenv';
 
@@ -16,10 +16,11 @@ export const schema = {
     WORKER_QUEUE_URL: { type: String, optional: true },
     SENTRY_DSN: { type: String, optional: true },
     SENTRY_TRACES_SAMPLE_RATE: { type: String, optional: true },
-    SENTRY_PROFILES_SAMPLE_RATE: { type: String, optional: true },
     SOR_POOLS_CACHE_TTL_SECONDS: { type: String, default: '10' },
-    SOR_SERVICE_URL: { type: String, default: 'http://localhost:4000/graphql' },
+    SOR_SERVICE_URL: { type: String, optional: true },
     SOR_INSTANCE: { type: Boolean, default: false },
+    STELLATE_ORIGIN_SECRET: { type: String, optional: true },
+    STELLATE_LOGGING_TOKEN: { type: String, optional: true },
 };
 
 function projectRoot(): string {
@@ -37,20 +38,9 @@ function projectRoot(): string {
     return process.cwd();
 }
 
-const envPath = resolve(projectRoot(), '.env');
-
-// ts-dotenv throws when the file is missing. Containers get configuration from
-// the platform environment, so create an empty file and let process env win.
-if (!existsSync(envPath)) {
-    try {
-        writeFileSync(envPath, '');
-    } catch {
-        // A read-only filesystem still fails inside load(), with the original error.
-    }
-}
-
+// A missing file counts as empty, which is the case in containers.
 export const env: Env = load(schema, {
-    path: envPath,
+    path: resolve(projectRoot(), '.env'),
     // Process environment wins. Containers and the e2e harness set PORT and
     // DATABASE_URL themselves; the file only fills keys that are still unset.
     overrideProcessEnv: false,

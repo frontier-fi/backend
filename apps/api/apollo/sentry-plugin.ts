@@ -14,7 +14,6 @@ export const apolloSentryPlugin: ApolloServerPlugin<ResolverContext> = {
                             'GRAPHQL_PARSE_FAILED',
                             'GRAPHQL_VALIDATION_FAILED',
                             'BAD_USER_INPUT',
-                            'ACCOUNT_ADDRESS_REQUIRED',
                             'ACCESS_DENIED',
                             'NOT_FOUND',
                         ].includes(err.extensions?.code as string)
