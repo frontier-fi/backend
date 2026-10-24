@@ -19,10 +19,6 @@ export const initApiSentry = () => {
         // Send 1% of transactions to Sentry
         tracesSampleRate: Number(env.SENTRY_TRACES_SAMPLE_RATE || 0.001),
 
-        // Set sampling rate for profiling
-        // This is relative to tracesSampleRate
-        profileSessionSampleRate: Number(env.SENTRY_PROFILES_SAMPLE_RATE || 0.001),
-
         beforeSend(event, hint) {
             const error = hint.originalException;
             if (error?.toString().includes('Unknown token:')) {

@@ -6,7 +6,6 @@ import { prisma } from '../../../prisma/prisma-client';
 import { PrismaPoolAndHookWithDynamic, HookData } from '../../../prisma/prisma-types';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { poolsToIgnore } from './constants';
-import _ from 'lodash';
 import { tokenService } from '../../token/token.service';
 import { env } from '../../../apps/env';
 import { ZERO_ADDRESS } from '@balancer/sdk';
@@ -150,67 +149,6 @@ async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> 
                 reviewedAddresses.has(t.priceRateProvider.toLowerCase()),
         ),
     );
-
-    // This is alternative in case the DB gets too high CPU usage
-    // const [pools, dynamicData, poolTokens, tokens] = await Promise.all([
-    //     prisma.prismaPool
-    //         .findMany({
-    //             where: { chain, type, id: { notIn: [...poolsToIgnore] } },
-    //         })
-    //         .then((records) => Object.fromEntries(records.map((record) => [record.id, record]))),
-    //     prisma.prismaPoolDynamicData
-    //         .findMany({
-    //             // TODO: Narrow down the select, but need to change the return type to SOR internal one first
-    //             // select: { id: true, isPaused: true, swapEnabled: true },
-    //             where: {
-    //                 chain,
-    //                 totalSharesNum: { gt: 0.000000000001 },
-    //                 swapEnabled: true,
-    //                 isPaused: false,
-    //                 id: { notIn: [...poolsToIgnore] },
-    //                 OR: [
-    //                     {
-    //                         totalLiquidity: { gte: 100 },
-    //                     },
-    //                     {
-    //                         chain: 'SEPOLIA',
-    //                     },
-    //                     {
-    //                         pool: {
-    //                             type: 'LIQUIDITY_BOOTSTRAPPING',
-    //                         },
-    //                     },
-    //                 ],
-    //             },
-    //         })
-    //         .then((records) => Object.fromEntries(records.map((record) => [record.id, record]))),
-    //     prisma.prismaPoolToken
-    //         .findMany({
-    //             where: {
-    //                 pool: {
-    //                     chain,
-    //                     type,
-    //                     id: { notIn: [...poolsToIgnore] },
-    //                 },
-    //             },
-    //         })
-    //         .then((records) => _.groupBy(records, 'poolId') as Record<string, typeof records>),
-    //     tokenService
-    //         .getTokens(chain)
-    //         .then((tokens) => Object.fromEntries(tokens.map((token) => [token.address, token]))),
-    // ]);
-
-    // const setWithDynamicDataIds = new Set(Object.keys(dynamicData));
-    // const intersection = [...new Set(Object.keys(pools))].filter((id) => setWithDynamicDataIds.has(id));
-
-    // return intersection.map((id) => ({
-    //     ...pools[id],
-    //     dynamicData: dynamicData[id],
-    //     tokens: poolTokens[id].map((pt) => ({
-    //         ...pt,
-    //         token: tokens[pt.address],
-    //     })),
-    // }));
 }
 
 export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain): Promise<BufferPoolData[]> {

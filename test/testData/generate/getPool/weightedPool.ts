@@ -22,7 +22,10 @@ export class WeightedPool {
     client: PublicClient;
     vault: Address;
 
-    constructor(public rpcUrl: string, public chainId: number) {
+    constructor(
+        public rpcUrl: string,
+        public chainId: number,
+    ) {
         this.client = createPublicClient({
             transport: http(this.rpcUrl),
             chain: CHAINS[this.chainId] as Chain,

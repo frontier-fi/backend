@@ -2,9 +2,7 @@ import { Chain } from '@prisma/client';
 import { prisma } from '../../../prisma/prisma-client';
 import { normalizeAddress } from '../../web3/addresses';
 import { githubChainToChain } from './github-helper';
-
-const RATEPROVIDER_REVIEW_URL =
-    'https://raw.githubusercontent.com/balancer/code-review/main/rate-providers/registry.json';
+import { contentSources } from '../../../config/content-sources';
 
 const knownChains = new Set<string>(Object.values(Chain));
 
@@ -67,7 +65,7 @@ interface RateProviderReview {
 }
 
 const getRateProviderReviews = async () => {
-    const response = await fetch(RATEPROVIDER_REVIEW_URL);
+    const response = await fetch(contentSources.rateProviderReviews);
     const list = (await response.json()) as RateProviderReview;
 
     // Flatten the list by adding the chain and rate provider address to the object

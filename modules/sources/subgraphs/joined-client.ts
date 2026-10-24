@@ -26,10 +26,13 @@ export const getV3JoinedSubgraphClient = (
         },
         getAllInitializedPools: async (where?: PoolsQueryVariables['where']) => {
             const vaultPools = await vaultSubgraphClient.getAllInitializedPools(where);
-            const vaultPoolsMap = vaultPools.reduce((acc, pool) => {
-                acc[pool.id] = pool;
-                return acc;
-            }, {} as Record<string, (typeof vaultPools)[0]>);
+            const vaultPoolsMap = vaultPools.reduce(
+                (acc, pool) => {
+                    acc[pool.id] = pool;
+                    return acc;
+                },
+                {} as Record<string, (typeof vaultPools)[0]>,
+            );
             const vaultPoolIds = Object.keys(vaultPoolsMap);
             if (vaultPoolIds.length === 0) {
                 return [];

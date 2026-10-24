@@ -4,7 +4,10 @@ import { AprRepository } from './apr-repository';
 import _ from 'lodash';
 
 export class AprManager {
-    constructor(private readonly aprRepository: AprRepository, private readonly aprHandlers: AprHandler[]) {}
+    constructor(
+        private readonly aprRepository: AprRepository,
+        private readonly aprHandlers: AprHandler[],
+    ) {}
 
     /**
      * Calculate APRs without writing to the database

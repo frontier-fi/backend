@@ -36,7 +36,6 @@ export interface NetworkData {
         vault?: string;
         pools?: string;
     };
-    protocolToken: 'bal';
     gyro?: {
         config: string;
     };
@@ -46,6 +45,5 @@ export interface NetworkData {
     multicall: string;
     multicall3: string;
     aprHandlers: AprHandlerConfigs;
-    avgBlockSpeed: number;
     workerJobs: WorkerJob[];
 }

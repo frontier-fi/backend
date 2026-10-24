@@ -1,0 +1,2 @@
+# Written by `bun run sor-data` with JSON.stringify, which Prettier would reformat.
+test/testData/read/*.json

@@ -104,7 +104,7 @@ export const poolUpsertTransformerV3 = (
             exemptFromProtocolYieldFee: !token.paysYieldFees,
             scalingFactor: token.scalingFactor,
             balance: token.balance,
-            weight: poolData.weightedParams ? poolData.weightedParams.weights[token.index] ?? null : null,
+            weight: poolData.weightedParams ? (poolData.weightedParams.weights[token.index] ?? null) : null,
         })),
         poolExpandedTokens: allTokens.map((token) => ({
             poolId: normalizeAddress(poolData.id),

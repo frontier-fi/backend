@@ -1,6 +1,15 @@
 import { Chain } from '@prisma/client';
+import { GraphQLError } from 'graphql';
 import { isAddress, zeroAddress } from 'viem';
 import config from '../../config';
+
+/** Thrown for user input, so the API answers with BAD_USER_INPUT instead of an internal error. */
+export class InvalidAddressError extends GraphQLError {
+    constructor(address: string) {
+        super(`Invalid address ${address}`, { extensions: { code: 'BAD_USER_INPUT' } });
+        this.name = 'InvalidAddressError';
+    }
+}
 
 /**
  * Identity for stored addresses is lowercase. EIP-55 is a checksum on the way in,
@@ -12,7 +21,7 @@ import config from '../../config';
 export function normalizeAddress(address: string): string {
     // strict: mixed-case must be a valid EIP-55 checksum. All-lowercase is accepted.
     if (!isAddress(address)) {
-        throw new Error(`Invalid address ${address}`);
+        throw new InvalidAddressError(address);
     }
     return address.toLowerCase();
 }

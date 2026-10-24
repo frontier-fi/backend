@@ -32,7 +32,6 @@ export default <NetworkData>{
         : 'https://sepolia.gateway.tenderly.co',
     rpcMaxBlockRange: 10000,
     acceptableSGLag: 100, // ~1min
-    protocolToken: 'bal',
     // Active addresses from frontier-fi/deployments addresses/_lookup.json. Mock contracts are omitted.
     contracts: {
         Authorizer: '0xEdFdDa22252399BDDAeE8d6D8e93c32cA3c31eeE',
@@ -56,7 +55,6 @@ export default <NetworkData>{
     // Multicall3 from https://github.com/mds1/multicall deployments.json.
     multicall: '0x25Eef291876194AeFAd0D60Dff89e268b90754Bb',
     multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
-    avgBlockSpeed: 1,
     aprHandlers: {
         ybAprHandler: {
             aave: {
@@ -64,5 +62,5 @@ export default <NetworkData>{
             },
         },
     },
-    workerJobs: [...activeChainWorkerJobsGeneric, ...activeChainWorkerJobsV3],
+    workerJobs: [...activeChainWorkerJobsV3, ...activeChainWorkerJobsGeneric],
 };
