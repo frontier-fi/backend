@@ -117,11 +117,19 @@ jobs:
                       echo "ready=true" >> "$GITHUB_OUTPUT"
                   fi
 
+            - name: Read the Bun version from the Dockerfile
+              id: bun
+              if: steps.secrets.outputs.ready == 'true'
+              run: |
+                  version=$(sed -nE 's/^FROM oven\/bun:([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' Dockerfile)
+                  test -n "$version" || { echo "::error::The Dockerfile has no FROM oven/bun:<version> line."; exit 1; }
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
             - name: Use Bun
               if: steps.secrets.outputs.ready == 'true'
               uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
-                  bun-version-file: .bun-version
+                  bun-version: ${{ steps.bun.outputs.version }}
 
             - name: Install deps
               if: steps.secrets.outputs.ready == 'true'

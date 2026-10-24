@@ -164,7 +164,7 @@ The secrets are in the `production` GitHub environment, which only the `producti
 
 Before App Platform replaces a container, it sends SIGTERM and allows 120 seconds before killing it. In that time the scheduler stops sending jobs, the worker gives running jobs up to 90 seconds to finish, and the servers close.
 
-Dependabot proposes updates to the pinned GitHub Actions and Docker base images every week. The Bun version CI uses is in `.bun-version`.
+Dependabot proposes updates to the pinned GitHub Actions and Docker base images every week. CI installs the Bun version of the Dockerfile's `oven/bun` image, so one update bumps both.
 
 ## Stellate
 
