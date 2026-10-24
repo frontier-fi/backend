@@ -168,7 +168,7 @@ Dependabot proposes updates to the pinned GitHub Actions and Docker base images 
 
 ## Stellate
 
-Stellate caches responses, rate-limits clients and answers CORS preflights at `https://frontier-api.stellate.sh`. It forwards requests to `https://api-origin.frontier.fi/graphql` with the `x-stellate-origin-secret` header.
+Stellate caches responses, rate-limits clients and answers CORS preflights at `https://frontier-api.stellate.sh`. It forwards requests to `https://api-origin.frontier.fi/graphql` with the `x-stellate-origin-secret` header. The origin sends no CORS headers, so browser apps call the Stellate URL, local frontend development included.
 
 `stellate.ts` holds the configuration, and every query needs a cache rule there; a unit test checks that. The Deploy workflow pushes the file after each production deployment, with the `STELLATE_TOKEN` and `STELLATE_ORIGIN_SECRET` secrets of the `production` environment, so changes made in the Stellate dashboard don't last.
 
