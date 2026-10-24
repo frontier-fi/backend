@@ -45,10 +45,13 @@ export class SwapFeeAprHandler implements AprHandler {
         const swapFeeData = await prisma.$queryRawUnsafe<PoolSwapFeeData[]>(query(chain, yesterday));
 
         // Map the swap fee data to the pool id
-        const swapFeeDataMap = swapFeeData.reduce((acc, data) => {
-            acc[data.poolId] = data;
-            return acc;
-        }, {} as Record<string, PoolSwapFeeData>);
+        const swapFeeDataMap = swapFeeData.reduce(
+            (acc, data) => {
+                acc[data.poolId] = data;
+                return acc;
+            },
+            {} as Record<string, PoolSwapFeeData>,
+        );
 
         const aprItems: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[] = ([] = pools
             .flatMap((pool) => {

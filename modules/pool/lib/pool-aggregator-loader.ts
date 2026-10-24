@@ -396,8 +396,7 @@ export class PoolAggregatorLoader {
                               chain: underlying.chain,
                               chainId: Number(chainToChainId[underlying.chain]),
                               isErc4626: underlyingTypes?.includes('ERC4626') || false,
-                              tradable:
-                                  underlyingTypes?.includes('BPT') || false,
+                              tradable: underlyingTypes?.includes('BPT') || false,
                               priority: 0,
                           }
                         : undefined,

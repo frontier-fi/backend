@@ -15,7 +15,10 @@ const sourceToHandler = {
 export class TokenYieldAprHandlers {
     private config: TokenYieldConfig;
 
-    constructor(aprConfig: TokenYieldConfig, private chain: Chain) {
+    constructor(
+        aprConfig: TokenYieldConfig,
+        private chain: Chain,
+    ) {
         const { ...config } = aprConfig;
         this.config = config;
     }

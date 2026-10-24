@@ -43,7 +43,8 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
         abi: v3VaultAbi,
         functionName: 'getPoolTokenInfo',
         args: [id],
-        parser: (info: any) => new Map(info[0].map((token: string, idx: number) => [token.toLowerCase(), info[2][idx]])),
+        parser: (info: any) =>
+            new Map(info[0].map((token: string, idx: number) => [token.toLowerCase(), info[2][idx]])),
     }));
 
     if (calls.length === 0) return [];

@@ -124,11 +124,14 @@ export class TokenService {
                     },
                 })
                 .then((types) =>
-                    types.reduce((agg, item) => {
-                        agg[`${item.chain}-${item.tokenAddress}`] ||= [];
-                        agg[`${item.chain}-${item.tokenAddress}`].push(item.type);
-                        return agg;
-                    }, {} as Record<string, PrismaTokenTypeOption[]>),
+                    types.reduce(
+                        (agg, item) => {
+                            agg[`${item.chain}-${item.tokenAddress}`] ||= [];
+                            agg[`${item.chain}-${item.tokenAddress}`].push(item.type);
+                            return agg;
+                        },
+                        {} as Record<string, PrismaTokenTypeOption[]>,
+                    ),
                 ),
         ]);
 

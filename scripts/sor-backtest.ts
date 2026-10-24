@@ -75,7 +75,9 @@ function parseArgs(argv: string[]): { chain: Chain; count: number; verbose: bool
 function isSwapPayload(payload: Prisma.JsonValue): payload is SwapEvent['payload'] {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
     const record = payload as Partial<SwapEvent['payload']>;
-    return Boolean(record.tokenIn?.address && record.tokenIn.amount && record.tokenOut?.address && record.tokenOut.amount);
+    return Boolean(
+        record.tokenIn?.address && record.tokenIn.amount && record.tokenOut?.address && record.tokenOut.amount,
+    );
 }
 
 function collapseTransactions(swaps: SwapRow[]): SwapRow[] {
@@ -148,7 +150,11 @@ async function loadSwaps(chain: Chain, count: number): Promise<{ events: number;
     return { events: events.length, skipped, swaps: newestUniquePairs(collapseTransactions(rows)) };
 }
 
-async function quoteSwaps(chain: Chain, swaps: SwapRow[], verbose: boolean): Promise<{ results: BacktestResult[]; errors: number }> {
+async function quoteSwaps(
+    chain: Chain,
+    swaps: SwapRow[],
+    verbose: boolean,
+): Promise<{ results: BacktestResult[]; errors: number }> {
     const results: BacktestResult[] = [];
     let errors = 0;
 
@@ -165,7 +171,8 @@ async function quoteSwaps(chain: Chain, swaps: SwapRow[], verbose: boolean): Pro
             const durationMs = performance.now() - start;
             const historicOut = Number(swap.amountOut);
             const sorOut = Number(sorResult.returnAmount);
-            const improvement = historicOut > 0 && Number.isFinite(sorOut) ? ((sorOut - historicOut) / historicOut) * 100 : 0;
+            const improvement =
+                historicOut > 0 && Number.isFinite(sorOut) ? ((sorOut - historicOut) / historicOut) * 100 : 0;
 
             results.push({
                 txHash: swap.transactionHash,

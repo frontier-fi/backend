@@ -176,16 +176,12 @@ describe('GyroECLPPool', () => {
             }),
         );
         const bpt = new Token(11155111, blocked.id, 18);
-        const out = blocked.swapGivenIn(
-            bpt,
-            blocked.tokens[0].token,
-            TokenAmount.fromRawAmount(bpt, 1000n),
-        );
+        const out = blocked.swapGivenIn(bpt, blocked.tokens[0].token, TokenAmount.fromRawAmount(bpt, 1000n));
 
         expect(out.amount).toBe(0n);
-        expect(blocked.getLimitAmountSwap(blocked.tokens[1].token, blocked.tokens[0].token, SwapKind.GivenIn)).toBeGreaterThan(
-            0n,
-        );
+        expect(
+            blocked.getLimitAmountSwap(blocked.tokens[1].token, blocked.tokens[0].token, SwapKind.GivenIn),
+        ).toBeGreaterThan(0n);
     });
 
     test('an unknown hook does not change the ECLP parameters', () => {
@@ -201,7 +197,9 @@ describe('GyroECLPPool', () => {
     });
 
     test('reads the Sepolia WETH/USDC GyroE parameters', () => {
-        const sepolia = GyroECLPPool.fromPrismaPool(gyroPool(SEPOLIA_GYRO, { id: SEPOLIA_GYRO.id, address: SEPOLIA_GYRO.id }));
+        const sepolia = GyroECLPPool.fromPrismaPool(
+            gyroPool(SEPOLIA_GYRO, { id: SEPOLIA_GYRO.id, address: SEPOLIA_GYRO.id }),
+        );
         const state = sepolia.getPoolState();
 
         expect(state.paramsAlpha).toBe(parseEther(SEPOLIA_GYRO.alpha));
