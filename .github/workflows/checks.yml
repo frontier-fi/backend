@@ -23,6 +23,8 @@ jobs:
                   DEPLOYMENT_ENV: staging
                   ADMIN_API_KEY: ci
               run: bunx prisma generate --schema prisma/schema && bun run generate
+            - name: Run unit tests
+              run: bun run test -- run
             - name: Run build
               run: bun run build
             - name: Typecheck tests
