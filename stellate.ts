@@ -15,6 +15,9 @@ const config: Config = {
         headers: process.env.STELLATE_ORIGIN_SECRET
             ? { 'x-stellate-origin-secret': process.env.STELLATE_ORIGIN_SECRET }
             : null,
+        // App Platform's Cloudflare layer sets this bot-management cookie on every response, and
+        // Stellate caches no response that sets a cookie.
+        removeCookies: ['__cf_bm'],
         // The origin serves Apollo Sandbox with an example query on GET /graphql.
         graphiql: { enabled: false },
         // A query that matches several rules is cached for the shortest of them.
