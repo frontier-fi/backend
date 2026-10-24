@@ -6,13 +6,7 @@ import helmet from 'helmet';
 import * as http from 'http';
 import { env } from '../env';
 import { loadRestRoutes } from './rest-routes';
-import {
-    corsMiddleware,
-    jsonErrorHandler,
-    lowerCaseMiddleware,
-    ORIGIN_SECRET_HEADER,
-    requireOriginSecret,
-} from './middleware';
+import { jsonErrorHandler, lowerCaseMiddleware, ORIGIN_SECRET_HEADER, requireOriginSecret } from './middleware';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
 import { ApolloServerPluginUsageReporting } from '@apollo/server/plugin/usageReporting';
 import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin/landingPage/default';
@@ -37,9 +31,9 @@ const configureHelmet = (app: express.Express) => {
     app.use(helmet.referrerPolicy());
 };
 
+// No CORS headers on purpose: browsers call the API through Stellate, which sets its own.
 const configureMiddlewares = (app: express.Express) => {
     app.use(requireOriginSecret(env.STELLATE_ORIGIN_SECRET));
-    app.use(corsMiddleware);
     app.use(lowerCaseMiddleware);
 };
 
