@@ -8,8 +8,7 @@ WORKDIR /app
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public" \
     PORT=4000 \
     NODE_ENV=staging \
-    DEPLOYMENT_ENV=staging \
-    ADMIN_API_KEY=build
+    DEPLOYMENT_ENV=staging
 
 COPY package.json bun.lock ./
 COPY prisma ./prisma
@@ -17,9 +16,10 @@ RUN bun install --frozen-lockfile
 
 COPY . .
 # GraphQL clients are gitignored, so codegen runs here. Subgraph outputs are
-# introspected from the Sepolia URLs.
+# introspected from the Sepolia URLs. apps/env.ts also requires an admin key: its placeholder
+# goes on the command, because BuildKit flags ENV names that look like secrets.
 RUN bunx prisma generate --schema prisma/schema \
-    && bun run generate \
+    && ADMIN_API_KEY=build bun run generate \
     && bun run build
 
 # production node_modules only (keeps the prisma CLI for the pre-deploy migrate job)
