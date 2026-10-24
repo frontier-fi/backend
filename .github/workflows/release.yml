@@ -3,9 +3,7 @@ name: Release
 on:
     workflow_dispatch:
 
-permissions:
-    contents: read
-    pull-requests: write
+permissions: {}
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -14,10 +12,37 @@ jobs:
         name: Release
         runs-on: ubuntu-latest
         steps:
-            - name: Checkout Repo
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            # A pull request opened with GITHUB_TOKEN starts no workflows, so the Build check that the
+            # production ruleset requires would never run. One opened by the maxyz-actions app does.
+            - name: Generate GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+              with:
+                  client-id: Iv23lin88uMBRaCQ5SzJ
+                  private-key: ${{ secrets.MAXYZ_ACTIONS_PRIVATE_KEY }}
+                  permission-contents: read
+                  permission-pull-requests: write
 
-            - name: Create publish to production Pull Request
-              run: gh pr create -B production -H staging --title 'publish to production' --body 'Publish staging to production.'
+            - name: Open or update the release pull request
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  title="Release $(date -u +%F): staging → production"
+                  prs=$(gh api "repos/$GITHUB_REPOSITORY/compare/production...staging" --jq '.commits[].commit.message' \
+                      | grep -oE '^Merge pull request #[0-9]+' | grep -oE '[0-9]+$' | sort -un || true)
+                  {
+                      echo "Merging this deploys \`staging\` to production."
+                      if [ -n "$prs" ]; then
+                          printf '\n## Pull requests\n\n'
+                          for number in $prs; do
+                              gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json number,title --jq '"- #\(.number) \(.title)"'
+                          done
+                      fi
+                  } > body.md
+
+                  open=$(gh pr list --repo "$GITHUB_REPOSITORY" --base production --head staging --state open --json number --jq '.[0].number // empty')
+                  if [ -n "$open" ]; then
+                      gh pr edit "$open" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+                  else
+                      gh pr create --repo "$GITHUB_REPOSITORY" --base production --head staging --title "$title" --body-file body.md
+                  fi
