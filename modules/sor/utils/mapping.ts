@@ -95,8 +95,8 @@ export async function mapToSorSwapPaths(
         tokenAddresses: [...new Set(paths.flatMap((p) => p.tokens).map((t) => t.address))],
         tokenIn: replaceZeroAddressWithEth(inputAmount.token.address, chain),
         tokenOut: replaceZeroAddressWithEth(outputAmount.token.address, chain),
-        tokenInAmount: inputAmount.amount.toString(),
-        tokenOutAmount: outputAmount.amount.toString(),
+        tokenInAmount: formatUnits(inputAmount.amount, inputAmount.token.decimals),
+        tokenOutAmount: formatUnits(outputAmount.amount, outputAmount.token.decimals),
         swapAmount: formatUnits(swapAmount.amount, swapAmount.token.decimals),
         swapAmountRaw: swapAmount.amount.toString(),
         returnAmount: formatUnits(returnAmount.amount, returnAmount.token.decimals),
@@ -125,10 +125,14 @@ export function mapRoutes(paths: PathWithAmount[]): GqlSorSwapRoute[] {
     if (!isBatchSwap) {
         return [mapSingleSwap(paths[0])];
     }
-    return paths.map((path) => mapBatchSwap(path));
+    const totalInput = paths.reduce((sum, path) => sum + path.inputAmount.amount, 0n);
+    return paths.map((path) => {
+        const share = totalInput > 0n ? Number(path.inputAmount.amount) / Number(totalInput) : 1 / paths.length;
+        return mapBatchSwap(path, share);
+    });
 }
 
-function mapBatchSwap(path: PathWithAmount): GqlSorSwapRoute {
+function mapBatchSwap(path: PathWithAmount, share: number): GqlSorSwapRoute {
     const tokenIn = path.tokens[0].address;
     const tokenOut = path.tokens[path.tokens.length - 1].address;
     const tokenInAmount = formatUnits(path.inputAmount.amount, path.tokens[0].decimals);
@@ -159,7 +163,7 @@ function mapBatchSwap(path: PathWithAmount): GqlSorSwapRoute {
         tokenOut,
         tokenInAmount,
         tokenOutAmount,
-        share: 0.5,
+        share,
         hops,
     };
 }
@@ -168,7 +172,7 @@ function mapSingleSwap(path: PathWithAmount): GqlSorSwapRoute {
     const tokenIn = path.tokens[0].address;
     const tokenInAmount = formatUnits(path.inputAmount.amount, path.tokens[0].decimals);
     const tokenOut = path.tokens[1].address;
-    const tokenOutAmount = formatUnits(path.inputAmount.amount, path.tokens[1].decimals);
+    const tokenOutAmount = formatUnits(path.outputAmount.amount, path.tokens[1].decimals);
 
     const hop: GqlSorSwapRouteHop = {
         poolId: path.pools[0].id,

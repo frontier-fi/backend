@@ -13,6 +13,7 @@
 
 import { performance } from 'perf_hooks';
 import { Chain, Prisma } from '@prisma/client';
+import { GqlChain } from '../apps/api/gql/generated-schema';
 import { prisma } from '../prisma/prisma-client';
 import { sorService } from '../modules/sor/sor.service';
 import { SwapEvent } from '../prisma/prisma-types';
@@ -166,7 +167,7 @@ async function quoteSwaps(
                 tokenOut: swap.tokenOut,
                 swapAmount: swap.amountIn,
                 swapType: 'EXACT_IN',
-                chain,
+                chain: chain as GqlChain,
             });
             const durationMs = performance.now() - start;
             const historicOut = Number(swap.amountOut);

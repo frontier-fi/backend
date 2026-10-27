@@ -55,7 +55,7 @@ export const syncErc4626OnchainData = async (vaultExplorerAddress: string, viemC
 
     try {
         const [maxValues, unwrapRates, bufferBalances] = await Promise.all([
-            fetchMaxValues(chain, erc4626Tokens),
+            fetchMaxValues(chain, erc4626Tokens, underlyingTokenMap),
             fetchUnwrapRates(erc4626Tokens, underlyingTokenMap),
             fetchBufferBalances(erc4626Tokens, underlyingTokenMap, vaultExplorerAddress, viemClient),
         ]);

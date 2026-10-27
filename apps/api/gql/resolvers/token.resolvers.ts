@@ -18,7 +18,7 @@ const resolvers: Resolvers = {
             return prices.map((price) => ({
                 address: price.tokenAddress,
                 price: price.price,
-                chain: price.chain,
+                chain: price.chain as GqlChain,
                 updatedAt: moment(price.updatedAt).unix(),
                 updatedBy: price.updatedBy,
             }));
@@ -32,7 +32,7 @@ const resolvers: Resolvers = {
             for (const address in grouped) {
                 result.push({
                     address: address,
-                    chain: grouped[address][0].chain,
+                    chain: grouped[address][0].chain as GqlChain,
                     prices: grouped[address].map((entry) => ({
                         timestamp: `${entry.timestamp}`,
                         price: entry.price,

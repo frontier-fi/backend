@@ -350,4 +350,43 @@ describe('SwapsPriceHandler', () => {
         expect(priceItems[0].address).toBe('0xtoken-unknown');
         expect(priceItems[0].price).toBe(2.0); // (100 DAI * $1) / 50 unknown tokens = $2
     });
+
+    it('should emit at most one PriceItem per token using the first valid swap', async () => {
+        const latestSwap = {
+            ...baseMockSwapEvent,
+            id: 'swap-latest',
+            payload: {
+                ...(baseMockSwapEvent.payload as any),
+                tokenIn: { address: '0xtoken-unknown', amount: '100' },
+                tokenOut: { address: '0xtoken-usdc', amount: '300' }, // $3.00
+            },
+        };
+        const olderSwap = {
+            ...baseMockSwapEvent,
+            id: 'swap-older',
+            payload: {
+                ...(baseMockSwapEvent.payload as any),
+                tokenIn: { address: '0xtoken-unknown', amount: '100' },
+                tokenOut: { address: '0xtoken-usdc', amount: '200' }, // $2.00
+            },
+        };
+
+        const tokens: TokenPriceData[] = [
+            {
+                address: '0xtoken-unknown',
+                chain: Chain.MAINNET,
+                types: ['ERC20'],
+                latestSwaps: [latestSwap, olderSwap],
+            },
+        ];
+
+        const allPrices = new Map<string, { price: number; updatedBy: string }>([
+            ['0xtoken-usdc', { price: 1.0, updatedBy: 'initial' }],
+        ]);
+
+        const priceItems = await handler.calculatePricesForTokens(tokens, allPrices);
+
+        expect(priceItems).toHaveLength(1);
+        expect(priceItems[0].price).toBe(3.0);
+    });
 });

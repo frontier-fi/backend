@@ -37,6 +37,9 @@ export const fetchUnwrapRates = async (
             missingTokens.map(({ address, chain }) => [address, chain]),
         );
     }
+    if (validTokens.length === 0) {
+        return {};
+    }
     const chain = validTokens[0].chain;
     const caller = new Multicaller3Viem(chain, MinimalErc4626Abi);
     validTokens.forEach((token) =>

@@ -38,7 +38,7 @@ export const syncIncentivizedCategory = async (chain: Chain) => {
         queries.push(
             prisma.$executeRaw`UPDATE "PrismaPool"
             SET categories = array_remove(categories, 'INCENTIVIZED')
-            WHERE id IN (${Prisma.join(idsToRemove)});`,
+            WHERE chain = ${chain}::"Chain" AND id IN (${Prisma.join(idsToRemove)});`,
         );
     }
 
@@ -47,7 +47,7 @@ export const syncIncentivizedCategory = async (chain: Chain) => {
         queries.push(
             prisma.$executeRaw`UPDATE "PrismaPool"
             SET categories = array_append(categories, 'INCENTIVIZED')
-            WHERE id IN (${Prisma.join(idsToAdd)});`,
+            WHERE chain = ${chain}::"Chain" AND id IN (${Prisma.join(idsToAdd)});`,
         );
     }
 

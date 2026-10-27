@@ -1,6 +1,6 @@
-import * as Sentry from '@sentry/node';
 import { Express } from 'express';
-import { Chain } from '@prisma/client';
+import { Chain, PrismaClient } from '@prisma/client';
+import murmurhash from 'murmurhash';
 import { tokenService } from '../../modules/token/token.service';
 import { PricingService } from '../../modules/pricing/pricing-service';
 import { chainIdToChain } from '../../config/chain-id-to-chain';
@@ -8,10 +8,11 @@ import { SnapshotsController, PoolController, EventController, TokenYieldsContro
 import { updateVolumeAndFees } from '../../modules/actions/pool/update-volume-and-fees';
 import { TokenController } from '../../modules/controllers/token-controller';
 import config from '../../config';
-import { globalWorkerJobs } from '../../config/worker-jobs';
 import { AprsController } from '../../modules/controllers/aprs-controller';
 import { ContentController } from '../../modules/content/content-controller';
 import { UserBalancesController } from '../../modules/user/user-balances-controller';
+import { env } from '../env';
+import { withDefaultConnectionParams } from '../../prisma/prisma-client';
 
 export type JobHandler = (chain: Chain) => Promise<unknown>;
 
@@ -22,6 +23,47 @@ export interface JobOutcome {
     error?: string;
 }
 
+export const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000;
+
+export type LockAcquireFn = (jobId: string) => Promise<(() => Promise<void>) | null>;
+
+let lockPrismaClient: PrismaClient | undefined;
+
+function getLockPrismaClient(): PrismaClient {
+    if (!lockPrismaClient) {
+        // Dedicated single-connection client so session-level pg_try_advisory_lock and
+        // pg_advisory_unlock always execute on the exact same PostgreSQL backend connection.
+        lockPrismaClient = new PrismaClient({
+            datasources: {
+                db: {
+                    url: withDefaultConnectionParams(env.DATABASE_URL, 1, 15),
+                },
+            },
+        });
+    }
+    return lockPrismaClient;
+}
+
+export async function acquirePostgresAdvisoryLock(
+    jobId: string,
+    client: Pick<PrismaClient, '$queryRaw' | '$executeRaw'> = getLockPrismaClient(),
+): Promise<(() => Promise<void>) | null> {
+    const lockKey = murmurhash.v3(jobId);
+    const rows = await client.$queryRaw<
+        { locked: boolean }[]
+    >`SELECT pg_try_advisory_lock(${lockKey}::bigint) AS locked`;
+    if (!rows[0]?.locked) {
+        return null;
+    }
+    return async () => {
+        try {
+            await client.$executeRaw`SELECT pg_advisory_unlock(${lockKey}::bigint)`;
+        } catch (error) {
+            console.error(`Failed to release advisory lock for ${jobId}:`, error);
+        }
+    };
+}
+
 async function updateTokenPricesForAllChains(): Promise<void> {
     const chains = Object.keys(config) as Chain[];
     const service = new PricingService(chains);
@@ -30,7 +72,7 @@ async function updateTokenPricesForAllChains(): Promise<void> {
         try {
             await service.updatePrices(chain);
         } catch (error) {
-            console.log(`Error updating prices for chain ${chain}:`, error);
+            console.error(`Error updating prices for chain ${chain}:`, error);
             errors.push(error instanceof Error ? error : new Error(`Unknown error: ${error}`));
         }
     }
@@ -65,44 +107,74 @@ export const jobHandlers: Record<string, JobHandler> = {
 
 const runningJobs = new Map<string, Promise<JobOutcome>>();
 
+export interface WorkerRouteOptions {
+    jobTimeoutMs?: number;
+    acquireLock?: LockAcquireFn;
+}
+
 function runIfNotAlreadyRunning(
     jobId: string,
-    intervalMs: number | undefined,
     fn: () => Promise<unknown>,
+    options: Required<WorkerRouteOptions>,
 ): Promise<JobOutcome> {
     if (runningJobs.has(jobId)) {
         console.log(`Skip job ${jobId}-skip`);
         return Promise.resolve({ job: jobId, status: 'skipped' });
     }
 
-    const run = runJob(jobId, intervalMs, fn).finally(() => runningJobs.delete(jobId));
+    const run = runJob(jobId, fn, options).finally(() => runningJobs.delete(jobId));
     runningJobs.set(jobId, run);
     return run;
 }
 
-async function runJob(jobId: string, intervalMs: number | undefined, fn: () => Promise<unknown>): Promise<JobOutcome> {
-    const checkInId = Sentry.captureCheckIn(
-        { monitorSlug: jobId, status: 'in_progress' },
-        sentryMonitorConfig(intervalMs),
-    );
+async function runJob(
+    jobId: string,
+    fn: () => Promise<unknown>,
+    options: Required<WorkerRouteOptions>,
+): Promise<JobOutcome> {
+    let releaseLock: (() => Promise<void>) | null = null;
+    try {
+        releaseLock = await options.acquireLock(jobId);
+    } catch (error) {
+        console.error(`Failed to acquire advisory lock for ${jobId}:`, error);
+        return {
+            job: jobId,
+            status: 'failed',
+            durationSeconds: 0,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
+
+    if (!releaseLock) {
+        console.log(`Skip job ${jobId}-skip (locked by another worker)`);
+        return { job: jobId, status: 'skipped' };
+    }
+
     const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     try {
         console.log(`Start job ${jobId}-start`);
 
-        await fn();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+                reject(new Error(`Job ${jobId} timed out after ${options.jobTimeoutMs}ms`));
+            }, options.jobTimeoutMs);
+        });
+
+        await Promise.race([fn(), timeoutPromise]);
 
         const duration = (Date.now() - startedAt) / 1000;
         console.log(`Successful job ${jobId}-done`, duration);
-        Sentry.captureCheckIn({ monitorSlug: jobId, status: 'ok', checkInId, duration });
         return { job: jobId, status: 'done', durationSeconds: duration };
     } catch (error: unknown) {
         const duration = (Date.now() - startedAt) / 1000;
         const message = error instanceof Error ? error.message : String(error);
-        console.log(`Error job ${jobId}-error`, duration, message);
-        Sentry.captureException(error);
-        Sentry.captureCheckIn({ monitorSlug: jobId, status: 'error', checkInId, duration });
+        console.error(`Error job ${jobId}-error`, duration, error);
         return { job: jobId, status: 'failed', durationSeconds: duration, error: message };
+    } finally {
+        clearTimeout(timer);
+        await releaseLock();
     }
 }
 
@@ -113,10 +185,18 @@ export interface WorkerRoutes {
 
 /**
  * POST / runs one job and answers with its outcome once it ends. The status is 200 whenever
- * the job was accepted, also when it failed: the failure is already reported to Sentry.
+ * the job was accepted, also when it failed: the failure is logged to stderr for Better Stack.
  */
-export function configureWorkerRoutes(app: Express, handlers: Record<string, JobHandler> = jobHandlers): WorkerRoutes {
+export function configureWorkerRoutes(
+    app: Express,
+    handlers: Record<string, JobHandler> = jobHandlers,
+    options: WorkerRouteOptions = {},
+): WorkerRoutes {
     let draining = false;
+    const resolvedOptions: Required<WorkerRouteOptions> = {
+        jobTimeoutMs: options.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS,
+        acquireLock: options.acquireLock ?? acquirePostgresAdvisoryLock,
+    };
 
     app.get('/health', (_req, res) => {
         res.sendStatus(200);
@@ -135,7 +215,7 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
             !Object.hasOwn(handlers, name) ||
             !Object.hasOwn(chainIdToChain, chainId)
         ) {
-            console.log(`Unhandled job ${String(name)} for chain ${String(chainId)}`);
+            console.error(`Unhandled job ${String(name)} for chain ${String(chainId)}`);
             res.sendStatus(400);
             return;
         }
@@ -144,18 +224,7 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
         const chain = chainIdToChain[chainId];
         const jobId = `${name}-${chainId}`;
 
-        const outcome = await Sentry.withIsolationScope(async (scope) => {
-            // Clear breadcrumbs to avoid mixing them between requests
-            // That doesn't always work, but it's better than nothing
-            scope.clearBreadcrumbs();
-            scope.setTransactionName(jobId);
-            scope.setTag('job', name);
-            scope.setTag('chain', chainId);
-
-            return Sentry.startSpan({ op: 'job', name: jobId }, () =>
-                runIfNotAlreadyRunning(jobId, jobIntervalMs(name, chain), () => handler(chain)),
-            );
-        });
+        const outcome = await runIfNotAlreadyRunning(jobId, () => handler(chain), resolvedOptions);
 
         res.json(outcome);
     });
@@ -172,32 +241,11 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
             } finally {
                 clearTimeout(timer);
             }
+            if (lockPrismaClient) {
+                await lockPrismaClient.$disconnect().catch(() => undefined);
+                lockPrismaClient = undefined;
+            }
             return [...runningJobs.keys()];
         },
-    };
-}
-
-function jobIntervalMs(name: string, chain: Chain): number | undefined {
-    return [...config[chain].workerJobs, ...globalWorkerJobs].find((job) => job.name === name)?.interval;
-}
-
-// Sentry cron intervals are whole minutes at the smallest. Sub-minute jobs round up to one minute.
-function sentryMonitorConfig(intervalMs: number | undefined): {
-    schedule: { type: 'interval'; value: number; unit: 'minute' | 'hour' | 'day' };
-    checkinMargin: number;
-    maxRuntime: number;
-} {
-    const intervalMinutes = Math.max(1, Math.round((intervalMs ?? 60_000) / 60_000));
-    const schedule =
-        intervalMinutes % (24 * 60) === 0
-            ? { type: 'interval' as const, value: intervalMinutes / (24 * 60), unit: 'day' as const }
-            : intervalMinutes % 60 === 0
-              ? { type: 'interval' as const, value: intervalMinutes / 60, unit: 'hour' as const }
-              : { type: 'interval' as const, value: intervalMinutes, unit: 'minute' as const };
-
-    return {
-        schedule,
-        checkinMargin: Math.max(1, Math.ceil(intervalMinutes / 5)),
-        maxRuntime: Math.max(5, intervalMinutes * 2),
     };
 }

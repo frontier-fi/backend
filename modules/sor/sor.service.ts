@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node';
 import { Address, formatUnits } from 'viem';
 
 import { GqlSorGetSwapPaths, QuerySorGetSwapPathsArgs } from '../../apps/api/gql/generated-schema';
@@ -163,26 +162,17 @@ export class SorService {
     }
 
     private logSwapPathError(err: any, input: GetSwapPathsInput): void {
-        console.table({
-            error: 'SOR_V2_ERROR',
-            message: err.message,
-            tokenIn: input.tokenIn,
-            tokenOut: input.tokenOut,
-            swapAmount: input.swapAmount.amount,
-            swapType: input.swapType,
-            chain: input.chain,
-        });
-
-        Sentry.captureException(err.message, {
-            tags: {
-                service: 'sorV2',
+        console.error(
+            `SOR swap path error: ${err?.message ?? err}`,
+            {
                 tokenIn: input.tokenIn,
                 tokenOut: input.tokenOut,
-                swapAmount: input.swapAmount.amount,
+                swapAmount: input.swapAmount.amount.toString(),
                 swapType: input.swapType,
                 chain: input.chain,
             },
-        });
+            err,
+        );
     }
 }
 

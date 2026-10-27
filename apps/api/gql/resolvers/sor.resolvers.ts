@@ -14,7 +14,6 @@ import {
     visit,
 } from 'graphql';
 import { env } from '../../../env';
-import { ORIGIN_SECRET_HEADER } from '../../middleware/originSecret';
 
 const TIMEOUT = 15_000;
 
@@ -160,8 +159,6 @@ export async function proxySorRequest(
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // The SOR instance runs the same app and checks the secret too when it is set there.
-                ...(env.STELLATE_ORIGIN_SECRET ? { [ORIGIN_SECRET_HEADER]: env.STELLATE_ORIGIN_SECRET } : {}),
             },
             body: JSON.stringify({ query, variables, operationName: 'SorProxy' }),
             signal: abortController.signal,

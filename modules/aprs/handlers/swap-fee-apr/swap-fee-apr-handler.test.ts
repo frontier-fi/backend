@@ -4,21 +4,22 @@ import { PoolAPRData } from '../../types';
 
 vi.mock('../../../../prisma/prisma-client', () => ({
     prisma: {
-        $queryRawUnsafe: vi.fn(),
+        $queryRaw: vi.fn(),
     },
 }));
 
 import { prisma } from '../../../../prisma/prisma-client';
 import { SwapFeeAprHandler } from './swap-fee-apr-handler';
 
-const queryRaw = prisma.$queryRawUnsafe as unknown as ReturnType<typeof vi.fn>;
+const queryRaw = prisma.$queryRaw as unknown as ReturnType<typeof vi.fn>;
 
 const pool = (overrides: Record<string, unknown> = {}) =>
     ({
         id: 'pool',
         chain: Chain.SEPOLIA,
         type: PrismaPoolType.WEIGHTED,
-        version: 3,
+        version: 1,
+        protocolVersion: 3,
         dynamicData: {
             totalLiquidity: 3650,
             protocolSwapFee: '0',
@@ -61,13 +62,14 @@ describe('SwapFeeAprHandler', () => {
         expect(items.find((item) => item.type === 'SWAP_FEE_24H')?.apr).toBeCloseTo(1);
     });
 
-    it('uses the yield fee for a GyroE pool that is not protocol version 3', async () => {
+    it('uses the yield fee for a GyroE pool that is not protocol version 3, and aggregateSwapFee for v3 GyroE', async () => {
         queryRaw.mockResolvedValue([{ poolId: 'pool', dynamic_fees_24h: 0, fees_24h: 10 }]);
 
-        const items = await new SwapFeeAprHandler().calculateAprForPools([
+        const v2Items = await new SwapFeeAprHandler().calculateAprForPools([
             pool({
                 type: PrismaPoolType.ECLP,
                 version: 1,
+                protocolVersion: 2,
                 dynamicData: {
                     totalLiquidity: 3650,
                     protocolSwapFee: '0.9',
@@ -78,7 +80,24 @@ describe('SwapFeeAprHandler', () => {
             }),
         ]);
 
-        expect(items.find((item) => item.type === 'SWAP_FEE_24H')?.apr).toBeCloseTo(0.5);
+        expect(v2Items.find((item) => item.type === 'SWAP_FEE_24H')?.apr).toBeCloseTo(0.5);
+
+        const v3Items = await new SwapFeeAprHandler().calculateAprForPools([
+            pool({
+                type: PrismaPoolType.ECLP,
+                version: 2,
+                protocolVersion: 3,
+                dynamicData: {
+                    totalLiquidity: 3650,
+                    protocolSwapFee: '0',
+                    protocolYieldFee: '0',
+                    aggregateSwapFee: '0.2',
+                    isInRecoveryMode: false,
+                },
+            }),
+        ]);
+
+        expect(v3Items.find((item) => item.type === 'SWAP_FEE_24H')?.apr).toBeCloseTo(0.8);
     });
 
     it('skips a pool with no swaps or no liquidity', async () => {

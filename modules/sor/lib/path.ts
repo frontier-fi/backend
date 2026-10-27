@@ -68,6 +68,9 @@ export class PathWithAmount extends PathLocal {
                         amounts[i],
                         this.mutateBalances,
                     );
+                    if (outputAmount.amount === 0n) {
+                        throw new Error('Zero output amount on swapGivenIn hop');
+                    }
                     amounts[i + 1] = outputAmount;
                     if (pool.poolType === 'Buffer') {
                         if (
@@ -105,6 +108,9 @@ export class PathWithAmount extends PathLocal {
                         amounts[i],
                         this.mutateBalances,
                     );
+                    if (inputAmount.amount === 0n) {
+                        throw new Error('Zero input amount on swapGivenOut hop');
+                    }
                     if (pool.poolType === 'Buffer') {
                         if (
                             (pool as BufferPool).swapGivenOutGreaterThanBufferLimit(

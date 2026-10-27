@@ -25,7 +25,7 @@ export function ContentController() {
         async syncTokenContentData() {
             // sync sepolia only in non-production envs
             const chains = Object.keys(config).filter(
-                (chain) => (process.env.DEPLOYMENT_ENV === 'production' && chain !== 'SEPOLIA') || true,
+                (chain) => !(process.env.DEPLOYMENT_ENV === 'production' && chain === 'SEPOLIA'),
             ) as Chain[];
 
             //sync coingecko Ids first, then override Ids from the content service

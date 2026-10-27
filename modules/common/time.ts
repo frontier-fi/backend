@@ -175,7 +175,7 @@ export const daysAgo = (daysAgo: number): number => {
  * @returns
  */
 export const hoursAgo = (hoursAgo: number): number => {
-    return Math.floor(+new Date(Date.now() - hoursAgo * 60 * 1000) / 1000);
+    return Math.floor(+new Date(Date.now() - hoursAgo * 3600 * 1000) / 1000);
 };
 
 export const now = (): number => Math.floor(Date.now() / 1000);

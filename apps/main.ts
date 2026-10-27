@@ -1,5 +1,3 @@
-import './sentry';
-import * as Sentry from '@sentry/node';
 import { prisma } from '../prisma/prisma-client';
 import { startApiServer } from './api/server';
 import { startWorkerServer } from './worker/server';
@@ -16,7 +14,6 @@ const parts: Stoppable[] = [];
 const shutdown = createShutdown(parts, {
     cleanup: async () => {
         await prisma.$disconnect();
-        await Sentry.close(2_000);
     },
     exit: (code) => process.exit(code),
 });

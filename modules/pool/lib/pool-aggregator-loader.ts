@@ -2,6 +2,7 @@ import { Prisma, PrismaErc4626ReviewData, PrismaPriceRateProviderData, PrismaTok
 import { prisma } from '../../../prisma/prisma-client';
 import { HookData } from '../../../prisma/prisma-types';
 import {
+    GqlChain,
     GqlPoolAggregator,
     QueryAggregatorPoolsArgs,
     LiquidityManagement,
@@ -364,7 +365,7 @@ export class PoolAggregatorLoader {
                     hasNestedPool: token.token.types ? token.address !== pool.address && types.includes('BPT') : false,
                     index: token.index,
                     id: token.id,
-                    isAllowed: types.includes('BLOCKED_V3'),
+                    isAllowed: !types.includes('BLOCKED_V3'),
                     isBufferAllowed: token.token.isBufferAllowed,
                     isExemptFromProtocolYieldFee: token.exemptFromProtocolYieldFee,
                     canUseBufferForSwaps: erc4626Review.canUseBufferForSwaps,
@@ -393,15 +394,16 @@ export class PoolAggregatorLoader {
                               name: underlying.name,
                               decimals: underlying.decimals,
                               isBufferAllowed: underlying.isBufferAllowed,
-                              chain: underlying.chain,
+                              chain: underlying.chain as GqlChain,
                               chainId: Number(chainToChainId[underlying.chain]),
                               isErc4626: underlyingTypes?.includes('ERC4626') || false,
-                              tradable: underlyingTypes?.includes('BPT') || false,
+                              tradable: !underlyingTypes?.includes('BPT'),
                               priority: 0,
                           }
                         : undefined,
                 };
             }),
+            chain: pool.chain as GqlChain,
             protocolVersion: pool.protocolVersion,
             liquidityManagement: (pool.liquidityManagement as LiquidityManagement) || undefined,
             hook: hook ? mapHookToGqlHook(hook) : undefined,

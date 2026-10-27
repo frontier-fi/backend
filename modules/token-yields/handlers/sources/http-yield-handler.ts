@@ -4,30 +4,24 @@ import { TokenYieldHandler, TokenYieldHttpFetchConfig } from '../../types';
 const fetchWithTimeout = async (
     url: string,
     options: RequestInit = {},
-    skipSSL = false,
+    _skipSSL = false,
     timeoutMs: number = 20000,
 ): Promise<any> => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    let previous_NODE_TLS_REJECT_UNAUTHORIZED = process.env['NODE_TLS_REJECT_UNAUTHORIZED'];
-    if (skipSSL) {
-        process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
-    }
     const fetchPromise = fetch(url, {
         ...options,
         signal: controller.signal,
     });
-    if (skipSSL) {
-        process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = previous_NODE_TLS_REJECT_UNAUTHORIZED;
-    }
 
+    let onAbort: (() => void) | undefined;
     // Timeout promise - needed to handle bun edge case that doesn't throw when fetch is aborted
     const timeoutPromise = new Promise((_, reject) => {
-        timeoutId; // Reference to clear timeout
-        controller.signal.addEventListener('abort', () => {
+        onAbort = () => {
             reject(new Error(`timed out after ${timeoutMs}ms`));
-        });
+        };
+        controller.signal.addEventListener('abort', onAbort);
     });
 
     try {
@@ -39,7 +33,9 @@ const fetchWithTimeout = async (
         throw `${url} ${error.message}`;
     } finally {
         // Cleanup listener in all cases to prevent potential mem leaks
-        controller.signal.removeEventListener('abort', () => {});
+        if (onAbort) {
+            controller.signal.removeEventListener('abort', onAbort);
+        }
     }
 };
 

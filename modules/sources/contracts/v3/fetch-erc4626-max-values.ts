@@ -12,6 +12,7 @@ import config from '../../../../config';
 export const fetchMaxValues = async (
     chain: Chain,
     erc4626Tokens: PrismaToken[],
+    underlyingTokenMap?: { [address: string]: PrismaToken },
 ): Promise<{
     [id: string]: { maxDeposit: string; maxWithdraw: string };
 }> => {
@@ -26,7 +27,14 @@ export const fetchMaxValues = async (
     });
     const results = await caller.execute<{ [id: string]: bigint }>();
 
-    const addressDecimalMap = Object.fromEntries(erc4626Tokens.map((token) => [token.address, token.decimals]));
+    const addressDecimalMap = Object.fromEntries(
+        erc4626Tokens.map((token) => {
+            const underlyingDecimals = token.underlyingTokenAddress
+                ? underlyingTokenMap?.[token.underlyingTokenAddress]?.decimals
+                : undefined;
+            return [token.address, underlyingDecimals ?? token.decimals];
+        }),
+    );
 
     const formattedResults: { [id: string]: { maxDeposit: string; maxWithdraw: string } } = {};
 

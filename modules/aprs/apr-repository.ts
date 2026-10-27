@@ -60,8 +60,6 @@ export class AprRepository {
         newAprItems: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[],
         poolIds?: string[],
     ): Promise<string[]> {
-        if (newAprItems.length === 0) return [];
-
         const changedPoolIds = new Set<string>();
 
         // Fetch all existing APR items by poolId
@@ -86,6 +84,8 @@ export class AprRepository {
             });
             [...new Set(itemsToRemove.map((i) => i.poolId))].forEach((poolId) => changedPoolIds.add(poolId));
         }
+
+        if (newAprItems.length === 0) return [...changedPoolIds];
 
         // Create a lookup map for quick access
         const existingItemsMap = new Map(existingItems.map((item) => [item.id, item]));
@@ -155,7 +155,9 @@ export class AprRepository {
                 )
             ),
             0
-          );
+          )
+          WHERE dyn."chain" = ${chain}::"Chain"
+            AND dyn."poolId" = ANY(${poolIds});
         `;
 
         return true;

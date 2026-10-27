@@ -3,16 +3,29 @@ import type { Server } from 'node:http';
 import express from 'express';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configuredSchedule } from '../scheduler/schedule';
-import { configureWorkerRoutes, JobHandler, jobHandlers, WorkerRoutes } from './job-handlers';
+import {
+    acquirePostgresAdvisoryLock,
+    configureWorkerRoutes,
+    JobHandler,
+    jobHandlers,
+    WorkerRouteOptions,
+    WorkerRoutes,
+} from './job-handlers';
 
 const SEPOLIA_ID = '11155111';
 
+const noopLock = async () => async () => undefined;
+
 async function serve(
     handlers: Record<string, JobHandler>,
+    options: WorkerRouteOptions = {},
 ): Promise<{ server: Server; url: string; routes: WorkerRoutes }> {
     const app = express();
     app.use(express.json());
-    const routes = configureWorkerRoutes(app, handlers);
+    const routes = configureWorkerRoutes(app, handlers, {
+        acquireLock: noopLock,
+        ...options,
+    });
     const server = await new Promise<Server>((resolve) => {
         const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
     });
@@ -71,6 +84,7 @@ describe('worker route', () => {
     beforeEach(() => {
         for (const name of Object.keys(handlers)) delete handlers[name];
         vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
     });
 
     it('answers the health check', async () => {
@@ -167,5 +181,63 @@ describe('worker drain', () => {
 
         job.finish();
         await running;
+    });
+
+    it('fails a job that exceeds jobTimeoutMs and releases its lock', async () => {
+        await new Promise((resolve) => server.close(resolve));
+        const releaseSpy = vi.fn(async () => undefined);
+        ({ server, url, routes } = await serve(handlers, {
+            jobTimeoutMs: 40,
+            acquireLock: async () => releaseSpy,
+        }));
+
+        const job = blockingJob(handlers, 'sync-hook-data');
+        const result = await post(url, { name: 'sync-hook-data', chain: SEPOLIA_ID });
+        job.finish();
+
+        expect(result.status).toBe(200);
+        expect(result.body).toMatchObject({
+            job: `sync-hook-data-${SEPOLIA_ID}`,
+            status: 'failed',
+            error: expect.stringContaining('timed out after 40ms'),
+        });
+        expect(releaseSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips a job when Postgres advisory lock is held by another worker', async () => {
+        await new Promise((resolve) => server.close(resolve));
+        ({ server, url, routes } = await serve(handlers, {
+            acquireLock: async () => null,
+        }));
+
+        const handler = vi.fn(async () => undefined);
+        handlers['sync-pools-v3'] = handler;
+
+        const result = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+        expect(result.status).toBe(200);
+        expect(result.body).toMatchObject({
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            status: 'skipped',
+        });
+        expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('acquires and releases Postgres advisory lock via Prisma client', async () => {
+        const mockClient = {
+            $queryRaw: vi.fn().mockResolvedValue([{ locked: true }]),
+            $executeRaw: vi.fn().mockResolvedValue(1),
+        };
+
+        const release = await acquirePostgresAdvisoryLock('sync-pools-v3-11155111', mockClient as any);
+        expect(release).toBeTypeOf('function');
+        expect(mockClient.$queryRaw).toHaveBeenCalledTimes(1);
+
+        await release!();
+        expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1);
+
+        mockClient.$queryRaw.mockResolvedValueOnce([{ locked: false }]);
+        const skipped = await acquirePostgresAdvisoryLock('sync-pools-v3-11155111', mockClient as any);
+        expect(skipped).toBeNull();
     });
 });

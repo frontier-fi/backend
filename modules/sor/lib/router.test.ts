@@ -88,5 +88,40 @@ describe('Router buffer capacity limits', () => {
 
             expect(bestPaths).toBeNull();
         });
+
+        it('rejects a multi-hop path when an intermediate hop returns 0n', () => {
+            const tokenC = new Token(chainId, '0x000000000000000000000000000000000000ccc1', 6);
+            const zeroPool = {
+                id: '0x000000000000000000000000000000000000ddd1',
+                address: '0x000000000000000000000000000000000000ddd1',
+                poolType: 'Weighted',
+                swapGivenIn: () => TokenAmount.fromRawAmount(tokenC, 0n),
+                swapGivenOut: () => TokenAmount.fromRawAmount(wrapped, 0n),
+            } as any;
+
+            const multiHopPath = new PathLocal(
+                [underlying, wrapped, tokenC],
+                [createBufferPool(), zeroPool],
+                [true, false],
+            );
+
+            expect(() => {
+                new PathWithAmount(
+                    multiHopPath.tokens,
+                    multiHopPath.pools,
+                    multiHopPath.isBuffer,
+                    TokenAmount.fromRawAmount(underlying, 10_000000n),
+                );
+            }).toThrow(/Zero output amount/);
+
+            expect(() => {
+                new PathWithAmount(
+                    multiHopPath.tokens,
+                    multiHopPath.pools,
+                    multiHopPath.isBuffer,
+                    TokenAmount.fromRawAmount(tokenC, 10_000000n),
+                );
+            }).toThrow(/Zero input amount/);
+        });
     });
 });

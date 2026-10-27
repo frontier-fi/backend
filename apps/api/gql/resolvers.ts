@@ -6,10 +6,10 @@ import tokenResolver from './resolvers/token.resolvers';
 import userResolver from './resolvers/user.resolvers';
 
 export const resolvers = {
+    Date: scalarResolver.Date!,
     Query: {
         ...poolResolver.Query,
         ...protocolResolver.Query,
-        ...scalarResolver.Query,
         ...sorResolver.Query,
         ...tokenResolver.Query,
         ...userResolver.Query,
