@@ -56,6 +56,7 @@ export class SwapsPriceHandler implements PriceHandler {
                                 updatedAt: new Date(),
                                 updatedBy: this.id,
                             });
+                            break;
                         }
                     }
                 }

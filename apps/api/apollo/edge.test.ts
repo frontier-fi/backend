@@ -1,6 +1,7 @@
 import { ApolloServer, HeaderMap } from '@apollo/server';
-import { buildSchema } from 'graphql';
+import { buildSchema, GraphQLEnumType } from 'graphql';
 import { describe, expect, it, vi } from 'vitest';
+import config from '../../../config';
 import { schema } from '../gql/generated-schema-ast';
 import { ResolverContext } from '../gql/resolver-context';
 import { apolloEdgePlugin, CACHE_RULES, EdgePluginOptions, RATE_LIMIT_WINDOW_MS } from './edge';
@@ -13,6 +14,17 @@ describe('apolloEdgePlugin', () => {
         const cached = CACHE_RULES.flatMap((rule) => rule.queries);
 
         expect([...cached].sort()).toEqual(queries);
+    });
+
+    it('only exposes configured chains in the GqlChain enum', () => {
+        const gqlChainEnum = buildSchema(schema).getType('GqlChain') as GraphQLEnumType;
+        const enumValues = gqlChainEnum
+            .getValues()
+            .map((v) => v.name)
+            .sort();
+        const configuredChains = Object.keys(config).sort();
+
+        expect(enumValues).toEqual(configuredChains);
     });
 
     it('is off on the SOR instance', () => {

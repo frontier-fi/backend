@@ -6,6 +6,7 @@ import {
     HookData,
 } from '../../../prisma/prisma-types';
 import {
+    GqlChain,
     GqlPoolDynamicData,
     GqlPoolFeaturedPool,
     GqlPoolMinimal,
@@ -172,31 +173,45 @@ export class PoolGqlLoaderService {
         // Use full-text search using search_vector
         if (args.textSearch && args.textSearch.trim().length > 0) {
             const orderColumn =
-                orderingColumnsMap[(args.orderBy || 'totalLiquidity') as keyof typeof orderingColumnsMap] ||
-                'totalLiquidity';
+                orderingColumnsSqlMap[(args.orderBy || 'totalLiquidity') as keyof typeof orderingColumnsSqlMap] ||
+                orderingColumnsSqlMap.totalLiquidity;
+            const orderDirection = args.orderDirection === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
 
             const searchQuery = sanitiseTextSearch(args.textSearch);
             const limit = Math.min(100, parseInt(`${args.first}`) || 20);
             const offset = parseInt(`${args.skip}`) || 0;
             const filters = searchFilters(args);
 
-            // Use raw SQL for the search vector condition
-            // Weighted results don't work yet, because the query is finding IDs for the second query only.
-            // But setting it up already so it can be used with the refactored searching
-            const query =
-                Prisma.raw(`SELECT p.id, p.chain FROM "PrismaPool" p LEFT JOIN "PrismaPoolDynamicData" d on (p.id = d."poolId") WHERE p.search_vector @@ websearch_to_tsquery('simple', '${searchQuery}') AND d."totalSharesNum" > 0.000000000001 AND NOT ('BLACK_LISTED' = ANY(p.categories)) AND ${filters}
-            ORDER BY d."${orderColumn}" ${
-                args.orderDirection && args.orderDirection === 'asc' ? 'ASC' : 'DESC'
-            } LIMIT ${limit} OFFSET ${offset}`);
+            // Use parameterized SQL for the search vector condition
+            const query = Prisma.sql`
+                SELECT p.id, p.chain
+                FROM "PrismaPool" p
+                LEFT JOIN "PrismaPoolDynamicData" d ON (p.id = d."poolId" AND p.chain = d.chain)
+                WHERE p.search_vector @@ websearch_to_tsquery('simple', ${searchQuery})
+                  AND d."totalSharesNum" > 0.000000000001
+                  AND NOT ('BLACK_LISTED' = ANY(p.categories))
+                  AND ${filters}
+                ORDER BY ${orderColumn} ${orderDirection}
+                LIMIT ${limit} OFFSET ${offset}
+            `;
 
             const searchResults = await prisma.$queryRaw<{ id: string }[]>(query);
+            if (searchResults.length === 0) {
+                return [];
+            }
 
             // Use the results to show pools
             const idIn = searchResults.map((r) => r.id);
             args.where ||= {};
-            args.where.idIn = idIn;
+            args.where.idIn = args.where.idIn
+                ? args.where.idIn.map((id) => id.toLowerCase()).filter((id) => idIn.includes(id))
+                : idIn;
+            if (args.where.idIn.length === 0) {
+                return [];
+            }
             args.textSearch = undefined;
             args.skip = undefined;
+            args.first = undefined;
         }
 
         const pools = await prisma.prismaPool.findMany({
@@ -237,6 +252,7 @@ export class PoolGqlLoaderService {
     ): GqlPoolMinimal {
         return {
             ...pool,
+            chain: pool.chain as GqlChain,
             liquidityManagement: (pool.liquidityManagement as LiquidityManagement) || undefined,
             hook: mapHookToGqlHook(pool.hook as HookData),
             incentivized: pool.categories.some((category) => category === 'INCENTIVIZED'),
@@ -262,12 +278,15 @@ export class PoolGqlLoaderService {
             const searchQuery = sanitiseTextSearch(args.textSearch);
             const filters = searchFilters(args);
 
-            // Use raw SQL for the search vector condition
-            // Weighted results don't work yet, because the query is finding IDs for the second query only.
-            // But setting it up already so it can be used with the refactored searching
-            const query = Prisma.raw(
-                `SELECT count(*) as count FROM "PrismaPool" p LEFT JOIN "PrismaPoolDynamicData" d on (p.id = d."poolId") WHERE p.search_vector @@ websearch_to_tsquery('simple', '${searchQuery}') AND d."totalSharesNum" > 0.000000000001 AND NOT ('BLACK_LISTED' = ANY(p.categories)) AND ${filters}`,
-            );
+            const query = Prisma.sql`
+                SELECT count(*) as count
+                FROM "PrismaPool" p
+                LEFT JOIN "PrismaPoolDynamicData" d ON (p.id = d."poolId" AND p.chain = d.chain)
+                WHERE p.search_vector @@ websearch_to_tsquery('simple', ${searchQuery})
+                  AND d."totalSharesNum" > 0.000000000001
+                  AND NOT ('BLACK_LISTED' = ANY(p.categories))
+                  AND ${filters}
+            `;
 
             const searchResults = await prisma.$queryRaw<{ count: bigint }[]>(query);
 
@@ -284,13 +303,18 @@ export class PoolGqlLoaderService {
         const featuredPools: GqlPoolFeaturedPool[] = [];
 
         for (const contentPool of featuredPoolsFromService) {
-            const pool = await this.getPool({}, contentPool.poolId.toLowerCase(), contentPool.chain);
-            featuredPools.push({
-                poolId: contentPool.poolId,
-                primary: contentPool.primary,
-                pool: pool,
-                description: contentPool.description,
-            });
+            try {
+                const pool = await this.getPool({}, contentPool.poolId.toLowerCase(), contentPool.chain);
+                featuredPools.push({
+                    poolId: contentPool.poolId,
+                    primary: contentPool.primary,
+                    pool: pool,
+                    description: contentPool.description,
+                });
+            } catch {
+                // Skip featured pools that have not been synced into the database yet
+                continue;
+            }
         }
 
         return featuredPools;
@@ -383,6 +407,18 @@ export class PoolGqlLoaderService {
         if (allTokensFilter.length > 0) tokenFilters.push({ OR: allTokensFilter });
         if (allTokensFilterNot.length > 0) tokenFilters.push({ OR: allTokensFilterNot });
 
+        const requestedCategories = [
+            ...(where?.categoryIn && !where?.tagIn ? where.categoryIn.map((s) => s.toUpperCase()) : []),
+            ...(where?.tagIn && !where?.categoryIn ? where.tagIn.map((s) => s.toUpperCase()) : []),
+        ];
+        const excludedCategories = new Set<string>([
+            ...(where?.categoryNotIn && !where?.tagNotIn ? where.categoryNotIn.map((s) => s.toUpperCase()) : []),
+            ...(where?.tagNotIn && !where?.categoryNotIn ? where.tagNotIn.map((s) => s.toUpperCase()) : []),
+        ]);
+        if (!requestedCategories.includes('BLACK_LISTED')) {
+            excludedCategories.add('BLACK_LISTED');
+        }
+
         const filterArgs: Prisma.PrismaPoolWhereInput = {
             ...(tokenFilters.length > 0 ? { AND: tokenFilters } : {}),
             dynamicData: {
@@ -412,18 +448,8 @@ export class PoolGqlLoaderService {
                 in: where?.idIn?.map((id) => id.toLowerCase()) || undefined,
                 notIn: where?.idNotIn?.map((id) => id.toLowerCase()) || undefined,
             },
-            ...(where?.categoryIn && !where?.tagIn
-                ? { categories: { hasSome: where.categoryIn.map((s) => s.toUpperCase()) } }
-                : {}),
-            ...(where?.categoryNotIn && !where?.tagNotIn
-                ? { NOT: { categories: { hasSome: where.categoryNotIn.map((s) => s.toUpperCase()) } } }
-                : {}),
-            ...(where?.tagIn && !where?.categoryIn
-                ? { categories: { hasSome: where.tagIn.map((s) => s.toUpperCase()) } }
-                : {}),
-            ...(where?.tagNotIn && !where?.categoryNotIn
-                ? { NOT: { categories: { hasSome: where.tagNotIn.map((s) => s.toUpperCase()) } } }
-                : {}),
+            ...(requestedCategories.length > 0 ? { categories: { hasSome: requestedCategories } } : {}),
+            ...(excludedCategories.size > 0 ? { NOT: { categories: { hasSome: [...excludedCategories] } } } : {}),
             filters: {
                 ...(where?.filterNotIn
                     ? {
@@ -494,6 +520,7 @@ export class PoolGqlLoaderService {
         const { typeData, ...poolWithoutTypeData } = pool;
 
         const mappedData = {
+            chain: pool.chain as GqlChain,
             decimals: 18,
             owner: pool.swapFeeManager, // Keep for backwards compatibility
             dynamicData: this.getPoolDynamicData(pool),
@@ -689,6 +716,14 @@ const orderingColumnsMap = {
     apr: 'apr',
 };
 
+const orderingColumnsSqlMap = {
+    totalLiquidity: Prisma.sql`d."totalLiquidity"`,
+    totalShares: Prisma.sql`d."totalSharesNum"`,
+    volume24h: Prisma.sql`d."volume24h"`,
+    fees24h: Prisma.sql`d."fees24h"`,
+    apr: Prisma.sql`d."apr"`,
+};
+
 const getOrderBy = (args: QueryPoolGetPoolsArgs) => {
     const orderDirection = args.orderDirection || 'desc';
     const orderColumn = orderingColumnsMap[(args.orderBy || 'totalLiquidity') as keyof typeof orderingColumnsMap];
@@ -710,32 +745,36 @@ const sanitizeInput = (input: any) => `${input}`.replace(/[^a-zA-Z0-9._ ]/g, '')
 
 const sanitiseTextSearch = (textSearch: string) => sanitizeInput(textSearch).toLowerCase();
 
-const searchFilters = (args: QueryPoolGetPoolsArgs) => {
-    let where = '1=1 ';
+const searchFilters = (args: QueryPoolGetPoolsArgs): Prisma.Sql => {
+    const conditions: Prisma.Sql[] = [Prisma.sql`1=1`];
 
-    if (args.where?.chainIn) {
-        where += `AND p.chain = ANY('{${args.where?.chainIn.map(sanitizeInput).join(',')}}')`;
+    if (args.where?.chainIn && args.where.chainIn.length > 0) {
+        conditions.push(Prisma.sql`p.chain::text = ANY(${args.where.chainIn.map(sanitizeInput)})`);
     }
 
-    if (args.where?.protocolVersionIn) {
-        where += `AND p."protocolVersion" = ANY('{${args.where?.protocolVersionIn.map(sanitizeInput).join(',')}}')`;
+    if (args.where?.protocolVersionIn && args.where.protocolVersionIn.length > 0) {
+        conditions.push(Prisma.sql`p."protocolVersion" = ANY(${args.where.protocolVersionIn}::int[])`);
     }
 
-    if (args.where?.poolTypeIn) {
-        where += `AND p.type = ANY('{${args.where?.poolTypeIn.map(sanitizeInput).join(',')}}')`;
+    if (args.where?.poolTypeIn && args.where.poolTypeIn.length > 0) {
+        conditions.push(Prisma.sql`p.type::text = ANY(${args.where.poolTypeIn.map(sanitizeInput)})`);
     }
 
-    if (args.where?.categoryIn) {
-        where += `AND p.categories @> ARRAY['${args.where?.categoryIn.map(sanitizeInput).join("','")}']`;
+    if (args.where?.categoryIn && args.where.categoryIn.length > 0) {
+        conditions.push(
+            Prisma.sql`p.categories @> ${args.where.categoryIn.map((c) => sanitizeInput(c).toUpperCase())}::text[]`,
+        );
     }
 
-    if (args.where?.tagIn) {
-        where += `AND p.categories @> ARRAY['${args.where?.tagIn.map(sanitizeInput).join("','")}']`;
+    if (args.where?.tagIn && args.where.tagIn.length > 0) {
+        conditions.push(
+            Prisma.sql`p.categories @> ${args.where.tagIn.map((t) => sanitizeInput(t).toUpperCase())}::text[]`,
+        );
     }
 
-    if (args.where?.minTvl) {
-        where += `AND d."totalLiquidity" >= ${args.where?.minTvl}`;
+    if (args.where?.minTvl !== undefined && args.where?.minTvl !== null) {
+        conditions.push(Prisma.sql`d."totalLiquidity" >= ${args.where.minTvl}`);
     }
 
-    return where;
+    return Prisma.join(conditions, ' AND ');
 };

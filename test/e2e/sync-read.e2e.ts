@@ -420,7 +420,7 @@ it('reads the known pools and the public list', async () => {
                     priced: poolGetPools(where: { chainIn: [SEPOLIA], minTvl: 0 }) {
                         id
                     }
-                    otherChain: poolGetPools(where: { chainIn: [SEPOLIA], chainNotIn: [MAINNET] }) {
+                    otherChain: poolGetPools(where: { chainIn: [SEPOLIA], chainNotIn: [] }) {
                         id
                     }
                     aggregators: aggregatorPools(
@@ -545,28 +545,25 @@ it('returns not found for an unknown pool', async () => {
     expect(missing.body.errors?.[0]?.message).toMatch(/does not exist/i);
 });
 
-it('reports a chain that has no config and does not write its pools', async () => {
+it('rejects unconfigured chains at GraphQL validation time and does not write pools', async () => {
     const before = await db().prismaPool.count();
     const sync = await graphql('mutation { poolSyncAllPoolsFromSubgraph(chain: BASE) }', { admin: true });
-    expect(sync.body.errors?.[0]?.message).toMatch(/chain not configured/i);
+    expect(sync.status).toBe(400);
+    expect(sync.body.errors?.[0]?.extensions?.code).toBe('GRAPHQL_VALIDATION_FAILED');
     expect(await db().prismaPool.count()).toBe(before);
 
-    const reloaded = data(
-        await graphql<{
-            poolReloadPools: { type: string; chain: string; success: boolean; error: string | null }[];
-        }>('mutation { poolReloadPools(chains: [BASE]) { type chain success error } }', { admin: true }),
-    );
-    expect(reloaded.poolReloadPools).toEqual([expect.objectContaining({ type: 'v3', chain: 'BASE', success: false })]);
-    expect(reloaded.poolReloadPools[0].error).toMatch(/chain not configured/i);
+    const reloaded = await graphql('mutation { poolReloadPools(chains: [BASE]) { type chain success error } }', {
+        admin: true,
+    });
+    expect(reloaded.status).toBe(400);
+    expect(reloaded.body.errors?.[0]?.extensions?.code).toBe('GRAPHQL_VALIDATION_FAILED');
 
-    const onchain = data(
-        await graphql<{
-            poolLoadOnChainDataForAllPools: { chain: string; success: boolean; error: string | null }[];
-        }>('mutation { poolLoadOnChainDataForAllPools(chains: [BASE]) { type chain success error } }', { admin: true }),
+    const onchain = await graphql(
+        'mutation { poolLoadOnChainDataForAllPools(chains: [BASE]) { type chain success error } }',
+        { admin: true },
     );
-    expect(onchain.poolLoadOnChainDataForAllPools[0].chain).toBe('BASE');
-    expect(onchain.poolLoadOnChainDataForAllPools[0].success).toBe(false);
-    expect(onchain.poolLoadOnChainDataForAllPools[0].error).toMatch(/chain not configured/i);
+    expect(onchain.status).toBe(400);
+    expect(onchain.body.errors?.[0]?.extensions?.code).toBe('GRAPHQL_VALIDATION_FAILED');
     expect(await db().prismaPool.count({ where: { chain: 'BASE' } })).toBe(0);
     expect(await db().prismaPool.count()).toBe(before);
 });
@@ -670,14 +667,12 @@ it('syncs token content through the worker, reloads types, and deletes one type'
     expect(second.body.errors?.length).toBeGreaterThan(0);
 });
 
-it('reloads erc4626 data for Sepolia and returns a result for an unconfigured chain', async () => {
-    const base = data(
-        await graphql<{
-            tokenReloadErc4626Tokens: { chain: string; success: boolean; error: string | null }[];
-        }>('mutation { tokenReloadErc4626Tokens(chains: [BASE]) { chain success error } }', { admin: true }),
-    );
-    expect(base.tokenReloadErc4626Tokens[0].chain).toBe('BASE');
-    expect(typeof base.tokenReloadErc4626Tokens[0].success).toBe('boolean');
+it('reloads erc4626 data for Sepolia and rejects an unconfigured chain', async () => {
+    const base = await graphql('mutation { tokenReloadErc4626Tokens(chains: [BASE]) { chain success error } }', {
+        admin: true,
+    });
+    expect(base.status).toBe(400);
+    expect(base.body.errors?.[0]?.extensions?.code).toBe('GRAPHQL_VALIDATION_FAILED');
 
     const sepolia = data(
         await graphql<{

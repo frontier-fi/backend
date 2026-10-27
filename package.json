@@ -13,7 +13,6 @@
         "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "cleanup-console": "find dist -type f -name \"*.js\" -exec sed -i '/console\\.time(\\(.*\\))\\;/d;/console\\.timeEnd(\\(.*\\))\\;/d' {} \\;",
         "generate": "bun scripts/generate.ts",
         "generate:api": "bun scripts/generate-api.ts",
         "sync-config": "bun scripts/sync-network-config.ts",

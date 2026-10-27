@@ -51,7 +51,7 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
         await TokenController().syncErc4626OnChainData(chain);
 
         console.log('Syncing token prices');
-        await EventController().syncLastSwaps(chain);
+        await EventController().syncSwapsV3(chain);
         await syncCurrentPricesFromApi(chain);
 
         await PoolController().updateLiquidityValuesForInactivePools(chain);
@@ -237,8 +237,15 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
 
 run()
     .then((r) => console.log(r))
-    .then(() => process.exit(0))
-    .catch((e) => console.error(e));
+    .then(async () => {
+        await prisma.$disconnect();
+        process.exit(0);
+    })
+    .catch(async (e) => {
+        console.error(e);
+        await prisma.$disconnect();
+        process.exit(1);
+    });
 
 async function syncCurrentPricesFromApi(chain: Chain) {
     const endpoint = PRICE_SOURCE_API;

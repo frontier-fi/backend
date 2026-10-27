@@ -374,6 +374,15 @@ export function apolloEdgePlugin(
                 },
 
                 async willSendResponse(requestContext) {
+                    if (
+                        requestContext.operation?.operation === 'mutation' &&
+                        !requestContext.errors?.length &&
+                        requestContext.response.body.kind === 'single' &&
+                        !requestContext.response.body.singleResult.errors?.length
+                    ) {
+                        cache.clear();
+                        return;
+                    }
                     if (servedFromPlugin || !cacheCandidate) {
                         return;
                     }

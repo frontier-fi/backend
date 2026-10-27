@@ -1,5 +1,5 @@
 import { prisma } from '../../../../prisma/prisma-client';
-import { Chain, PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
+import { Chain, Prisma, PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
 import { daysAgo } from '../../../common/time';
 import { AprHandler, PoolAPRData } from '../../types';
 
@@ -11,7 +11,7 @@ type PoolSwapFeeData = {
     surplus_24h: number;
 };
 
-const query = (chain: Chain, timestamp: number) => `
+const query = (chain: Chain, timestamp: number) => Prisma.sql`
     SELECT
         "poolId",
         chain,
@@ -22,7 +22,7 @@ const query = (chain: Chain, timestamp: number) => `
         "PartitionedPoolEvent"
     WHERE
         "blockTimestamp" >= ${timestamp}
-    AND chain = '${chain}'
+    AND chain = ${chain}::"Chain"
     AND type = 'SWAP'
     GROUP BY
         1, 2
@@ -42,7 +42,7 @@ export class SwapFeeAprHandler implements AprHandler {
         const yesterday = daysAgo(1);
 
         // Fetch the swap fees for the last 24 hours
-        const swapFeeData = await prisma.$queryRawUnsafe<PoolSwapFeeData[]>(query(chain, yesterday));
+        const swapFeeData = await prisma.$queryRaw<PoolSwapFeeData[]>(query(chain, yesterday));
 
         // Map the swap fee data to the pool id
         const swapFeeDataMap = swapFeeData.reduce(
@@ -63,7 +63,7 @@ export class SwapFeeAprHandler implements AprHandler {
                     protocolFee = pool.dynamicData.protocolYieldFee || '0';
                 }
 
-                if (pool.version === 3) {
+                if (pool.protocolVersion === 3) {
                     protocolFee = pool.dynamicData.aggregateSwapFee;
                 }
 

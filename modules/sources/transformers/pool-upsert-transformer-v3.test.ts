@@ -231,7 +231,7 @@ describe('poolUpsertTransformerV3', () => {
                         scalingFactor: '1',
                         nestedPool: {
                             id: NESTED,
-                            tokens: [{ address: CHILD, nestedPool: { id: NESTED } }],
+                            tokens: [{ address: CHILD }],
                         },
                     },
                 ],

@@ -13,6 +13,7 @@ import {
 import { Cache, CacheClass } from 'memory-cache';
 import {
     Erc4626ReviewData,
+    GqlChain,
     GqlPriceRateProviderData,
     GqlToken,
     GqlTokenChartDataRange,
@@ -84,6 +85,7 @@ export class TokenService {
             const erc4626Data = await this.getErc4626Data([token]);
             return {
                 ...token,
+                chain: token.chain as GqlChain,
                 types: token.types.map((type) => type.type),
                 isBufferAllowed: token.isBufferAllowed,
                 chainId: config[chain].chain.id,
@@ -187,6 +189,7 @@ export class TokenService {
 
         return tokens.map((token) => ({
             ...token,
+            chain: token.chain as GqlChain,
             chainId: config[token.chain].chain.id,
             tradable: !token.types.find((type) => type === 'BPT'),
             rateProviderData: rateProviderData[token.address],
@@ -259,7 +262,8 @@ export class TokenService {
     ): Promise<
         Record<string, (Erc4626ReviewData & { erc4626Address: string; assetAddress: string; chain: Chain }) | undefined>
     > {
-        const cacheKey = `ERC4626REVIEWDATA-${murmurhash.v3(`${tokens}`).toString(36)}`;
+        const tokenKey = tokens ? tokens.map((t) => `${t.chain}:${t.address}`).join(',') : 'all';
+        const cacheKey = `ERC4626REVIEWDATA-${murmurhash.v3(tokenKey).toString(36)}`;
 
         let erc4626Data: Record<
             string,

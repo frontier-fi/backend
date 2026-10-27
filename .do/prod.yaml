@@ -201,7 +201,7 @@ jobs:
           registry: frontier-fi
           repository: backend
           digest: '${IMAGE_DIGEST}'
-      run_command: npx prisma migrate deploy --schema prisma/schema
+      run_command: sh -c 'for i in 1 2 3 4 5; do npx prisma migrate deploy --schema prisma/schema && exit 0; sleep 5; done; exit 1'
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-1gb
       log_destinations:

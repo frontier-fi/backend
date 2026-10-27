@@ -21,10 +21,11 @@ export async function startWorkerServer(): Promise<Stoppable> {
         }
     });
 
+    const host = process.env.WORKER_HOST || '127.0.0.1';
     const server = await new Promise<Server>((resolve) => {
-        const listening = app.listen(env.PORT, '0.0.0.0', () => resolve(listening));
+        const listening = app.listen(env.PORT, host, () => resolve(listening));
     });
-    console.log(`Worker listening on port ${env.PORT}`);
+    console.log(`Worker listening on ${host}:${env.PORT}`);
 
     return {
         async stop() {

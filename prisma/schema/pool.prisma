@@ -43,7 +43,6 @@ model PrismaPool {
 
     hook                Json?
 
-    @@index([id, chain])
     @@index([categories(ops: ArrayOps)], type: Gin)
     @@index([search_vector], type: Gin)
 }
@@ -132,7 +131,6 @@ model PrismaPoolToken {
     
     updatedAt           DateTime @updatedAt @default(now())
 
-    @@index([id, chain]) // Used for updates
     @@index([poolId, chain])
     @@index([address, chain])
     @@index([nestedPoolId, chain])

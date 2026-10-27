@@ -5,12 +5,17 @@ export interface JobQueue {
     send(json: string): Promise<void>;
 }
 
+const WORKER_REQUEST_TIMEOUT_MS = 15 * 60_000;
+
 /**
  * Posts jobs to the worker, which answers when the job ends. This uses node:http because fetch
  * gives up when the response headers take longer than five minutes.
  */
 export class WorkerQueue implements JobQueue {
-    constructor(private readonly queueUrl: string) {}
+    constructor(
+        private readonly queueUrl: string,
+        private readonly requestTimeoutMs: number = WORKER_REQUEST_TIMEOUT_MS,
+    ) {}
 
     public send(json: string): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -34,6 +39,9 @@ export class WorkerQueue implements JobQueue {
                     });
                 },
             );
+            req.setTimeout(this.requestTimeoutMs, () => {
+                req.destroy(new Error(`Worker request timed out after ${this.requestTimeoutMs}ms`));
+            });
             req.on('error', reject);
             req.end(json);
         });

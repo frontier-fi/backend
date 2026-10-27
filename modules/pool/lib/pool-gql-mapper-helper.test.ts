@@ -1,7 +1,8 @@
 import { Chain, PrismaPoolAprType } from '@prisma/client';
-import { describe, expect, it } from 'vitest';
-import { mapAprItems, mapPoolToken } from './pool-gql-mapper-helper';
+import { describe, expect, it, vi } from 'vitest';
+import { enrichWithErc4626Data, mapAprItems, mapPoolToken } from './pool-gql-mapper-helper';
 import { PrismaPoolMinimal, PrismaPoolTokenWithExpandedNesting } from '../../../prisma/prisma-types';
+import { prisma } from '../../../prisma/prisma-client';
 
 const apr = (type: PrismaPoolAprType | null, value = 0.1) => ({
     id: `apr-${type ?? 'null'}`,
@@ -70,5 +71,27 @@ describe('mapPoolToken', () => {
         expect(erc4626.isErc4626).toBe(true);
         expect(erc4626.isAllowed).toBe(true);
         expect(erc4626.tradable).toBe(true);
+    });
+
+    it('maps useUnderlyingForAddRemove and useWrappedForAddRemove independently in enrichWithErc4626Data', async () => {
+        vi.spyOn(prisma.prismaToken, 'findUnique').mockResolvedValue(null);
+        vi.spyOn(prisma.prismaErc4626ReviewData, 'findUnique').mockResolvedValue({
+            chain: Chain.SEPOLIA,
+            erc4626Address: '0xtoken',
+            assetAddress: '0xasset',
+            useUnderlyingForAddRemove: true,
+            useWrappedForAddRemove: false,
+            canUseBufferForSwaps: true,
+            warnings: 'warn1,warn2',
+        } as any);
+
+        const erc4626Token = mapPoolToken(token(['ERC4626']), 3);
+        await enrichWithErc4626Data([erc4626Token], Chain.SEPOLIA);
+
+        expect(erc4626Token.useUnderlyingForAddRemove).toBe(true);
+        expect(erc4626Token.useWrappedForAddRemove).toBe(false);
+        expect(erc4626Token.canUseBufferForSwaps).toBe(true);
+
+        vi.restoreAllMocks();
     });
 });

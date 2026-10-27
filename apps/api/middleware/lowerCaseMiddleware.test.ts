@@ -11,7 +11,9 @@ const VALID_CHECKSUM = '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14';
 const BAD_CHECKSUM = '0xfff9976782d46CC05630D1f6eBAb18b2324d6B14';
 
 describe('lowerCaseMiddleware with the JSON error handler', () => {
-    const resolver = vi.fn((_parent: unknown, args: { id: string }) => args.id);
+    const resolver = vi.fn((_parent: unknown, args: { id: string; userAddress?: string; chainId?: string }) =>
+        args.userAddress ? `${args.id}:${args.userAddress}` : args.id,
+    );
     let apollo: ApolloServer;
     let server: Server;
     let baseUrl: string;
@@ -37,7 +39,7 @@ describe('lowerCaseMiddleware with the JSON error handler', () => {
 
     beforeAll(async () => {
         apollo = new ApolloServer({
-            typeDefs: 'type Query { poolGetPool(id: String!, chainId: String): String }',
+            typeDefs: 'type Query { poolGetPool(id: String!, chainId: String, userAddress: String): String }',
             resolvers: { Query: { poolGetPool: resolver } },
         });
         await apollo.start();
@@ -70,6 +72,24 @@ describe('lowerCaseMiddleware with the JSON error handler', () => {
         const result = await graphql('query ($id: String!) { poolGetPool(id: $id) }', { id: VALID_CHECKSUM });
 
         expect(result.body.data?.poolGetPool).toBe(VALID_CHECKSUM.toLowerCase());
+    });
+
+    it('normalizes and validates arbitrarily named GraphQL variables used in id and address arguments', async () => {
+        const valid = await graphql(
+            'query ($pool: String!, $user: String) { poolGetPool(id: $pool, userAddress: $user) }',
+            { pool: VALID_CHECKSUM, user: VALID_CHECKSUM },
+        );
+        expect(valid.body.data?.poolGetPool).toBe(`${VALID_CHECKSUM.toLowerCase()}:${VALID_CHECKSUM.toLowerCase()}`);
+
+        const badPool = await graphql('query ($pool: String!) { poolGetPool(id: $pool) }', { pool: BAD_CHECKSUM });
+        expect(badPool.status).toBe(400);
+        expect(badPool.body.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
+
+        const malformedAddress = await graphql('query ($user: String) { poolGetPool(id: "0x1", userAddress: $user) }', {
+            user: '0x1234',
+        });
+        expect(malformedAddress.status).toBe(400);
+        expect(malformedAddress.body.errors?.[0]?.extensions?.code).toBe('BAD_USER_INPUT');
     });
 
     it('rejects a bad checksum in variables with BAD_USER_INPUT', async () => {
@@ -110,6 +130,17 @@ describe('lowerCaseMiddleware with the JSON error handler', () => {
 
         expect(result.status).toBe(400);
         expect(result.body.errors?.[0]?.extensions?.code).toBe('GRAPHQL_PARSE_FAILED');
+    });
+
+    it('forwards body-parser 400 and 413 errors to jsonErrorHandler instead of swallowing them', async () => {
+        const invalidJson = await post('/graphql', '{not-json');
+        expect(invalidJson.status).toBe(400);
+        expect(invalidJson.body.errors?.[0]?.extensions?.code).toBe('BAD_REQUEST');
+
+        const oversizedBody = JSON.stringify({ query: `{ poolGetPool(id: "${'a'.repeat(110_000)}") }` });
+        const tooLarge = await post('/graphql', oversizedBody);
+        expect(tooLarge.status).toBe(413);
+        expect(tooLarge.body.errors?.[0]?.extensions?.code).toBe('BAD_REQUEST');
     });
 
     it('answers an unexpected error with JSON and no details', async () => {

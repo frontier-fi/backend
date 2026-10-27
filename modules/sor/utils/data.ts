@@ -54,9 +54,11 @@ export async function getBasePoolsFromDb(
             return !pool.hook || Object.keys(pool.hook).length === 0;
         });
 
-    const requestedPoolIds = pools.map((pool) => pool.id);
+    const activeTokenAddresses = new Set(pools.flatMap((pool) => pool.tokens.map((t) => t.address.toLowerCase())));
 
-    const bufferPools = cached.bufferPools.filter((bufferPool) => requestedPoolIds.includes(bufferPool.poolId));
+    const bufferPools = cached.bufferPools.filter((bufferPool) =>
+        activeTokenAddresses.has(bufferPool.address.toLowerCase()),
+    );
 
     return { pools, bufferPools };
 }
@@ -179,19 +181,25 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
 
     // instead of an actual buffer pool, I'd like to return an object that can be used to build a buffer pool
     const bufferPools: BufferPoolData[] = [];
+    const seenAddresses = new Set<string>();
     for (const pool of v3Pools) {
         for (const poolToken of pool.tokens) {
+            const normalizedTokenAddress = poolToken.address.toLowerCase();
+            if (seenAddresses.has(normalizedTokenAddress)) {
+                continue;
+            }
             // check if token can be used for swaps through buffer pools
             if (poolToken.token.underlyingTokenAddress && wrappedTokenAddresses.includes(poolToken.address)) {
                 // check if underlying token exists in the database
                 const underlyingToken = tokensMap[poolToken.token.underlyingTokenAddress];
                 if (underlyingToken) {
+                    seenAddresses.add(normalizedTokenAddress);
                     bufferPools.push({
                         poolId: pool.id,
-                        address: poolToken.address.toLowerCase() as Address,
+                        address: normalizedTokenAddress as Address,
                         chainId: Number(chainToChainId[chain]),
                         mainToken: {
-                            address: poolToken.address.toLowerCase() as Address,
+                            address: normalizedTokenAddress as Address,
                             decimals: poolToken.token.decimals,
                             balance: parseUnits(poolToken.token.bufferBalanceWrapped, poolToken.token.decimals),
                         },
@@ -202,8 +210,8 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
                         },
                         poolType: 'Buffer',
                         unwrapRate: parseEther(poolToken.token.unwrapRate), // the way we store rates already takes into account main/underlying decimals differences
-                        maxWithdraw: parseUnits(poolToken.token.maxWithdraw, poolToken.token.decimals),
-                        maxDeposit: parseUnits(poolToken.token.maxDeposit, poolToken.token.decimals),
+                        maxWithdraw: parseUnits(poolToken.token.maxWithdraw, underlyingToken.decimals),
+                        maxDeposit: parseUnits(poolToken.token.maxDeposit, underlyingToken.decimals),
                     });
                 }
             }

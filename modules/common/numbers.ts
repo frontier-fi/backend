@@ -38,7 +38,8 @@ export const floatToExactString = (num: number | string) => {
     if (isNaN(num)) {
         return '0';
     }
-    const str = num.toString();
+    const sign = num < 0 ? '-' : '';
+    const str = Math.abs(num).toString();
     if (str.includes('e')) {
         const [base, exponent] = str.split('e');
         if (Number(exponent) < 0) {
@@ -48,11 +49,17 @@ export const floatToExactString = (num: number | string) => {
             const actualInt = intPart === '0' ? '' : intPart;
             const actualDecimal = decimalPart || '';
 
-            return `0.${'0'.repeat(absExp - 1)}${actualInt}${actualDecimal}`;
+            return `${sign}0.${'0'.repeat(absExp - 1)}${actualInt}${actualDecimal}`;
         } else {
-            // Add zeros to the number
-            return base + '0'.repeat(parseInt(exponent, 10));
+            // For positive exponent, shift decimal point right by exp places
+            const exp = parseInt(exponent, 10);
+            const [intPart, decimalPart = ''] = base.split('.');
+            if (decimalPart.length >= exp) {
+                const newDecimal = decimalPart.slice(exp);
+                return `${sign}${intPart}${decimalPart.slice(0, exp)}${newDecimal ? '.' + newDecimal : ''}`;
+            }
+            return `${sign}${intPart}${decimalPart}${'0'.repeat(exp - decimalPart.length)}`;
         }
     }
-    return str;
+    return `${sign}${str}`;
 };

@@ -7,25 +7,46 @@ import { MAX_TOKENS } from '../apollo/armor';
 // `id` is anchored so chainId and similar fields are left alone.
 const LOWER_REGEX =
     /(^id$|^idin$|^idnotin$|poolid|address|tokensin|tokensnotin|tokeninin|tokenoutin|tokenin|tokenout)/i;
+const ADDRESS_REGEX = /(address|tokensin|tokensnotin|tokeninin|tokenoutin|tokenin|tokenout)/i;
 
 const UPPER_REGEX = /categories/;
 const EVM_ADDRESS = /^0x[a-fA-F0-9]{40}$/;
 
-function normalizeQueryValue(value: string): string {
-    if (EVM_ADDRESS.test(value)) return normalizeAddress(value);
+function normalizeQueryValue(value: string, fieldName?: string): string {
+    if ((fieldName && ADDRESS_REGEX.test(fieldName)) || EVM_ADDRESS.test(value)) {
+        return normalizeAddress(value);
+    }
     return value.toLowerCase();
+}
+
+function normalizeVariableValue(value: unknown, fieldName: string): unknown {
+    if (typeof value === 'string') {
+        return UPPER_REGEX.test(fieldName) ? value.toUpperCase() : normalizeQueryValue(value, fieldName);
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) =>
+            typeof item === 'string'
+                ? UPPER_REGEX.test(fieldName)
+                    ? item.toUpperCase()
+                    : normalizeQueryValue(item, fieldName)
+                : item,
+        );
+    }
+    return value;
 }
 
 // Recursively convert values of poolId, address, id to lowercase
 // Used when passing variables to queries
 const convertLetterCase = (obj: Record<string, any>) => {
-    for (let key in obj) {
+    for (const key in obj) {
         if (typeof obj[key] === 'string' && LOWER_REGEX.test(key)) {
-            obj[key] = normalizeQueryValue(obj[key]);
+            obj[key] = normalizeQueryValue(obj[key], key);
         } else if (typeof obj[key] === 'string' && UPPER_REGEX.test(key)) {
             obj[key] = obj[key].toUpperCase();
         } else if (Array.isArray(obj[key]) && LOWER_REGEX.test(key)) {
-            obj[key] = obj[key].map((item: unknown) => (typeof item === 'string' ? normalizeQueryValue(item) : item));
+            obj[key] = obj[key].map((item: unknown) =>
+                typeof item === 'string' ? normalizeQueryValue(item, key) : item,
+            );
         } else if (Array.isArray(obj[key]) && UPPER_REGEX.test(key)) {
             obj[key] = obj[key].map((item: unknown) => (typeof item === 'string' ? item.toUpperCase() : item));
         } else if (typeof obj[key] === 'object' && obj[key] !== null) {
@@ -34,67 +55,48 @@ const convertLetterCase = (obj: Record<string, any>) => {
     }
 };
 
-const casedQueryParams = (query: string): string => {
+function recordReferencedVariables(
+    valueNode: { kind: string; name?: { value: string }; values?: readonly any[] },
+    fieldName: string,
+    variableFields: Map<string, string>,
+) {
+    if (valueNode.kind === 'Variable' && valueNode.name?.value) {
+        variableFields.set(valueNode.name.value, fieldName);
+    } else if (valueNode.kind === 'ListValue' && valueNode.values) {
+        for (const item of valueNode.values) {
+            if (item.kind === 'Variable' && item.name?.value) {
+                variableFields.set(item.name.value, fieldName);
+            }
+        }
+    }
+}
+
+const casedQueryParams = (query: string, variables?: Record<string, unknown>): string => {
     // Parse the query into an AST
     const ast = parse(query, { maxTokens: MAX_TOKENS });
+    const variableFields = new Map<string, string>();
 
     // Visit each node in the AST
     const modifiedAst = visit(ast, {
         ObjectField(node) {
-            if (node.value.kind === 'ListValue' && LOWER_REGEX.test(node.name.value)) {
-                const values = node.value.values.map((value) => {
-                    if (value.kind === 'StringValue') {
-                        return {
-                            ...value,
-                            value: normalizeQueryValue(value.value),
-                        };
-                    }
-                    return value;
-                });
-                return {
-                    ...node,
-                    value: {
-                        ...node.value,
-                        values,
-                    },
-                };
-            } else if (node.value.kind === 'ListValue' && UPPER_REGEX.test(node.name.value)) {
-                const values = node.value.values.map((value) => {
-                    if (value.kind === 'StringValue') {
-                        return {
-                            ...value,
-                            value: value.value.toUpperCase(),
-                        };
-                    }
-                    return value;
-                });
-                return {
-                    ...node,
-                    value: {
-                        ...node.value,
-                        values,
-                    },
-                };
-            }
-        },
-        Argument(node) {
-            if (LOWER_REGEX.test(node.name.value)) {
+            const fieldName = node.name.value;
+            if (LOWER_REGEX.test(fieldName)) {
+                recordReferencedVariables(node.value, fieldName, variableFields);
                 if (node.value.kind === 'StringValue') {
-                    // Convert the argument value to lowercase
-                    const value = normalizeQueryValue(node.value.value);
                     return {
                         ...node,
                         value: {
                             ...node.value,
-                            value,
+                            value: normalizeQueryValue(node.value.value, fieldName),
                         },
                     };
-                } else if (node.value.kind === 'ListValue') {
+                }
+                if (node.value.kind === 'ListValue') {
                     const values = node.value.values.map((value) => {
                         if (value.kind === 'StringValue') {
                             return {
                                 ...value,
-                                value: normalizeQueryValue(value.value),
+                                value: normalizeQueryValue(value.value, fieldName),
                             };
                         }
                         return value;
@@ -107,9 +109,62 @@ const casedQueryParams = (query: string): string => {
                         },
                     };
                 }
-            } else if (UPPER_REGEX.test(node.name.value)) {
+            } else if (UPPER_REGEX.test(fieldName)) {
+                recordReferencedVariables(node.value, fieldName, variableFields);
+                if (node.value.kind === 'ListValue') {
+                    const values = node.value.values.map((value) => {
+                        if (value.kind === 'StringValue') {
+                            return {
+                                ...value,
+                                value: value.value.toUpperCase(),
+                            };
+                        }
+                        return value;
+                    });
+                    return {
+                        ...node,
+                        value: {
+                            ...node.value,
+                            values,
+                        },
+                    };
+                }
+            }
+        },
+        Argument(node) {
+            const fieldName = node.name.value;
+            if (LOWER_REGEX.test(fieldName)) {
+                recordReferencedVariables(node.value, fieldName, variableFields);
                 if (node.value.kind === 'StringValue') {
-                    // Convert the argument value to lowercase
+                    const value = normalizeQueryValue(node.value.value, fieldName);
+                    return {
+                        ...node,
+                        value: {
+                            ...node.value,
+                            value,
+                        },
+                    };
+                } else if (node.value.kind === 'ListValue') {
+                    const values = node.value.values.map((value) => {
+                        if (value.kind === 'StringValue') {
+                            return {
+                                ...value,
+                                value: normalizeQueryValue(value.value, fieldName),
+                            };
+                        }
+                        return value;
+                    });
+                    return {
+                        ...node,
+                        value: {
+                            ...node.value,
+                            values,
+                        },
+                    };
+                }
+            } else if (UPPER_REGEX.test(fieldName)) {
+                recordReferencedVariables(node.value, fieldName, variableFields);
+                if (node.value.kind === 'StringValue') {
                     const value = node.value.value.toUpperCase();
                     return {
                         ...node,
@@ -141,6 +196,14 @@ const casedQueryParams = (query: string): string => {
         },
     });
 
+    if (variables && typeof variables === 'object') {
+        for (const [varName, fieldName] of variableFields) {
+            if (Object.hasOwn(variables, varName)) {
+                variables[varName] = normalizeVariableValue(variables[varName], fieldName);
+            }
+        }
+    }
+
     // Convert the modified AST back to a query string
     return print(modifiedAst);
 };
@@ -155,7 +218,11 @@ const casedQueryParams = (query: string): string => {
  * @param next The next function
  */
 export async function lowerCaseMiddleware(req: Request, res: Response, next: NextFunction) {
-    json()(req, res, () => {
+    json()(req, res, (err) => {
+        if (err) {
+            return next(err);
+        }
+
         if (req.method === 'POST' && req.is('application/json') && req.body) {
             try {
                 const { query, variables } = req.body;
@@ -166,7 +233,10 @@ export async function lowerCaseMiddleware(req: Request, res: Response, next: Nex
 
                 if (typeof query === 'string') {
                     // Replacing the original query with the lowercase one
-                    req.body.query = casedQueryParams(query);
+                    req.body.query = casedQueryParams(
+                        query,
+                        variables && typeof variables === 'object' ? variables : undefined,
+                    );
                 }
             } catch (error) {
                 if (error instanceof InvalidAddressError) {

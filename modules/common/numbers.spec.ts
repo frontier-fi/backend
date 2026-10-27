@@ -63,6 +63,8 @@ describe('floatToExactString', () => {
         expect(floatToExactString(1e-10)).toBe('0.0000000001');
         expect(floatToExactString(1.23e-18)).toBe('0.00000000000000000123');
         expect(floatToExactString(1.5e12)).toBe('1500000000000');
+        expect(floatToExactString(1.5e21)).toBe('1500000000000000000000');
+        expect(floatToExactString(-1.5e21)).toBe('-1500000000000000000000');
         expect(floatToExactString(3.59029763727e-7)).toBe('0.000000359029763727');
         expect(floatToExactString('3.59029763727e-7')).toBe('0.000000359029763727');
     });

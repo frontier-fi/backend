@@ -40,7 +40,6 @@ model PrismaToken {
 
     walletBalances  PrismaUserWalletBalance[]
 
-    @@index([address, chain])
     @@index(tvl(sort: Desc))
 }
 
@@ -57,9 +56,7 @@ model PrismaTokenCurrentPrice {
     timestamp           Int
     price               Float
 
-    @@index(tokenAddress)
     @@index(chain)
-    @@unique([tokenAddress, chain])
 }
 
 model PrismaTokenPrice {
@@ -103,8 +100,6 @@ model PrismaTokenDynamicData {
     priceChangePercent7d Float?
     priceChangePercent14d Float?
     priceChangePercent30d Float?
-
-    @@index([tokenAddress, chain])
 }
 
 model PrismaTokenType {
@@ -140,7 +135,6 @@ model PrismaPriceRateProviderData {
     warnings            String?
     upgradableComponents Json?
 
-    @@index([chain, rateProviderAddress])
     @@index([tokenAddress])
 }
 
@@ -161,6 +155,5 @@ model PrismaErc4626ReviewData {
     useUnderlyingForAddRemove   Boolean     @default(false)
     useWrappedForAddRemove      Boolean     @default(true)
 
-    @@index([chain, erc4626Address])
     @@index([assetAddress])
 }

@@ -1,5 +1,6 @@
 import { Express } from 'express';
-import { Chain } from '@prisma/client';
+import { Chain, PrismaClient } from '@prisma/client';
+import murmurhash from 'murmurhash';
 import { tokenService } from '../../modules/token/token.service';
 import { PricingService } from '../../modules/pricing/pricing-service';
 import { chainIdToChain } from '../../config/chain-id-to-chain';
@@ -10,6 +11,8 @@ import config from '../../config';
 import { AprsController } from '../../modules/controllers/aprs-controller';
 import { ContentController } from '../../modules/content/content-controller';
 import { UserBalancesController } from '../../modules/user/user-balances-controller';
+import { env } from '../env';
+import { withDefaultConnectionParams } from '../../prisma/prisma-client';
 
 export type JobHandler = (chain: Chain) => Promise<unknown>;
 
@@ -18,6 +21,47 @@ export interface JobOutcome {
     status: 'done' | 'failed' | 'skipped';
     durationSeconds?: number;
     error?: string;
+}
+
+export const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000;
+
+export type LockAcquireFn = (jobId: string) => Promise<(() => Promise<void>) | null>;
+
+let lockPrismaClient: PrismaClient | undefined;
+
+function getLockPrismaClient(): PrismaClient {
+    if (!lockPrismaClient) {
+        // Dedicated single-connection client so session-level pg_try_advisory_lock and
+        // pg_advisory_unlock always execute on the exact same PostgreSQL backend connection.
+        lockPrismaClient = new PrismaClient({
+            datasources: {
+                db: {
+                    url: withDefaultConnectionParams(env.DATABASE_URL, 1, 15),
+                },
+            },
+        });
+    }
+    return lockPrismaClient;
+}
+
+export async function acquirePostgresAdvisoryLock(
+    jobId: string,
+    client: Pick<PrismaClient, '$queryRaw' | '$executeRaw'> = getLockPrismaClient(),
+): Promise<(() => Promise<void>) | null> {
+    const lockKey = murmurhash.v3(jobId);
+    const rows = await client.$queryRaw<
+        { locked: boolean }[]
+    >`SELECT pg_try_advisory_lock(${lockKey}::bigint) AS locked`;
+    if (!rows[0]?.locked) {
+        return null;
+    }
+    return async () => {
+        try {
+            await client.$executeRaw`SELECT pg_advisory_unlock(${lockKey}::bigint)`;
+        } catch (error) {
+            console.error(`Failed to release advisory lock for ${jobId}:`, error);
+        }
+    };
 }
 
 async function updateTokenPricesForAllChains(): Promise<void> {
@@ -63,24 +107,62 @@ export const jobHandlers: Record<string, JobHandler> = {
 
 const runningJobs = new Map<string, Promise<JobOutcome>>();
 
-function runIfNotAlreadyRunning(jobId: string, fn: () => Promise<unknown>): Promise<JobOutcome> {
+export interface WorkerRouteOptions {
+    jobTimeoutMs?: number;
+    acquireLock?: LockAcquireFn;
+}
+
+function runIfNotAlreadyRunning(
+    jobId: string,
+    fn: () => Promise<unknown>,
+    options: Required<WorkerRouteOptions>,
+): Promise<JobOutcome> {
     if (runningJobs.has(jobId)) {
         console.log(`Skip job ${jobId}-skip`);
         return Promise.resolve({ job: jobId, status: 'skipped' });
     }
 
-    const run = runJob(jobId, fn).finally(() => runningJobs.delete(jobId));
+    const run = runJob(jobId, fn, options).finally(() => runningJobs.delete(jobId));
     runningJobs.set(jobId, run);
     return run;
 }
 
-async function runJob(jobId: string, fn: () => Promise<unknown>): Promise<JobOutcome> {
+async function runJob(
+    jobId: string,
+    fn: () => Promise<unknown>,
+    options: Required<WorkerRouteOptions>,
+): Promise<JobOutcome> {
+    let releaseLock: (() => Promise<void>) | null = null;
+    try {
+        releaseLock = await options.acquireLock(jobId);
+    } catch (error) {
+        console.error(`Failed to acquire advisory lock for ${jobId}:`, error);
+        return {
+            job: jobId,
+            status: 'failed',
+            durationSeconds: 0,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
+
+    if (!releaseLock) {
+        console.log(`Skip job ${jobId}-skip (locked by another worker)`);
+        return { job: jobId, status: 'skipped' };
+    }
+
     const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     try {
         console.log(`Start job ${jobId}-start`);
 
-        await fn();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+                reject(new Error(`Job ${jobId} timed out after ${options.jobTimeoutMs}ms`));
+            }, options.jobTimeoutMs);
+        });
+
+        await Promise.race([fn(), timeoutPromise]);
 
         const duration = (Date.now() - startedAt) / 1000;
         console.log(`Successful job ${jobId}-done`, duration);
@@ -90,6 +172,9 @@ async function runJob(jobId: string, fn: () => Promise<unknown>): Promise<JobOut
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Error job ${jobId}-error`, duration, error);
         return { job: jobId, status: 'failed', durationSeconds: duration, error: message };
+    } finally {
+        clearTimeout(timer);
+        await releaseLock();
     }
 }
 
@@ -102,8 +187,16 @@ export interface WorkerRoutes {
  * POST / runs one job and answers with its outcome once it ends. The status is 200 whenever
  * the job was accepted, also when it failed: the failure is logged to stderr for Better Stack.
  */
-export function configureWorkerRoutes(app: Express, handlers: Record<string, JobHandler> = jobHandlers): WorkerRoutes {
+export function configureWorkerRoutes(
+    app: Express,
+    handlers: Record<string, JobHandler> = jobHandlers,
+    options: WorkerRouteOptions = {},
+): WorkerRoutes {
     let draining = false;
+    const resolvedOptions: Required<WorkerRouteOptions> = {
+        jobTimeoutMs: options.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS,
+        acquireLock: options.acquireLock ?? acquirePostgresAdvisoryLock,
+    };
 
     app.get('/health', (_req, res) => {
         res.sendStatus(200);
@@ -131,7 +224,7 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
         const chain = chainIdToChain[chainId];
         const jobId = `${name}-${chainId}`;
 
-        const outcome = await runIfNotAlreadyRunning(jobId, () => handler(chain));
+        const outcome = await runIfNotAlreadyRunning(jobId, () => handler(chain), resolvedOptions);
 
         res.json(outcome);
     });
@@ -147,6 +240,10 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
                 await Promise.race([Promise.allSettled(runningJobs.values()), deadline]);
             } finally {
                 clearTimeout(timer);
+            }
+            if (lockPrismaClient) {
+                await lockPrismaClient.$disconnect().catch(() => undefined);
+                lockPrismaClient = undefined;
             }
             return [...runningJobs.keys()];
         },
