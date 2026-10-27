@@ -181,3 +181,55 @@ export default [
         type: 'function',
     },
 ] as const;
+
+/**
+ * Legacy Aave v3.0 / v3.1 IUiPoolDataProviderV3 ABI (still deployed on Sepolia)
+ * where `stableBorrowRateEnabled` and `stableBorrowRate` are present in `AggregatedReserveData`.
+ */
+export const aaveUiPoolDataProviderLegacy = [
+    {
+        inputs: [{ internalType: 'contract IPoolAddressesProvider', name: 'provider', type: 'address' }],
+        name: 'getReservesData',
+        outputs: [
+            {
+                components: [
+                    { internalType: 'address', name: 'underlyingAsset', type: 'address' },
+                    { internalType: 'string', name: 'name', type: 'string' },
+                    { internalType: 'string', name: 'symbol', type: 'string' },
+                    { internalType: 'uint256', name: 'decimals', type: 'uint256' },
+                    { internalType: 'uint256', name: 'baseLTVasCollateral', type: 'uint256' },
+                    { internalType: 'uint256', name: 'reserveLiquidationThreshold', type: 'uint256' },
+                    { internalType: 'uint256', name: 'reserveLiquidationBonus', type: 'uint256' },
+                    { internalType: 'uint256', name: 'reserveFactor', type: 'uint256' },
+                    { internalType: 'bool', name: 'usageAsCollateralEnabled', type: 'bool' },
+                    { internalType: 'bool', name: 'borrowingEnabled', type: 'bool' },
+                    { internalType: 'bool', name: 'stableBorrowRateEnabled', type: 'bool' },
+                    { internalType: 'bool', name: 'isActive', type: 'bool' },
+                    { internalType: 'bool', name: 'isFrozen', type: 'bool' },
+                    { internalType: 'uint128', name: 'liquidityIndex', type: 'uint128' },
+                    { internalType: 'uint128', name: 'variableBorrowIndex', type: 'uint128' },
+                    { internalType: 'uint128', name: 'liquidityRate', type: 'uint128' },
+                    { internalType: 'uint128', name: 'variableBorrowRate', type: 'uint128' },
+                    { internalType: 'uint128', name: 'stableBorrowRate', type: 'uint128' },
+                    { internalType: 'uint40', name: 'lastUpdateTimestamp', type: 'uint40' },
+                ],
+                internalType: 'struct IUiPoolDataProviderV3.AggregatedReserveData[]',
+                name: '',
+                type: 'tuple[]',
+            },
+            {
+                components: [
+                    { internalType: 'uint256', name: 'marketReferenceCurrencyUnit', type: 'uint256' },
+                    { internalType: 'int256', name: 'marketReferenceCurrencyPriceInUsd', type: 'int256' },
+                    { internalType: 'int256', name: 'networkBaseTokenPriceInUsd', type: 'int256' },
+                    { internalType: 'uint8', name: 'networkBaseTokenPriceDecimals', type: 'uint8' },
+                ],
+                internalType: 'struct IUiPoolDataProviderV3.BaseCurrencyInfo',
+                name: '',
+                type: 'tuple',
+            },
+        ],
+        stateMutability: 'view',
+        type: 'function',
+    },
+] as const;
