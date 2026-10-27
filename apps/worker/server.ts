@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node';
 import express from 'express';
 import type { Server } from 'node:http';
 import { env } from '../env';
@@ -15,10 +14,8 @@ export async function startWorkerServer(): Promise<Stoppable> {
 
     const routes = configureWorkerRoutes(app);
 
-    Sentry.setupExpressErrorHandler(app);
-
-    // Replaces the default handler so Sentry does not get the error a second time from its log.
-    app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+        console.error(err);
         if (!res.headersSent) {
             res.sendStatus(500);
         }

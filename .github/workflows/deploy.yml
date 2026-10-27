@@ -57,6 +57,7 @@ jobs:
             ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
             DRPC_API_KEY: ${{ secrets.DRPC_API_KEY }}
             COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+            LOGTAIL_TOKEN: ${{ secrets.LOGTAIL_TOKEN }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -104,6 +104,10 @@ services:
           - key: SOR_SERVICE_URL
             scope: RUN_TIME
             value: http://sor:8080/graphql
+      log_destinations:
+          - name: better-stack
+            logtail:
+                token: '${LOGTAIL_TOKEN}'
 
     - name: sor
       image:
@@ -144,6 +148,10 @@ services:
           - key: SOR_INSTANCE
             scope: RUN_TIME
             value: 'true'
+      log_destinations:
+          - name: better-stack
+            logtail:
+                token: '${LOGTAIL_TOKEN}'
 
 workers:
     - name: worker
@@ -180,6 +188,10 @@ workers:
           - key: WORKER_QUEUE_URL
             scope: RUN_TIME
             value: http://localhost:8080
+      log_destinations:
+          - name: better-stack
+            logtail:
+                token: '${LOGTAIL_TOKEN}'
 
 jobs:
     - name: migrate
@@ -192,3 +204,7 @@ jobs:
       run_command: npx prisma migrate deploy --schema prisma/schema
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-1gb
+      log_destinations:
+          - name: better-stack
+            logtail:
+                token: '${LOGTAIL_TOKEN}'

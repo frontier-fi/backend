@@ -71,6 +71,7 @@ describe('worker route', () => {
     beforeEach(() => {
         for (const name of Object.keys(handlers)) delete handlers[name];
         vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
     });
 
     it('answers the health check', async () => {

@@ -1,4 +1,3 @@
-import { setupExpressErrorHandler } from '@sentry/node';
 import express from 'express';
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@as-integrations/express5';
@@ -14,7 +13,7 @@ import { examplePoolsQuery } from './apollo/landing-page';
 import { schema } from './gql/generated-schema-ast';
 import { resolvers } from './gql/resolvers';
 import { ResolverContext, resolverContext } from './gql/resolver-context';
-import { apolloSentryPlugin } from './apollo/sentry-plugin';
+import { apolloErrorLoggerPlugin } from './apollo/error-logger';
 import { apolloProtection } from './apollo/armor';
 import { apolloEdgePlugin } from './apollo/edge';
 import type { Stoppable } from '../shutdown';
@@ -38,7 +37,7 @@ const configureMiddlewares = (app: express.Express) => {
 
 const configureApolloServer = async (httpServer: http.Server, app: express.Express) => {
     const protection = apolloProtection();
-    const plugins = [...protection.plugins, ApolloServerPluginDrainHttpServer({ httpServer }), apolloSentryPlugin];
+    const plugins = [...protection.plugins, ApolloServerPluginDrainHttpServer({ httpServer }), apolloErrorLoggerPlugin];
 
     plugins.push(ApolloServerPluginLandingPageLocalDefault({ document: examplePoolsQuery }));
 
@@ -91,7 +90,6 @@ export const startApiServer = async (): Promise<Stoppable> => {
     const apollo = await configureApolloServer(httpServer, app);
 
     // Error handlers only see errors from routes registered before them.
-    setupExpressErrorHandler(app);
     app.use(jsonErrorHandler);
 
     await new Promise<void>((resolve) => httpServer.listen({ port: env.PORT, host: '0.0.0.0' }, resolve));

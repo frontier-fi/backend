@@ -14,8 +14,6 @@ export const schema = {
     COINGECKO_API_KEY: { type: String, optional: true },
     MERKL_API_KEY: { type: String, optional: true },
     WORKER_QUEUE_URL: { type: String, optional: true },
-    SENTRY_DSN: { type: String, optional: true },
-    SENTRY_TRACES_SAMPLE_RATE: { type: String, optional: true },
     SOR_POOLS_CACHE_TTL_SECONDS: { type: String, default: '10' },
     SOR_SERVICE_URL: { type: String, optional: true },
     SOR_INSTANCE: { type: Boolean, default: false },

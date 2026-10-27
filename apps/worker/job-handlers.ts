@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node';
 import { Express } from 'express';
 import { Chain } from '@prisma/client';
 import { tokenService } from '../../modules/token/token.service';
@@ -8,7 +7,6 @@ import { SnapshotsController, PoolController, EventController, TokenYieldsContro
 import { updateVolumeAndFees } from '../../modules/actions/pool/update-volume-and-fees';
 import { TokenController } from '../../modules/controllers/token-controller';
 import config from '../../config';
-import { globalWorkerJobs } from '../../config/worker-jobs';
 import { AprsController } from '../../modules/controllers/aprs-controller';
 import { ContentController } from '../../modules/content/content-controller';
 import { UserBalancesController } from '../../modules/user/user-balances-controller';
@@ -30,7 +28,7 @@ async function updateTokenPricesForAllChains(): Promise<void> {
         try {
             await service.updatePrices(chain);
         } catch (error) {
-            console.log(`Error updating prices for chain ${chain}:`, error);
+            console.error(`Error updating prices for chain ${chain}:`, error);
             errors.push(error instanceof Error ? error : new Error(`Unknown error: ${error}`));
         }
     }
@@ -65,26 +63,18 @@ export const jobHandlers: Record<string, JobHandler> = {
 
 const runningJobs = new Map<string, Promise<JobOutcome>>();
 
-function runIfNotAlreadyRunning(
-    jobId: string,
-    intervalMs: number | undefined,
-    fn: () => Promise<unknown>,
-): Promise<JobOutcome> {
+function runIfNotAlreadyRunning(jobId: string, fn: () => Promise<unknown>): Promise<JobOutcome> {
     if (runningJobs.has(jobId)) {
         console.log(`Skip job ${jobId}-skip`);
         return Promise.resolve({ job: jobId, status: 'skipped' });
     }
 
-    const run = runJob(jobId, intervalMs, fn).finally(() => runningJobs.delete(jobId));
+    const run = runJob(jobId, fn).finally(() => runningJobs.delete(jobId));
     runningJobs.set(jobId, run);
     return run;
 }
 
-async function runJob(jobId: string, intervalMs: number | undefined, fn: () => Promise<unknown>): Promise<JobOutcome> {
-    const checkInId = Sentry.captureCheckIn(
-        { monitorSlug: jobId, status: 'in_progress' },
-        sentryMonitorConfig(intervalMs),
-    );
+async function runJob(jobId: string, fn: () => Promise<unknown>): Promise<JobOutcome> {
     const startedAt = Date.now();
 
     try {
@@ -94,14 +84,11 @@ async function runJob(jobId: string, intervalMs: number | undefined, fn: () => P
 
         const duration = (Date.now() - startedAt) / 1000;
         console.log(`Successful job ${jobId}-done`, duration);
-        Sentry.captureCheckIn({ monitorSlug: jobId, status: 'ok', checkInId, duration });
         return { job: jobId, status: 'done', durationSeconds: duration };
     } catch (error: unknown) {
         const duration = (Date.now() - startedAt) / 1000;
         const message = error instanceof Error ? error.message : String(error);
-        console.log(`Error job ${jobId}-error`, duration, message);
-        Sentry.captureException(error);
-        Sentry.captureCheckIn({ monitorSlug: jobId, status: 'error', checkInId, duration });
+        console.error(`Error job ${jobId}-error`, duration, error);
         return { job: jobId, status: 'failed', durationSeconds: duration, error: message };
     }
 }
@@ -113,7 +100,7 @@ export interface WorkerRoutes {
 
 /**
  * POST / runs one job and answers with its outcome once it ends. The status is 200 whenever
- * the job was accepted, also when it failed: the failure is already reported to Sentry.
+ * the job was accepted, also when it failed: the failure is logged to stderr for Better Stack.
  */
 export function configureWorkerRoutes(app: Express, handlers: Record<string, JobHandler> = jobHandlers): WorkerRoutes {
     let draining = false;
@@ -135,7 +122,7 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
             !Object.hasOwn(handlers, name) ||
             !Object.hasOwn(chainIdToChain, chainId)
         ) {
-            console.log(`Unhandled job ${String(name)} for chain ${String(chainId)}`);
+            console.error(`Unhandled job ${String(name)} for chain ${String(chainId)}`);
             res.sendStatus(400);
             return;
         }
@@ -144,18 +131,7 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
         const chain = chainIdToChain[chainId];
         const jobId = `${name}-${chainId}`;
 
-        const outcome = await Sentry.withIsolationScope(async (scope) => {
-            // Clear breadcrumbs to avoid mixing them between requests
-            // That doesn't always work, but it's better than nothing
-            scope.clearBreadcrumbs();
-            scope.setTransactionName(jobId);
-            scope.setTag('job', name);
-            scope.setTag('chain', chainId);
-
-            return Sentry.startSpan({ op: 'job', name: jobId }, () =>
-                runIfNotAlreadyRunning(jobId, jobIntervalMs(name, chain), () => handler(chain)),
-            );
-        });
+        const outcome = await runIfNotAlreadyRunning(jobId, () => handler(chain));
 
         res.json(outcome);
     });
@@ -174,30 +150,5 @@ export function configureWorkerRoutes(app: Express, handlers: Record<string, Job
             }
             return [...runningJobs.keys()];
         },
-    };
-}
-
-function jobIntervalMs(name: string, chain: Chain): number | undefined {
-    return [...config[chain].workerJobs, ...globalWorkerJobs].find((job) => job.name === name)?.interval;
-}
-
-// Sentry cron intervals are whole minutes at the smallest. Sub-minute jobs round up to one minute.
-function sentryMonitorConfig(intervalMs: number | undefined): {
-    schedule: { type: 'interval'; value: number; unit: 'minute' | 'hour' | 'day' };
-    checkinMargin: number;
-    maxRuntime: number;
-} {
-    const intervalMinutes = Math.max(1, Math.round((intervalMs ?? 60_000) / 60_000));
-    const schedule =
-        intervalMinutes % (24 * 60) === 0
-            ? { type: 'interval' as const, value: intervalMinutes / (24 * 60), unit: 'day' as const }
-            : intervalMinutes % 60 === 0
-              ? { type: 'interval' as const, value: intervalMinutes / 60, unit: 'hour' as const }
-              : { type: 'interval' as const, value: intervalMinutes, unit: 'minute' as const };
-
-    return {
-        schedule,
-        checkinMargin: Math.max(1, Math.ceil(intervalMinutes / 5)),
-        maxRuntime: Math.max(5, intervalMinutes * 2),
     };
 }
