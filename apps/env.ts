@@ -19,8 +19,6 @@ export const schema = {
     SOR_POOLS_CACHE_TTL_SECONDS: { type: String, default: '10' },
     SOR_SERVICE_URL: { type: String, optional: true },
     SOR_INSTANCE: { type: Boolean, default: false },
-    STELLATE_ORIGIN_SECRET: { type: String, optional: true },
-    STELLATE_LOGGING_TOKEN: { type: String, optional: true },
 };
 
 function projectRoot(): string {

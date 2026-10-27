@@ -57,8 +57,6 @@ jobs:
             ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
             DRPC_API_KEY: ${{ secrets.DRPC_API_KEY }}
             COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
-            STELLATE_LOGGING_TOKEN: ${{ secrets.STELLATE_LOGGING_TOKEN }}
-            STELLATE_ORIGIN_SECRET: ${{ secrets.STELLATE_ORIGIN_SECRET }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -95,49 +93,3 @@ jobs:
                   token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
                   app_spec_location: .do/prod.yaml
                   print_deploy_logs: true
-
-    stellate:
-        needs: deploy
-        runs-on: ubuntu-latest
-        environment: production
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-            # Without the origin secret, Stellate would stop sending it and the API would reject the edge.
-            - name: Check Stellate secrets
-              id: secrets
-              env:
-                  STELLATE_TOKEN: ${{ secrets.STELLATE_TOKEN }}
-                  STELLATE_ORIGIN_SECRET: ${{ secrets.STELLATE_ORIGIN_SECRET }}
-              run: |
-                  if [ -z "$STELLATE_TOKEN" ] || [ -z "$STELLATE_ORIGIN_SECRET" ]; then
-                      echo "ready=false" >> "$GITHUB_OUTPUT"
-                      echo "STELLATE_TOKEN or STELLATE_ORIGIN_SECRET is unset. Skipping the Stellate push."
-                  else
-                      echo "ready=true" >> "$GITHUB_OUTPUT"
-                  fi
-
-            - name: Read the Bun version from the Dockerfile
-              id: bun
-              if: steps.secrets.outputs.ready == 'true'
-              run: |
-                  version=$(sed -nE 's/^FROM oven\/bun:([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' Dockerfile)
-                  test -n "$version" || { echo "::error::The Dockerfile has no FROM oven/bun:<version> line."; exit 1; }
-                  echo "version=$version" >> "$GITHUB_OUTPUT"
-
-            - name: Use Bun
-              if: steps.secrets.outputs.ready == 'true'
-              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-              with:
-                  bun-version: ${{ steps.bun.outputs.version }}
-
-            - name: Install deps
-              if: steps.secrets.outputs.ready == 'true'
-              run: bun install --frozen-lockfile
-
-            - name: Push Stellate config
-              if: steps.secrets.outputs.ready == 'true'
-              env:
-                  STELLATE_TOKEN: ${{ secrets.STELLATE_TOKEN }}
-                  STELLATE_ORIGIN_SECRET: ${{ secrets.STELLATE_ORIGIN_SECRET }}
-              run: bunx stellate push

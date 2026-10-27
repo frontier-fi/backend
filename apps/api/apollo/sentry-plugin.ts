@@ -16,6 +16,7 @@ export const apolloSentryPlugin: ApolloServerPlugin<ResolverContext> = {
                             'BAD_USER_INPUT',
                             'ACCESS_DENIED',
                             'NOT_FOUND',
+                            'TOO_MANY_REQUESTS',
                         ].includes(err.extensions?.code as string)
                     ) {
                         continue;

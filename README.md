@@ -152,7 +152,6 @@ Work merges into `staging`. The Release workflow opens a pull request from `stag
 
 1. It builds the Docker image once and pushes it to `ghcr.io/frontier-fi/backend`, tagged with the commit. The package is public, so App Platform pulls it without credentials.
 2. It applies `.do/prod.yaml` to the `frontier-backend` app on DigitalOcean App Platform with `digitalocean/app_action`, pinned to that image's digest, and waits for the deployment. If the app does not exist yet, the action creates it.
-3. It pushes the Stellate configuration, described below.
 
 The spec runs the public `api`, an internal `sor` service for swap quotes, a `worker` that runs the scheduler and the jobs, and a `migrate` job before each deployment, all from that one image. It also sets alerts for failed deployments and domains, and for the CPU, memory and restarts of each component. They email the team's contact address. Every deploy applies the whole file, so settings changed in the dashboard are lost on the next deploy. Change them in the file instead.
 
@@ -166,19 +165,6 @@ Before App Platform replaces a container, it sends SIGTERM and allows 120 second
 
 Dependabot proposes updates to the pinned GitHub Actions and Docker base images every week. CI installs the Bun version of the Dockerfile's `oven/bun` image, so one update bumps both.
 
-## Stellate
+## Caching and rate limits
 
-Stellate caches responses, rate-limits clients and answers CORS preflights at `https://frontier-api.stellate.sh`. It forwards requests to `https://api-origin.frontier.fi/graphql` with the `x-stellate-origin-secret` header. The origin sends no CORS headers, so browser apps call the Stellate URL, local frontend development included.
-
-`stellate.ts` holds the configuration, and every query needs a cache rule there; a unit test checks that. The Deploy workflow pushes the file after each production deployment, with the `STELLATE_TOKEN` and `STELLATE_ORIGIN_SECRET` secrets of the `production` environment, so changes made in the Stellate dashboard don't last.
-
-`api.frontier.fi` still points straight at the app, and the origin doesn't require the header yet. Moving `api.frontier.fi` onto Stellate needs a paid Stellate plan, for the custom domain. Then, in this order:
-
-1. Add `api.frontier.fi` as the custom domain of the `frontier-api` service.
-2. In `.do/prod.yaml`, make `api-origin.frontier.fi` the primary domain, remove `api.frontier.fi`, and deploy. App Platform can't renew the certificate of a domain that resolves elsewhere.
-3. Create a CNAME from `api.frontier.fi` to `stellate.map.fastly.net`, and wait until Stellate serves HTTPS on it.
-4. Uncomment `STELLATE_ORIGIN_SECRET` on the `api` component in `.do/prod.yaml` and deploy. From then on, the origin only answers requests that came through Stellate, apart from `/health`.
-
-Step 4 must come last: with the secret set while `api.frontier.fi` still points at the app, every public request is rejected.
-
-The `STELLATE_LOGGING_TOKEN` secret lets the `api` component send request metrics and the schema to Stellate, for requests that did not come through the edge.
+`apps/api/apollo/edge.ts` caches query responses (`maxAge` + stale-while-revalidate `swr`) and rate-limits clients per IP (`600` requests/min and `120` `sorGetSwapPaths` root fields/min) directly in the `api` service. Every query in the schema needs a cache rule in `CACHE_RULES`; a unit test in `apps/api/apollo/edge.test.ts` checks that.

@@ -13,11 +13,6 @@ domains:
     - domain: api.frontier.fi
       type: PRIMARY
       zone: frontier.fi
-    # Stellate's origin. After the cutover (README: Stellate) api.frontier.fi points at Stellate,
-    # this becomes the primary domain and api.frontier.fi leaves this list.
-    - domain: api-origin.frontier.fi
-      type: ALIAS
-      zone: frontier.fi
 
 ingress:
     rules:
@@ -109,15 +104,6 @@ services:
           - key: SOR_SERVICE_URL
             scope: RUN_TIME
             value: http://sor:8080/graphql
-          - key: STELLATE_LOGGING_TOKEN
-            scope: RUN_TIME
-            type: SECRET
-            value: '${STELLATE_LOGGING_TOKEN}'
-          # Uncomment only after api.frontier.fi points at Stellate. Earlier, it blocks all public traffic.
-          # - key: STELLATE_ORIGIN_SECRET
-          #   scope: RUN_TIME
-          #   type: SECRET
-          #   value: '${STELLATE_ORIGIN_SECRET}'
 
     - name: sor
       image:

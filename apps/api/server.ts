@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import * as http from 'http';
 import { env } from '../env';
 import { loadRestRoutes } from './rest-routes';
-import { jsonErrorHandler, lowerCaseMiddleware, ORIGIN_SECRET_HEADER, requireOriginSecret } from './middleware';
+import { corsMiddleware, jsonErrorHandler, lowerCaseMiddleware } from './middleware';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
 import { ApolloServerPluginUsageReporting } from '@apollo/server/plugin/usageReporting';
 import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin/landingPage/default';
@@ -16,7 +16,7 @@ import { resolvers } from './gql/resolvers';
 import { ResolverContext, resolverContext } from './gql/resolver-context';
 import { apolloSentryPlugin } from './apollo/sentry-plugin';
 import { apolloProtection } from './apollo/armor';
-import { stellateLoggerPlugin } from './apollo/stellate-logger';
+import { apolloEdgePlugin } from './apollo/edge';
 import type { Stoppable } from '../shutdown';
 
 const configureHelmet = (app: express.Express) => {
@@ -31,9 +31,8 @@ const configureHelmet = (app: express.Express) => {
     app.use(helmet.referrerPolicy());
 };
 
-// No CORS headers on purpose: browsers call the API through Stellate, which sets its own.
 const configureMiddlewares = (app: express.Express) => {
-    app.use(requireOriginSecret(env.STELLATE_ORIGIN_SECRET));
+    app.use(corsMiddleware);
     app.use(lowerCaseMiddleware);
 };
 
@@ -43,9 +42,9 @@ const configureApolloServer = async (httpServer: http.Server, app: express.Expre
 
     plugins.push(ApolloServerPluginLandingPageLocalDefault({ document: examplePoolsQuery }));
 
-    const stellatePlugin = stellateLoggerPlugin(env);
-    if (stellatePlugin) {
-        plugins.push(stellatePlugin);
+    const edgePlugin = apolloEdgePlugin(env);
+    if (edgePlugin) {
+        plugins.push(edgePlugin);
     }
 
     if (process.env.APOLLO_SCHEMA_REPORTING === 'true') {
@@ -53,7 +52,7 @@ const configureApolloServer = async (httpServer: http.Server, app: express.Expre
             ApolloServerPluginUsageReporting({
                 sendVariableValues: { all: true },
                 // Apollo only drops authorization and cookie headers on its own.
-                sendHeaders: { exceptNames: ['AdminApiKey', ORIGIN_SECRET_HEADER] },
+                sendHeaders: { exceptNames: ['AdminApiKey'] },
             }),
         );
     }
