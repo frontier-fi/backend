@@ -1,5 +1,6 @@
 import { Chain, PrismaPoolAprType } from '@prisma/client';
 import {
+    GqlChain,
     GqlPoolTokenDetail,
     GqlNestedPool,
     GqlHook,
@@ -77,7 +78,7 @@ export function mapPoolToken(
         isExemptFromProtocolYieldFee: poolToken.exemptFromProtocolYieldFee,
         scalingFactor: poolToken.scalingFactor,
         tradable: !poolToken.token.types.find((type) => type.type === 'BPT'),
-        chain: poolToken.chain,
+        chain: poolToken.chain as GqlChain,
         chainId: Number(chainToChainId[poolToken.chain]),
     };
 }
@@ -142,7 +143,7 @@ export async function enrichWithErc4626Data(poolTokens: GqlPoolTokenDetail[], ch
                     warnings: erc4626ReviewData.warnings?.split(',') || [],
                 };
                 token.useUnderlyingForAddRemove = erc4626ReviewData.useUnderlyingForAddRemove;
-                token.useWrappedForAddRemove = erc4626ReviewData.useUnderlyingForAddRemove;
+                token.useWrappedForAddRemove = erc4626ReviewData.useWrappedForAddRemove;
                 token.canUseBufferForSwaps = erc4626ReviewData.canUseBufferForSwaps;
             } else {
                 token.useUnderlyingForAddRemove = false;
@@ -179,7 +180,7 @@ export async function enrichWithErc4626Data(poolTokens: GqlPoolTokenDetail[], ch
                             warnings: erc4626ReviewData.warnings?.split(',') || [],
                         };
                         nestedToken.useUnderlyingForAddRemove = erc4626ReviewData.useUnderlyingForAddRemove;
-                        nestedToken.useWrappedForAddRemove = erc4626ReviewData.useUnderlyingForAddRemove;
+                        nestedToken.useWrappedForAddRemove = erc4626ReviewData.useWrappedForAddRemove;
                         nestedToken.canUseBufferForSwaps = erc4626ReviewData.canUseBufferForSwaps;
                     } else {
                         nestedToken.useUnderlyingForAddRemove = false;

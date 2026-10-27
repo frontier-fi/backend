@@ -106,5 +106,44 @@ describe('SOR V3 Weighted Pool Tests', () => {
         const out = weightedPool.swapGivenIn(bpt, weightedPool.tokens[0].token, TokenAmount.fromRawAmount(bpt, 1000n));
 
         expect(out.amount).toBe(0n);
+        expect(out.token.address).toBe(weightedPool.tokens[0].token.address);
+
+        const inForRemove = weightedPool.swapGivenOut(
+            bpt,
+            weightedPool.tokens[0].token,
+            TokenAmount.fromRawAmount(weightedPool.tokens[0].token, 1000n),
+        );
+        expect(inForRemove.amount).toBe(0n);
+        expect(inForRemove.token.address).toBe(bpt.address);
+
+        const inForAdd = weightedPool.swapGivenOut(
+            weightedPool.tokens[0].token,
+            bpt,
+            TokenAmount.fromRawAmount(bpt, 1000n),
+        );
+        expect(inForAdd.amount).toBe(0n);
+        expect(inForAdd.token.address).toBe(weightedPool.tokens[0].token.address);
+    });
+
+    test('copy() deep-clones tokens so mutating balances on a copy does not mutate the original pool', () => {
+        const original = WeightedPoolV3.fromPrismaPool(weightedPrismaPool);
+        const cloned = original.copy();
+
+        const tokenIn = original.tokens[0].token;
+        const tokenOut = original.tokens[1].token;
+        const amountIn = TokenAmount.fromRawAmount(tokenIn, 1_000_000n);
+
+        const originalBalance0Before = original.tokens[0].amount;
+        const originalBalance1Before = original.tokens[1].amount;
+
+        // Mutate balances on the cloned pool
+        cloned.swapGivenIn(tokenIn, tokenOut, amountIn, true);
+
+        expect(cloned.tokens[0].amount).toBeGreaterThan(originalBalance0Before);
+        expect(cloned.tokens[1].amount).toBeLessThan(originalBalance1Before);
+
+        // Original pool balances must remain untouched
+        expect(original.tokens[0].amount).toBe(originalBalance0Before);
+        expect(original.tokens[1].amount).toBe(originalBalance1Before);
     });
 });

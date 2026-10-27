@@ -32,7 +32,7 @@ extend type Query {
         """
         useProtocolVersion: Int
         """
-        Whether it should consider pools that have hooks. Default is false if not provided.
+        Whether it should consider pools that have hooks. Default is true if not provided.
         """
         considerPoolsWithHooks: Boolean
         """

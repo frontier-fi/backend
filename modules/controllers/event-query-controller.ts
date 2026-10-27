@@ -1,4 +1,5 @@
 import {
+    GqlChain,
     GqlPoolAddRemoveEventV3,
     GqlPoolSwapEventV3,
     QueryPoolEventsArgs,
@@ -17,6 +18,7 @@ const parseJoinExit = (event: JoinExitEvent): GqlPoolAddRemoveEventV3 => {
             valueUSD: token.valueUSD,
         })),
         ...event,
+        chain: event.chain as GqlChain,
         type: event.type === 'JOIN' ? 'ADD' : 'REMOVE',
         valueUSD: event.valueUSD,
         timestamp: event.blockTimestamp,
@@ -28,6 +30,7 @@ const parseSwap = (event: SwapEvent): GqlPoolSwapEventV3 => {
     return {
         __typename: 'GqlPoolSwapEventV3',
         ...event,
+        chain: event.chain as GqlChain,
         valueUSD: event.valueUSD || 0,
         sender: event.userAddress,
         timestamp: event.blockTimestamp,
@@ -92,7 +95,7 @@ export function EventsQueryController(env = process.env) {
             skip = skip ?? 0;
             let { chainIn, poolIdIn, poolId, type, typeIn, userAddress } = where || {};
 
-            if (!chainIn) {
+            if (!chainIn || chainIn.length === 0) {
                 return [];
             }
 

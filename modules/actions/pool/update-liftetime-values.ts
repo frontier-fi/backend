@@ -50,6 +50,7 @@ const getHoldersCount = async (chain: Chain) => {
         _count: { userAddress: true },
         where: {
             chain,
+            balanceNum: { gt: 0 },
         },
     });
 

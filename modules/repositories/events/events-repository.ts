@@ -124,8 +124,14 @@ export const eventsRepository = {
             throw new Error(`Invalid timestamp for until ${until}`);
         }
 
-        const query = Prisma.raw(`
-        SELECT
+        const untilCondition = until ? Prisma.sql`AND "blockTimestamp" <= ${until}` : Prisma.empty;
+        const poolCondition =
+            poolIds && poolIds.length > 0 && poolIds.length < 30
+                ? Prisma.sql`AND "poolId" = ANY(${poolIds})`
+                : Prisma.empty;
+
+        const query = Prisma.sql`
+          SELECT
             extract(epoch from date_trunc('day', to_timestamp("blockTimestamp")))::int AS timestamp,
             "poolId",
             SUM("valueUSD") AS volume24h,
@@ -136,11 +142,11 @@ export const eventsRepository = {
           FROM "PartitionedPoolEvent"
           WHERE
             "blockTimestamp" >= ${since}
-            ${until ? 'AND "blockTimestamp" <= ' + until : ''}
-            AND chain = '${chain}'
+            ${untilCondition}
+            AND chain = ${chain}::"Chain"
             AND type = 'SWAP'
-            ${poolIds && poolIds.length < 30 ? 'AND "poolId" IN (\'' + poolIds.join("','") + "')" : ''}
-          GROUP BY 1, 2`);
+            ${poolCondition}
+          GROUP BY 1, 2`;
 
         const result = await prisma.$queryRaw(query);
 
@@ -172,7 +178,14 @@ export const eventsRepository = {
             throw new Error(`Invalid timestamp for until ${until}`);
         }
 
-        const query = Prisma.raw(`SELECT
+        const untilCondition = until ? Prisma.sql`AND "blockTimestamp" <= ${until}` : Prisma.empty;
+        const poolCondition =
+            poolIds && poolIds.length > 0 && poolIds.length < 30
+                ? Prisma.sql`AND "poolId" = ANY(${poolIds})`
+                : Prisma.empty;
+
+        const query = Prisma.sql`
+          SELECT
             "poolId",
             SUM("valueUSD") AS volume,
             SUM((payload->'fee'->>'valueUSD')::numeric) AS fees,
@@ -183,25 +196,26 @@ export const eventsRepository = {
           FROM "PartitionedPoolEvent"
           WHERE
             "blockTimestamp" >= ${since}
-            ${until ? 'AND "blockTimestamp" <= ' + until : ''}
-            AND chain = '${chain}'
+            ${untilCondition}
+            AND chain = ${chain}::"Chain"
             AND type = 'SWAP'
-            ${poolIds && poolIds.length < 30 ? 'AND "poolId" IN (\'' + poolIds.join("','") + "')" : ''}
-          GROUP BY 1`);
+            ${poolCondition}
+          GROUP BY 1`;
 
         const stats = await prisma.$queryRaw<SwapStats[]>(query);
 
         return stats;
     },
     getDailyBlockNumbers: async (chain: Chain, days: number) => {
-        const blocks = await prisma.$queryRawUnsafe<{ timestamp: number; number: number }[]>(`
+        const since = daysAgo(days);
+        const blocks = await prisma.$queryRaw<{ timestamp: number; number: number }[]>(Prisma.sql`
             SELECT
                 ("blockTimestamp"/86400)::INTEGER * 86400 as timestamp,
                 MIN("blockNumber") as number
             FROM "PartitionedPoolEvent"
-            WHERE chain = '${chain}'
+            WHERE chain = ${chain}::"Chain"
             AND type = 'SWAP'
-            AND "blockTimestamp" >= ${daysAgo(days)}
+            AND "blockTimestamp" >= ${since}
             GROUP BY 1
             ORDER BY 1 DESC`);
 
@@ -243,46 +257,44 @@ export const eventsRepository = {
         interval = 3600,
         from?: number,
     ) => {
-        const whereClause = ['chain = $1::"Chain"', '"poolId" = $2'];
-        const params = [chain, poolId, interval];
-        if (from) {
-            whereClause.push('"blockTimestamp" >= $3');
-            params.push(from);
-        }
+        const normalizedA = normalizeAddress(tokenA);
+        const normalizedB = normalizeAddress(tokenB);
+        const fromConditionSwaps = from ? Prisma.sql`AND "blockTimestamp" >= ${from}` : Prisma.empty;
+        const fromConditionJoinExits = from ? Prisma.sql`AND pe."blockTimestamp" >= ${from}` : Prisma.empty;
 
-        const query = `
+        const query = Prisma.sql`
           -- 1) Aggregate SWAPs
           WITH swaps AS (
             SELECT
-              FLOOR("blockTimestamp"/3600)*3600 AS timestamp,
+              FLOOR("blockTimestamp"/${interval})::int * ${interval} AS timestamp,
               SUM(
                 CASE
-                  WHEN LOWER("payload"->'tokenIn'->>'address') = $${params.length + 1}
+                  WHEN LOWER("payload"->'tokenIn'->>'address') = ${normalizedA}
                     THEN ("payload"->'tokenIn'->>'amount')::float
-                  WHEN LOWER("payload"->'tokenOut'->>'address') = $${params.length + 1}
+                  WHEN LOWER("payload"->'tokenOut'->>'address') = ${normalizedA}
                     THEN -("payload"->'tokenOut'->>'amount')::float
                   ELSE 0
                 END
               ) AS "tokenAFlow",
               SUM(
                 CASE
-                  WHEN LOWER("payload"->'tokenIn'->>'address') = $${params.length + 2}
+                  WHEN LOWER("payload"->'tokenIn'->>'address') = ${normalizedB}
                     THEN ("payload"->'tokenIn'->>'amount')::float
-                  WHEN LOWER("payload"->'tokenOut'->>'address') = $${params.length + 2}
+                  WHEN LOWER("payload"->'tokenOut'->>'address') = ${normalizedB}
                     THEN -("payload"->'tokenOut'->>'amount')::float
                   ELSE 0
                 END
               ) AS "tokenBFlow",
               SUM(
                 CASE
-                  WHEN LOWER("payload"->'tokenOut'->>'address') = $${params.length + 1}
+                  WHEN LOWER("payload"->'tokenOut'->>'address') = ${normalizedA}
                     THEN ("payload"->'tokenOut'->>'amount')::float
                   ELSE 0
                 END
               ) AS "tokenABuy",
               SUM(
                 CASE
-                  WHEN LOWER("payload"->'tokenIn'->>'address') = $${params.length + 1}
+                  WHEN LOWER("payload"->'tokenIn'->>'address') = ${normalizedA}
                     THEN ("payload"->'tokenIn'->>'amount')::float
                   ELSE 0
                 END
@@ -292,18 +304,19 @@ export const eventsRepository = {
             FROM "PartitionedPoolEvent"
             WHERE
               "type" = 'SWAP'
-              AND
-              ${whereClause.join(' AND ')}
+              AND chain = ${chain}::"Chain"
+              AND "poolId" = ${poolId}
+              ${fromConditionSwaps}
             GROUP BY 1
           ),
 
           -- 2) Unnest & aggregate JOIN/EXIT tokens
           joinexits AS (
             SELECT
-              FLOOR(pe."blockTimestamp"/3600)*3600 AS timestamp,
+              FLOOR(pe."blockTimestamp"/${interval})::int * ${interval} AS timestamp,
               SUM(
                 CASE
-                  WHEN LOWER(token->>'address') = $${params.length + 1}
+                  WHEN LOWER(token->>'address') = ${normalizedA}
                     THEN (token->>'amount')::float
                          * (CASE WHEN pe."type" = 'EXIT' THEN -1 ELSE 1 END)
                   ELSE 0
@@ -311,7 +324,7 @@ export const eventsRepository = {
               ) AS "tokenAFlow",
               SUM(
                 CASE
-                  WHEN LOWER(token->>'address') = $${params.length + 2}
+                  WHEN LOWER(token->>'address') = ${normalizedB}
                     THEN (token->>'amount')::float
                          * (CASE WHEN pe."type" = 'EXIT' THEN -1 ELSE 1 END)
                   ELSE 0
@@ -321,8 +334,10 @@ export const eventsRepository = {
             CROSS JOIN LATERAL
               jsonb_array_elements(pe."payload"->'tokens') AS token
             WHERE
-              pe."type"  IN ('JOIN','EXIT')
-              AND ${whereClause.join(' AND ')}
+              pe."type" IN ('JOIN','EXIT')
+              AND pe.chain = ${chain}::"Chain"
+              AND pe."poolId" = ${poolId}
+              ${fromConditionJoinExits}
             GROUP BY 1
           )
 
@@ -340,10 +355,7 @@ export const eventsRepository = {
             ON s.timestamp = j.timestamp
           ORDER BY timestamp`;
 
-        params.push(normalizeAddress(tokenA));
-        params.push(normalizeAddress(tokenB));
-
-        const results = (await prisma.$queryRawUnsafe(query, ...params)) as any[];
+        const results = (await prisma.$queryRaw(query)) as any[];
 
         return results
             .map((row) => ({

@@ -178,7 +178,7 @@ export class BasePoolV3 {
             // as the pool does not allow unbalanced operations. 0 return marks the
             // route as truly unfeasible route.
             if (this.liquidityManagement.disableUnbalancedLiquidity) {
-                return TokenAmount.fromRawAmount(tOut.token, 0n);
+                return TokenAmount.fromRawAmount(tIn.token, 0n);
             }
 
             // remove liquidity
@@ -198,7 +198,7 @@ export class BasePoolV3 {
             // as the pool does not allow unbalanced operations. 0 return marks the
             // route as truly unfeasible route.
             if (this.liquidityManagement.disableUnbalancedLiquidity) {
-                return TokenAmount.fromRawAmount(tOut.token, 0n);
+                return TokenAmount.fromRawAmount(tIn.token, 0n);
             }
 
             // add liquidity

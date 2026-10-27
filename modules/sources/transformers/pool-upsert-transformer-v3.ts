@@ -110,7 +110,12 @@ export const poolUpsertTransformerV3 = (
             poolId: normalizeAddress(poolData.id),
             chain,
             tokenAddress: normalizeAddress(token.address),
-            nestedPoolId: token.nestedPool ? normalizeAddress(token.nestedPool.id) : null,
+            nestedPoolId:
+                'nestedPoolId' in token && token.nestedPoolId
+                    ? normalizeAddress(token.nestedPoolId)
+                    : token.nestedPool
+                      ? normalizeAddress(token.nestedPool.id)
+                      : null,
         })),
     };
 };

@@ -1,10 +1,35 @@
 import { PrismaClient } from '@prisma/client';
 import { env } from '../apps/env';
 
+export function withDefaultConnectionParams(
+    databaseUrl: string,
+    connectionLimit?: number,
+    defaultPoolTimeout = 15,
+): string {
+    try {
+        const parsed = new URL(databaseUrl);
+        if (connectionLimit !== undefined) {
+            parsed.searchParams.set('connection_limit', String(connectionLimit));
+        } else if (!parsed.searchParams.has('connection_limit')) {
+            const isApi =
+                process.env.WORKER !== 'true' &&
+                process.env.SCHEDULER !== 'true' &&
+                process.env.SOR_INSTANCE !== 'true';
+            parsed.searchParams.set('connection_limit', String(isApi ? 3 : 2));
+        }
+        if (!parsed.searchParams.has('pool_timeout')) {
+            parsed.searchParams.set('pool_timeout', String(defaultPoolTimeout));
+        }
+        return parsed.toString();
+    } catch {
+        return databaseUrl;
+    }
+}
+
 export let prisma = new PrismaClient({
     datasources: {
         db: {
-            url: env.DATABASE_URL,
+            url: withDefaultConnectionParams(env.DATABASE_URL),
         },
     },
 });

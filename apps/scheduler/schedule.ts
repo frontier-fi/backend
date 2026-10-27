@@ -14,8 +14,7 @@ export const STARTUP_STAGGER_MS = 5_000;
 
 /**
  * Chain jobs run once per network, in config order. Global jobs run once for all networks.
- * They are keyed on the first network because the worker needs a chain id for the job id
- * and the Sentry monitor slug.
+ * They are keyed on the first network because the worker needs a chain id for the job id.
  */
 export function buildSchedule(
     networks: Pick<NetworkData, 'chain' | 'workerJobs'>[],

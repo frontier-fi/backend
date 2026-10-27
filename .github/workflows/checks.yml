@@ -1,7 +1,11 @@
 name: Checks
 
 on:
-    - pull_request
+    pull_request:
+    schedule:
+        # Daily check that live Ormi Labs subgraph schemas remain compatible with our queries and build.
+        - cron: '0 6 * * *'
+    workflow_dispatch:
 
 permissions:
     contents: read

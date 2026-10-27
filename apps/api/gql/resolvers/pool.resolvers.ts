@@ -50,6 +50,7 @@ const balancerResolvers: Resolvers = {
 
             return snapshots.map((snapshot) => ({
                 ...snapshot,
+                chain: snapshot.chain as GqlChain,
                 totalLiquidity: `${snapshot.totalLiquidity}`,
                 sharePrice: `${snapshot.sharePrice}`,
                 volume24h: `${snapshot.volume24h}`,

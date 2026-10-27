@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node';
 import express from 'express';
 import type { Server } from 'node:http';
 import { env } from '../env';
@@ -15,19 +14,18 @@ export async function startWorkerServer(): Promise<Stoppable> {
 
     const routes = configureWorkerRoutes(app);
 
-    Sentry.setupExpressErrorHandler(app);
-
-    // Replaces the default handler so Sentry does not get the error a second time from its log.
-    app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+        console.error(err);
         if (!res.headersSent) {
             res.sendStatus(500);
         }
     });
 
+    const host = process.env.WORKER_HOST || '127.0.0.1';
     const server = await new Promise<Server>((resolve) => {
-        const listening = app.listen(env.PORT, '0.0.0.0', () => resolve(listening));
+        const listening = app.listen(env.PORT, host, () => resolve(listening));
     });
-    console.log(`Worker listening on port ${env.PORT}`);
+    console.log(`Worker listening on ${host}:${env.PORT}`);
 
     return {
         async stop() {

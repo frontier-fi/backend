@@ -148,7 +148,7 @@ export class WeightedPoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
             this.swapFee,
             this.aggregateSwapFee,
             this.totalShares,
-            this.tokens,
+            this.tokens.map((token) => token.copy()),
             this.tokenPairs,
             this.liquidityManagement,
             this.hookState,

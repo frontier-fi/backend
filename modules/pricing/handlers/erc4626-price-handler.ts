@@ -5,7 +5,10 @@ export class ERC4626PriceHandler implements PriceHandler {
     public readonly exitIfFails = false;
     public readonly id = 'ERC4626PriceHandlerService';
 
-    async calculatePricesForTokens(tokens: TokenPriceData[]): Promise<PriceItem[]> {
+    async calculatePricesForTokens(
+        tokens: TokenPriceData[],
+        allPrices?: Map<string, { price: number; updatedBy: string }>,
+    ): Promise<PriceItem[]> {
         const acceptedTokens = this.getAcceptedTokens(tokens);
 
         if (acceptedTokens.length === 0) {
@@ -30,19 +33,23 @@ export class ERC4626PriceHandler implements PriceHandler {
                     continue;
                 }
 
-                if (!erc4626Token.underlyingTokenPrice) {
+                const underlyingPrice =
+                    allPrices?.get(underlying.toLowerCase())?.price ??
+                    allPrices?.get(underlying)?.price ??
+                    erc4626Token.underlyingTokenPrice;
+
+                if (!underlyingPrice) {
                     // Missing underlying price, skip
                     continue;
                 }
 
                 try {
                     const unwrapRate = Number(erc4626Token.unwrapRate || '1');
-                    const underlyingPrice = erc4626Token.underlyingTokenPrice;
                     const price = Number((unwrapRate * underlyingPrice).toFixed(10));
 
                     if (erc4626Token.currentPrice && price > 10 * erc4626Token.currentPrice) {
                         throw new Error(
-                            `over 10x price spike. Current price ${erc4626Token.currentPrice}, unwrap rate ${erc4626Token.unwrapRate}, underlying price ${erc4626Token.underlyingTokenPrice}. New price ${price}`,
+                            `over 10x price spike. Current price ${erc4626Token.currentPrice}, unwrap rate ${erc4626Token.unwrapRate}, underlying price ${underlyingPrice}. New price ${price}`,
                         );
                     }
 

@@ -66,4 +66,22 @@ describe('fetchMaxValues', () => {
             [USDC_WRAPPER]: { maxDeposit: '1', maxWithdraw: '0' },
         });
     });
+
+    it('uses underlying token decimals when underlyingTokenMap is provided', async () => {
+        multicall.mockResolvedValue([ok(5_000_000n), ok(6_000_000n)]);
+        const underlyingAddress = '0x3333333333333333333333333333333333333333';
+        const wrapperWith18Decimals = {
+            address: USDC_WRAPPER,
+            decimals: 18,
+            underlyingTokenAddress: underlyingAddress,
+        } as PrismaToken;
+
+        const values = await fetchMaxValues(Chain.SEPOLIA, [wrapperWith18Decimals], {
+            [underlyingAddress]: token(underlyingAddress, 6),
+        });
+
+        expect(values).toEqual({
+            [USDC_WRAPPER]: { maxDeposit: '5', maxWithdraw: '6' },
+        });
+    });
 });

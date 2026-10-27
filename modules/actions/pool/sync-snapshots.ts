@@ -194,11 +194,13 @@ export async function syncSnapshots(chain: Chain): Promise<string[]> {
         await prisma.$transaction(batch);
     }
 
-    await prisma.prismaLastBlockSynced.upsert({
-        where: { category_chain: { chain, category: 'SNAPSHOTS' } },
-        create: { chain, category: 'SNAPSHOTS', blockNumber: latestBlock },
-        update: { blockNumber: latestBlock },
-    });
+    if (latestBlock > 0) {
+        await prisma.prismaLastBlockSynced.upsert({
+            where: { category_chain: { chain, category: 'SNAPSHOTS' } },
+            create: { chain, category: 'SNAPSHOTS', blockNumber: latestBlock },
+            update: { blockNumber: latestBlock },
+        });
+    }
 
     return upsertSnapshots.map((snapshot) => snapshot.id);
 }

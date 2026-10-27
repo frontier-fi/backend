@@ -2,7 +2,5 @@ type Query
 type Mutation
 
 enum GqlChain {
-    BASE
-    MAINNET
     SEPOLIA
 }

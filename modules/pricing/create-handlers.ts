@@ -15,8 +15,8 @@ export function createHandlers(chains: Chain[]): PriceHandler[] {
     const coingeckoConfig = getCoingeckoConfigForChains(chains);
 
     const handlers: PriceHandler[] = [
-        new ERC4626PriceHandler(),
         new CoingeckoPriceHandler(coingeckoConfig),
+        new ERC4626PriceHandler(),
         new BptPriceHandler({
             prismaPool: prisma.prismaPool,
         }),
