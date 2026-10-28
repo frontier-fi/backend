@@ -7,11 +7,31 @@ import { fetchUnwrapRates } from '../../sources/contracts/v3/fetch-unwrap-rates'
 import _ from 'lodash';
 import { formatEther } from 'viem';
 import { prismaBulkExecuteOperations } from '../../../prisma/prisma-util';
+import { syncErc4626Tokens } from './sync-erc4626-tokens';
 
 /**
  * Syncs onchain data for ERC4626 tokens and stores them in the database
  */
 export const syncErc4626OnchainData = async (vaultExplorerAddress: string, viemClient: ViemClient, chain: Chain) => {
+    const reviewedErc4626 = await prisma.prismaErc4626ReviewData.findMany({
+        where: { chain },
+        select: { erc4626Address: true },
+    });
+
+    if (reviewedErc4626.length > 0) {
+        const untypedReviewedTokens = await prisma.prismaToken.findMany({
+            where: {
+                chain,
+                address: { in: reviewedErc4626.map((r) => r.erc4626Address.toLowerCase()) },
+                OR: [{ underlyingTokenAddress: null }, { types: { none: { type: 'ERC4626' } } }],
+            },
+        });
+
+        if (untypedReviewedTokens.length > 0) {
+            await syncErc4626Tokens(viemClient, chain, untypedReviewedTokens);
+        }
+    }
+
     // Get all ERC4626 tokens for the chain
     const erc4626Tokens = await prisma.prismaToken.findMany({
         where: {

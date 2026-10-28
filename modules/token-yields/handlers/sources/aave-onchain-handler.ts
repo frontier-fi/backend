@@ -1,7 +1,25 @@
 import { TokenApr, TokenYieldHandler, AaveAddressBookEntry } from '../../types';
-import aaveUiPoolDataProvider from './abis/aave-ui-pool-data-provider';
+import aaveUiPoolDataProvider, { aaveUiPoolDataProviderLegacy } from './abis/aave-ui-pool-data-provider';
 import { getViemClient } from '../../../sources/viem-client';
 import { chainIdToChain } from '../../../../config/chain-id-to-chain';
+
+const fetchReservesList = async (client: ReturnType<typeof getViemClient>, market: AaveAddressBookEntry) => {
+    try {
+        return await client.readContract({
+            address: market.UI_POOL_DATA_PROVIDER,
+            abi: aaveUiPoolDataProvider,
+            functionName: 'getReservesData',
+            args: [market.POOL_ADDRESSES_PROVIDER],
+        });
+    } catch {
+        return await client.readContract({
+            address: market.UI_POOL_DATA_PROVIDER,
+            abi: aaveUiPoolDataProviderLegacy,
+            functionName: 'getReservesData',
+            args: [market.POOL_ADDRESSES_PROVIDER],
+        });
+    }
+};
 
 export const aaveOnchainHandler: TokenYieldHandler = async ({ markets }: { markets: AaveAddressBookEntry[] }) => {
     const tokenAprs: TokenApr[] = [];
@@ -18,22 +36,10 @@ export const aaveOnchainHandler: TokenYieldHandler = async ({ markets }: { marke
 
             const client = getViemClient(chain);
 
-            const liquidityRates = await client
-                .readContract({
-                    address: market.UI_POOL_DATA_PROVIDER,
-                    abi: aaveUiPoolDataProvider,
-                    functionName: 'getReservesData',
-                    args: [market.POOL_ADDRESSES_PROVIDER],
-                })
-                .then(
-                    (list) =>
-                        new Map(
-                            list[0].map((item) => [
-                                item.underlyingAsset.toLowerCase(),
-                                Number(item.liquidityRate) / 1e27,
-                            ]),
-                        ),
-                );
+            const list = await fetchReservesList(client, market);
+            const liquidityRates = new Map(
+                list[0].map((item) => [item.underlyingAsset.toLowerCase(), Number(item.liquidityRate) / 1e27]),
+            );
 
             tokenAprs.push(
                 ...tokens

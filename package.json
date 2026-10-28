@@ -13,6 +13,7 @@
         "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
+        "check": "bun run format:check && bun run test -- run && bun run build && bun run typecheck:tests",
         "generate": "bun scripts/generate.ts",
         "generate:api": "bun scripts/generate-api.ts",
         "sync-config": "bun scripts/sync-network-config.ts",
