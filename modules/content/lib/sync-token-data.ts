@@ -2,6 +2,8 @@ import { prisma } from '../../../prisma/prisma-client';
 import { chainIdToChain, chainToChainId as chainToIdMap } from '../../../config/chain-id-to-chain';
 import { Chain, PrismaTokenTypeOption } from '@prisma/client';
 import { contentSources } from '../../../config/content-sources';
+import { syncErc4626Tokens } from '../../actions/token/sync-erc4626-tokens';
+import { getViemClient } from '../../sources/viem-client';
 
 interface WhitelistedTokenList {
     name: string;
@@ -62,6 +64,15 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
             },
         }));
 
+    const existingTokens =
+        chains.length > 0
+            ? await prisma.prismaToken.findMany({
+                  where: { chain: { in: chains } },
+                  select: { address: true, chain: true },
+              })
+            : [];
+    const existingTokenKeys = new Set(existingTokens.map((token) => `${token.address}-${token.chain}`));
+
     const upserts = upsertTokens.map((token) =>
         prisma.prismaToken.upsert({
             where: {
@@ -73,6 +84,23 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
     );
 
     await prisma.$transaction(upserts);
+
+    const newTokens = upsertTokens.filter((token) => !existingTokenKeys.has(`${token.address}-${token.chain}`));
+    for (const chain of chains) {
+        const newTokensForChain = newTokens
+            .filter((token) => token.chain === chain)
+            .map(({ address, decimals, name, symbol, chain }) => ({
+                address,
+                decimals,
+                name,
+                symbol,
+                chain,
+            }));
+
+        if (newTokensForChain.length > 0) {
+            await syncErc4626Tokens(getViemClient(chain), chain, newTokensForChain);
+        }
+    }
 
     await syncBlockedTokens();
 

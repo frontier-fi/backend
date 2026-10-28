@@ -8,6 +8,8 @@ import { syncTags } from './lib/sync-tags';
 import { syncTokenContentData } from './lib/sync-token-data';
 import { prisma } from '../../prisma/prisma-client';
 import { getFeaturedPools } from './lib/get-featured-pools';
+import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
+import { getViemClient } from '../sources/viem-client';
 
 export function ContentController() {
     return {
@@ -23,10 +25,7 @@ export function ContentController() {
             return 'OK';
         },
         async syncTokenContentData() {
-            // sync sepolia only in non-production envs
-            const chains = Object.keys(config).filter(
-                (chain) => !(process.env.DEPLOYMENT_ENV === 'production' && chain === 'SEPOLIA'),
-            ) as Chain[];
+            const chains = Object.keys(config) as Chain[];
 
             //sync coingecko Ids first, then override Ids from the content service
             await new CoingeckoDataService().syncCoingeckoIds();
@@ -38,6 +37,7 @@ export function ContentController() {
             });
 
             await syncTokenContentData([chain]);
+            await syncErc4626Tokens(getViemClient(chain), chain);
         },
         async getFeaturedPools(chains: Chain[]) {
             return getFeaturedPools(chains);
