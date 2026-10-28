@@ -38,10 +38,7 @@ export const aaveOnchainHandler: TokenYieldHandler = async ({ markets }: { marke
 
             const list = await fetchReservesList(client, market);
             const liquidityRates = new Map(
-                list[0].map((item) => [
-                    item.underlyingAsset.toLowerCase(),
-                    Number(item.liquidityRate) / 1e27,
-                ]),
+                list[0].map((item) => [item.underlyingAsset.toLowerCase(), Number(item.liquidityRate) / 1e27]),
             );
 
             tokenAprs.push(
