@@ -21,9 +21,23 @@ export const syncErc4626Tokens = async (
         });
     }
 
+    if (tokens.length === 0) {
+        return;
+    }
+
     const enrichedTokensWithErc4626Data = await fetchErc4626AndUnderlyingTokenData(tokens, viemClient);
 
+    const underlyingAddresses = new Set(
+        enrichedTokensWithErc4626Data
+            .map((token) => token.underlyingTokenAddress)
+            .filter((address): address is string => Boolean(address)),
+    );
+
     for (const token of enrichedTokensWithErc4626Data) {
+        if (!token.underlyingTokenAddress && !underlyingAddresses.has(token.address)) {
+            continue;
+        }
+
         await prisma.prismaToken.upsert({
             where: {
                 address_chain: {
@@ -35,9 +49,11 @@ export const syncErc4626Tokens = async (
                 ...token,
                 chain,
             },
-            update: {
-                ...token,
-            },
+            update: token.underlyingTokenAddress
+                ? {
+                      ...token,
+                  }
+                : {},
         });
 
         if (token.underlyingTokenAddress) {
