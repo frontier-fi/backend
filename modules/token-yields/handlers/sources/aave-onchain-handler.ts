@@ -3,21 +3,35 @@ import aaveUiPoolDataProvider, { aaveUiPoolDataProviderLegacy } from './abis/aav
 import { getViemClient } from '../../../sources/viem-client';
 import { chainIdToChain } from '../../../../config/chain-id-to-chain';
 
+const legacyPoolDataProviders = new Set<string>();
+
 const fetchReservesList = async (client: ReturnType<typeof getViemClient>, market: AaveAddressBookEntry) => {
+    const providerKey = `${market.CHAIN_ID}-${market.UI_POOL_DATA_PROVIDER.toLowerCase()}`;
+    const primaryAbi = legacyPoolDataProviders.has(providerKey) ? aaveUiPoolDataProviderLegacy : aaveUiPoolDataProvider;
+    const fallbackAbi = legacyPoolDataProviders.has(providerKey)
+        ? aaveUiPoolDataProvider
+        : aaveUiPoolDataProviderLegacy;
+
     try {
         return await client.readContract({
             address: market.UI_POOL_DATA_PROVIDER,
-            abi: aaveUiPoolDataProvider,
+            abi: primaryAbi,
             functionName: 'getReservesData',
             args: [market.POOL_ADDRESSES_PROVIDER],
         });
     } catch {
-        return await client.readContract({
+        const result = await client.readContract({
             address: market.UI_POOL_DATA_PROVIDER,
-            abi: aaveUiPoolDataProviderLegacy,
+            abi: fallbackAbi,
             functionName: 'getReservesData',
             args: [market.POOL_ADDRESSES_PROVIDER],
         });
+        if (fallbackAbi === aaveUiPoolDataProviderLegacy) {
+            legacyPoolDataProviders.add(providerKey);
+        } else {
+            legacyPoolDataProviders.delete(providerKey);
+        }
+        return result;
     }
 };
 
