@@ -353,7 +353,8 @@ export class PoolAggregatorLoader {
                     : null;
                 const underlyingTypes = underlying?.types?.map((t) => t.type) || [];
                 const erc4626Review = erc4626ReviewMap[`${token.chain}-${token.address}`];
-                const rateProviderData = token.priceRateProvider
+                const hasRateProvider = Boolean(token.priceRateProvider && token.priceRateProvider !== zeroAddress);
+                const rateProviderData = hasRateProvider
                     ? rateproviderDataMap[`${token.chain}-${token.priceRateProvider}`]
                     : undefined;
                 const types = token.token.types?.map((t) => t.type) || [];
@@ -377,18 +378,28 @@ export class PoolAggregatorLoader {
                     useWrappedForAddRemove: erc4626Review?.useWrappedForAddRemove,
                     priceRate: token.priceRate,
                     priceRateProvider: token.priceRateProvider,
-                    priceRateProviderData: rateProviderData
-                        ? {
-                              ...rateProviderData,
-                              warnings: rateProviderData.warnings?.split(',').filter(Boolean) || [],
-                              upgradeableComponents:
-                                  (rateProviderData.upgradableComponents as {
-                                      implementationReviewed: string;
-                                      entryPoint: string;
-                                  }[]) || [],
-                              address: rateProviderData.rateProviderAddress,
-                              reviewFile: rateProviderData.reviewUrl,
-                          }
+                    priceRateProviderData: hasRateProvider
+                        ? rateProviderData
+                            ? {
+                                  ...rateProviderData,
+                                  warnings: rateProviderData.warnings?.split(',').filter(Boolean) || [],
+                                  upgradeableComponents:
+                                      (rateProviderData.upgradableComponents as {
+                                          implementationReviewed: string;
+                                          entryPoint: string;
+                                      }[]) || [],
+                                  address: rateProviderData.rateProviderAddress,
+                                  reviewFile: rateProviderData.reviewUrl,
+                              }
+                            : {
+                                  address: token.priceRateProvider!,
+                                  reviewed: false,
+                                  name: null,
+                                  summary: 'unsafe',
+                                  reviewFile: null,
+                                  warnings: [],
+                                  upgradeableComponents: [],
+                              }
                         : undefined,
                     maxDeposit: token.token.maxDeposit === '0' ? undefined : token.token.maxDeposit,
                     maxWithdraw: token.token.maxWithdraw === '0' ? undefined : token.token.maxWithdraw,

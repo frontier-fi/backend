@@ -116,41 +116,6 @@ export class PricingRepository {
                 }),
             );
 
-            if (item.dynamicData && prisma.prismaTokenDynamicData?.upsert) {
-                const dynamicDataPayload = {
-                    coingeckoId: item.dynamicData.coingeckoId,
-                    price: item.price,
-                    ath: item.dynamicData.ath,
-                    atl: item.dynamicData.atl,
-                    marketCap: item.dynamicData.marketCap ?? null,
-                    fdv: item.dynamicData.fdv ?? null,
-                    high24h: item.dynamicData.high24h,
-                    low24h: item.dynamicData.low24h,
-                    priceChange24h: item.dynamicData.priceChange24h,
-                    priceChangePercent24h: item.dynamicData.priceChangePercent24h,
-                    priceChangePercent7d: item.dynamicData.priceChangePercent7d ?? null,
-                    priceChangePercent14d: item.dynamicData.priceChangePercent14d ?? null,
-                    priceChangePercent30d: item.dynamicData.priceChangePercent30d ?? null,
-                    updatedAt: item.updatedAt,
-                };
-                operations.push(
-                    prisma.prismaTokenDynamicData.upsert({
-                        where: {
-                            tokenAddress_chain: {
-                                tokenAddress: item.address,
-                                chain: item.chain,
-                            },
-                        },
-                        update: dynamicDataPayload,
-                        create: {
-                            tokenAddress: item.address,
-                            chain: item.chain,
-                            ...dynamicDataPayload,
-                        },
-                    }),
-                );
-            }
-
             // Skip current price update if price didn't change
             const latestPrice = latestPrices[item.address];
             if (latestPrice === item.price) continue;

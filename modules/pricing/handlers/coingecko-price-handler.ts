@@ -34,27 +34,12 @@ export class CoingeckoPriceHandler implements PriceHandler {
 
                 for (const tokenToUpdate of tokensToUpdate) {
                     if (item.current_price) {
-                        const price = Number(item.current_price);
                         priceItems.push({
                             address: tokenToUpdate.address,
                             chain: tokenToUpdate.chain,
-                            price,
+                            price: Number(item.current_price),
                             updatedAt: new Date(item.last_updated),
                             updatedBy: this.id,
-                            dynamicData: {
-                                coingeckoId: item.id,
-                                ath: item.ath || 0,
-                                atl: item.atl || 0,
-                                marketCap: item.market_cap ?? null,
-                                fdv: item.fully_diluted_valuation ?? null,
-                                high24h: item.high_24h || price,
-                                low24h: item.low_24h || price,
-                                priceChange24h: item.price_change_24h || 0,
-                                priceChangePercent24h: item.price_change_percentage_24h || 0,
-                                priceChangePercent7d: item.price_change_percentage_7d_in_currency ?? null,
-                                priceChangePercent14d: item.price_change_percentage_14d_in_currency ?? null,
-                                priceChangePercent30d: item.price_change_percentage_30d_in_currency ?? null,
-                            },
                         });
                     }
                 }

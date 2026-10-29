@@ -51,13 +51,6 @@ describe('CoingeckoPriceHandler', () => {
         expect(priceItems[0].updatedAt).toBeInstanceOf(Date);
         expect(Number.isFinite(priceItems[0].price)).toBe(true);
         expect(priceItems[0].price).toBeGreaterThan(0);
-        expect(priceItems[0].dynamicData).toEqual(
-            expect.objectContaining({
-                coingeckoId: 'weth',
-                high24h: 2500.5,
-                low24h: 2500.5,
-            }),
-        );
     });
 
     it('should return handler name', () => {

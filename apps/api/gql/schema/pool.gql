@@ -402,7 +402,7 @@ type GqlPoolDynamicData {
     lifetimeVolume: BigDecimal!
     lifetimeSwapFees: BigDecimal!
     holdersCount: BigInt!
-    swapsCount: BigInt! @deprecated
+    swapsCount: BigInt!
 
     sharePriceAth: BigDecimal! @deprecated
     sharePriceAthTimestamp: Int! @deprecated
@@ -983,8 +983,8 @@ input GqlPoolEventsFilter {
     chainIn: [GqlChain]
     poolId: String
     type: GqlPoolEventType
-    poolIdIn: [String] @deprecated
-    typeIn: [GqlPoolEventType] @deprecated
+    poolIdIn: [String]
+    typeIn: [GqlPoolEventType]
     userAddress: String
 }
 

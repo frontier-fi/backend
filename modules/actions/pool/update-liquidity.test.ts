@@ -391,7 +391,7 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
         expect(metrics.totalSwapVolume).toBe('3.05');
     });
 
-    it('upserts PrismaTokenDynamicData in PricingRepository.updatePrices and falls back to PrismaTokenCurrentPrice in swapsUsd/joinExitsUsd', async () => {
+    it('aligns PrismaTokenPrice timestamps to roundToHour(now) in PricingRepository.updatePrices and falls back to PrismaTokenCurrentPrice in swapsUsd/joinExitsUsd', async () => {
         const repo = new PricingRepository({ getSwapsForPricing: vi.fn().mockResolvedValue([]) });
         await repo.updatePrices(
             [
@@ -401,20 +401,6 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
                     price: 2500,
                     updatedAt: new Date('2026-10-29T09:00:00Z'),
                     updatedBy: 'CoingeckoPriceHandlerService',
-                    dynamicData: {
-                        coingeckoId: 'ethereum',
-                        ath: 4800,
-                        atl: 0.4,
-                        marketCap: 300000000000,
-                        fdv: 300000000000,
-                        high24h: 2550,
-                        low24h: 2450,
-                        priceChange24h: 50,
-                        priceChangePercent24h: 2.04,
-                        priceChangePercent7d: 5.1,
-                        priceChangePercent14d: 8.2,
-                        priceChangePercent30d: 12.3,
-                    },
                 },
             ],
             [],
@@ -430,16 +416,6 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
                         chain: Chain.SEPOLIA,
                     },
                 },
-            }),
-        );
-        expect(mockTokenDynamicDataUpsert).toHaveBeenCalledWith(
-            expect.objectContaining({
-                where: { tokenAddress_chain: { tokenAddress: '0xtoken1', chain: Chain.SEPOLIA } },
-                create: expect.objectContaining({
-                    coingeckoId: 'ethereum',
-                    price: 2500,
-                    high24h: 2550,
-                }),
             }),
         );
 

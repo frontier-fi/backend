@@ -95,7 +95,7 @@ describe('PoolGqlLoaderService', () => {
         expect(featured[0].poolId).toBe('0xpresent');
     });
 
-    it('returns undefined priceRateProviderData in PoolAggregatorLoader when no rate provider review exists', async () => {
+    it('returns undefined priceRateProviderData for zeroAddress and explicit unreviewed unsafe data for unreviewed non-zero rate providers', async () => {
         const aggregatorLoader = new PoolAggregatorLoader();
         vi.spyOn(prisma.prismaToken, 'findMany').mockResolvedValue([
             {
@@ -113,51 +113,109 @@ describe('PoolGqlLoaderService', () => {
         vi.spyOn(prisma.prismaTokenType, 'findMany').mockResolvedValue([]);
         vi.spyOn(prisma.prismaErc4626ReviewData, 'findMany').mockResolvedValue([]);
         vi.spyOn(prisma.prismaPriceRateProviderData, 'findMany').mockResolvedValue([]);
-        vi.spyOn(prisma.prismaPool, 'findMany').mockResolvedValue([
-            {
-                id: '0xpool1',
-                address: '0xpool1',
-                chain: Chain.SEPOLIA,
-                protocolVersion: 3,
-                type: 'WEIGHTED',
-                typeData: {},
-                hook: null,
-                liquidityManagement: null,
-                dynamicData: {
+        const basePool = {
+            id: '0xpool1',
+            address: '0xpool1',
+            chain: Chain.SEPOLIA,
+            protocolVersion: 3,
+            type: 'WEIGHTED',
+            typeData: {},
+            hook: null,
+            liquidityManagement: null,
+            dynamicData: {
+                poolId: '0xpool1',
+                swapFee: '0.003',
+                aggregateSwapFee: '0.5',
+                aggregateYieldFee: '0.5',
+                totalShares: '100',
+                totalShares24hAgo: '100',
+                totalLiquidity: 1000,
+                totalLiquidity24hAgo: 1000,
+                isInRecoveryMode: false,
+                isPaused: false,
+                swapEnabled: true,
+            },
+            tokens: [
+                {
+                    id: '0xpool1-0xtoken0',
                     poolId: '0xpool1',
-                    swapFee: '0.003',
-                    aggregateSwapFee: '0.5',
-                    aggregateYieldFee: '0.5',
-                    totalShares: '100',
-                    totalShares24hAgo: '100',
-                    totalLiquidity: 1000,
-                    totalLiquidity24hAgo: 1000,
-                    isInRecoveryMode: false,
-                    isPaused: false,
-                    swapEnabled: true,
+                    chain: Chain.SEPOLIA,
+                    address: '0xtoken0',
+                    index: 0,
+                    balance: '1000',
+                    balanceUSD: 1000,
+                    weight: '0.5',
+                    priceRate: '1',
+                    priceRateProvider: '0x0000000000000000000000000000000000000000',
+                    exemptFromProtocolYieldFee: false,
+                    scalingFactor: '1',
                 },
-                tokens: [
-                    {
-                        id: '0xpool1-0xtoken0',
-                        poolId: '0xpool1',
-                        chain: Chain.SEPOLIA,
-                        address: '0xtoken0',
-                        index: 0,
-                        balance: '1000',
-                        balanceUSD: 1000,
-                        weight: '0.5',
-                        priceRate: '1',
-                        priceRateProvider: '0x0000000000000000000000000000000000000000',
-                        exemptFromProtocolYieldFee: false,
-                        scalingFactor: '1',
-                    },
-                ],
-            } as any,
-        ]);
+            ],
+        };
+        vi.spyOn(prisma.prismaPool, 'findMany').mockResolvedValue([basePool as any]);
 
         const pools = await aggregatorLoader.aggregatorPools({ where: { chainIn: [Chain.SEPOLIA] } });
         expect(pools).toHaveLength(1);
         expect(pools[0].poolTokens[0].priceRateProviderData).toBeUndefined();
+
+        // Non-zero unreviewed rate provider: mapPoolToAggregatorPool populates explicit unsafe/unreviewed data, and aggregatorPools filters it out
+        const unreviewedPool = {
+            ...basePool,
+            id: '0xpool2',
+            address: '0xpool2',
+            tokens: [
+                {
+                    ...basePool.tokens[0],
+                    priceRateProvider: '0x0000000000000000000000000000000000000099',
+                    token: {
+                        address: '0xtoken0',
+                        chain: Chain.SEPOLIA,
+                        name: 'Token 0',
+                        symbol: 'TK0',
+                        decimals: 18,
+                        isBufferAllowed: true,
+                        maxDeposit: '0',
+                        maxWithdraw: '0',
+                        underlyingTokenAddress: null,
+                        types: [],
+                    },
+                },
+            ],
+        };
+        const mappedUnreviewed = (aggregatorLoader as any).mapPoolToAggregatorPool(unreviewedPool, {}, {}, {});
+        expect(mappedUnreviewed.poolTokens[0].priceRateProviderData).toEqual({
+            address: '0x0000000000000000000000000000000000000099',
+            reviewed: false,
+            name: null,
+            summary: 'unsafe',
+            reviewFile: null,
+            warnings: [],
+            upgradeableComponents: [],
+        });
+
+        // PoolGqlLoaderService.enrichWithRateproviderData also populates explicit unreviewed data and filters when reviewedOnly is true
+        vi.spyOn(prisma.prismaPriceRateProviderData, 'findUnique').mockResolvedValue(null);
+        const gqlPoolMock: any = {
+            id: '0xpool2',
+            chain: Chain.SEPOLIA,
+            poolTokens: [
+                {
+                    address: '0xtoken0',
+                    priceRateProvider: '0x0000000000000000000000000000000000000099',
+                    hasNestedPool: false,
+                },
+            ],
+        };
+        await (loader as any).enrichWithRateproviderData(gqlPoolMock);
+        expect(gqlPoolMock.poolTokens[0].priceRateProviderData).toEqual({
+            address: '0x0000000000000000000000000000000000000099',
+            reviewed: false,
+            name: null,
+            summary: 'unsafe',
+            reviewFile: null,
+            warnings: [],
+            upgradeableComponents: [],
+        });
     });
 
     it('keys rateProviderData by address and chain in TokenService.getTokenDefinition and returns empty warnings array for empty string', async () => {
