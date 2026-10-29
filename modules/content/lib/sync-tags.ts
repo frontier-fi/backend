@@ -160,8 +160,11 @@ const getPoolMetadataTags = async (existingTags: Record<string, Set<string>>): P
                 continue;
             }
             for (const chainId in tag.tokens) {
+                const chain = chainIdToChain[chainId];
+                if (!chain) {
+                    continue;
+                }
                 for (const tokenAddress of tag.tokens[chainId]) {
-                    const chain = chainIdToChain[chainId];
                     const poolsWithToken = await prisma.prismaPool.findMany({
                         where: { chain: chain, allTokens: { some: { tokenAddress: tokenAddress.toLowerCase() } } },
                     });
@@ -200,9 +203,13 @@ const getPoolHookTags = async (existingTags: Record<string, Set<string>>): Promi
 
     for (const hookMetadata of hooksMetadataList) {
         for (const chainId in hookMetadata.addresses) {
+            const chain = chainIdToChain[chainId];
+            if (!chain) {
+                continue;
+            }
             const addresses = hookMetadata.addresses[chainId].map((address) => address.toLowerCase());
             for (const pool of poolsWithHooks) {
-                if (pool.chain === chainIdToChain[chainId] && addresses.includes((pool.hook as HookData).address)) {
+                if (pool.chain === chain && addresses.includes((pool.hook as HookData).address)) {
                     if (!existingTags[pool.id]) {
                         existingTags[pool.id] = new Set();
                     }
@@ -221,10 +228,14 @@ const getErc4626Tags = async (existingTags: Record<string, Set<string>>): Promis
 
     for (const erc4626Metadata of erc4626MetadataList) {
         for (const chainId in erc4626Metadata.addresses) {
+            const chain = chainIdToChain[chainId];
+            if (!chain) {
+                continue;
+            }
             const addresses = erc4626Metadata.addresses[chainId].map((address) => address.toLowerCase());
             const poolsWithThisErc4626Token = await prisma.prismaPool.findMany({
                 where: {
-                    chain: chainIdToChain[chainId],
+                    chain,
                     protocolVersion: 3,
                     allTokens: { some: { tokenAddress: { in: addresses } } },
                 },

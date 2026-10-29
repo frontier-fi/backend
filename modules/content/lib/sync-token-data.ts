@@ -4,6 +4,7 @@ import { Chain, PrismaTokenTypeOption } from '@prisma/client';
 import { contentSources } from '../../../config/content-sources';
 import { syncErc4626Tokens } from '../../actions/token/sync-erc4626-tokens';
 import { getViemClient } from '../../sources/viem-client';
+import config from '../../../config';
 
 interface WhitelistedTokenList {
     name: string;
@@ -39,30 +40,39 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
                 requiredKeys.every((key) => token?.[key as keyof WhitelistedToken] != null) &&
                 chainIds.includes(token.chainId),
         )
-        .map((token) => ({
-            address: token.address.toLowerCase(),
-            chain: chainIdToChain[token.chainId],
-            name: token.name.replace(/[\x00]/g, ''),
-            symbol: token.symbol.replace(/[\x00]/g, ''),
-            decimals: token.decimals,
-            logoURI: token.logoURI,
-            coingeckoTokenId: token.extensions?.coingeckoId,
-            types: {
-                connectOrCreate: {
-                    where: {
-                        tokenAddress_type_chain: {
-                            tokenAddress: token.address.toLowerCase(),
+        .map((token) => {
+            const chain = chainIdToChain[token.chainId];
+            const address = token.address.toLowerCase();
+            const isConfiguredWeth = address === config[chain]?.weth.address.toLowerCase();
+            const coingeckoTokenId =
+                token.extensions?.coingeckoId ??
+                (isConfiguredWeth ? config[chain]?.coingecko.nativeAssetId : undefined);
+
+            return {
+                address,
+                chain,
+                name: token.name.replace(/[\x00]/g, ''),
+                symbol: token.symbol.replace(/[\x00]/g, ''),
+                decimals: token.decimals,
+                logoURI: token.logoURI,
+                coingeckoTokenId,
+                types: {
+                    connectOrCreate: {
+                        where: {
+                            tokenAddress_type_chain: {
+                                tokenAddress: address,
+                                type: PrismaTokenTypeOption.WHITE_LISTED,
+                                chain,
+                            },
+                        },
+                        create: {
+                            id: `${address}-white-listed`,
                             type: PrismaTokenTypeOption.WHITE_LISTED,
-                            chain: chainIdToChain[token.chainId],
                         },
                     },
-                    create: {
-                        id: `${token.address.toLowerCase()}-white-listed`,
-                        type: PrismaTokenTypeOption.WHITE_LISTED,
-                    },
                 },
-            },
-        }));
+            };
+        });
 
     const existingTokens =
         chains.length > 0
