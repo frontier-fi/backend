@@ -15,14 +15,18 @@ export const eventsRepository = {
     getEvents: async ({
         chain,
         poolId,
+        poolIdIn,
         eventType,
+        eventTypeIn,
         userAddress,
         limit,
         offset,
     }: {
         chain: Chain;
         poolId?: string;
+        poolIdIn?: string[];
         eventType?: PoolEventType;
+        eventTypeIn?: PoolEventType[];
         userAddress?: string;
         limit?: number;
         offset?: number;
@@ -31,19 +35,26 @@ export const eventsRepository = {
         limit = Math.min(1000, limit ?? 1000); // Limiting to 1000 events
         offset = offset ?? 0;
 
+        const normalizedPoolIds = poolIdIn?.filter(Boolean).map((id) => normalizeAddress(id));
+        const normalizedTypes = eventTypeIn?.filter(Boolean);
+
         const where: Prisma.PrismaPoolEventWhereInput = {
             chain,
             ...(poolId
-                ? {
-                      poolId: normalizeAddress(poolId),
-                      ...(userAddress
-                          ? {
-                                userAddress: normalizeAddress(userAddress),
-                            }
-                          : {}),
-                  }
-                : {}),
-            ...(eventType ? { type: eventType } : {}),
+                ? { poolId: normalizeAddress(poolId) }
+                : normalizedPoolIds && normalizedPoolIds.length === 1
+                  ? { poolId: normalizedPoolIds[0] }
+                  : normalizedPoolIds && normalizedPoolIds.length > 1
+                    ? { poolId: { in: normalizedPoolIds } }
+                    : {}),
+            ...(userAddress ? { userAddress: normalizeAddress(userAddress) } : {}),
+            ...(eventType
+                ? { type: eventType }
+                : normalizedTypes && normalizedTypes.length === 1
+                  ? { type: normalizedTypes[0] }
+                  : normalizedTypes && normalizedTypes.length > 1
+                    ? { type: { in: normalizedTypes } }
+                    : {}),
         };
 
         const dbEvents = await prisma.prismaPoolEvent.findMany({

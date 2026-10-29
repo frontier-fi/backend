@@ -15,12 +15,28 @@ export interface TokenPriceData {
     pricedBy?: string;
 }
 
+export interface TokenDynamicDataItem {
+    coingeckoId: string;
+    ath: number;
+    atl: number;
+    marketCap?: number | null;
+    fdv?: number | null;
+    high24h: number;
+    low24h: number;
+    priceChange24h: number;
+    priceChangePercent24h: number;
+    priceChangePercent7d?: number | null;
+    priceChangePercent14d?: number | null;
+    priceChangePercent30d?: number | null;
+}
+
 export interface PriceItem {
     address: string;
     chain: Chain;
     price: number;
     updatedAt: Date;
     updatedBy: string;
+    dynamicData?: TokenDynamicDataItem;
 }
 
 export interface PriceHandler {

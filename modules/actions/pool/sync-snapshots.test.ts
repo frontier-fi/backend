@@ -72,4 +72,55 @@ describe('syncSnapshots', () => {
             update: { blockNumber: 12_345_999 },
         });
     });
+
+    it('only updates swap stats on yesterday snapshot when shouldSyncYesterday is true so today TVL/shares do not overwrite yesterday', async () => {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const todayMidnight = Math.floor(nowSec / 86400) * 86400;
+        const yesterdayMidnight = todayMidnight - 86400;
+
+        vi.spyOn(lastSyncedBlockModule, 'getLastSyncedBlock').mockResolvedValue(12_345_000);
+        vi.spyOn(blockNumbersModule, 'blockNumbers').mockReturnValue({
+            getTimestamp: vi.fn().mockResolvedValue(yesterdayMidnight + 3600),
+        } as any);
+        vi.spyOn(prisma.prismaPoolDynamicData, 'findMany').mockResolvedValue([
+            {
+                poolId: '0xpool1',
+                totalLiquidity: 2500,
+                totalShares: '250',
+                pool: { protocolVersion: 3 },
+            } as any,
+        ]);
+        vi.spyOn(prisma.prismaPoolToken, 'findMany').mockResolvedValue([
+            { poolId: '0xpool1', address: '0xtoken0', balance: '2500', index: 0 } as any,
+        ]);
+        vi.spyOn(eventsRepository, 'getDailySwapsStats')
+            .mockResolvedValueOnce([]) // today
+            .mockResolvedValueOnce([
+                {
+                    timestamp: yesterdayMidnight,
+                    poolId: '0xpool1',
+                    volume24h: 420,
+                    fees24h: 2.1,
+                    surplus24h: 0.5,
+                    swapsCount: 7n,
+                    latestBlockNumber: 12_345_500,
+                },
+            ]); // yesterday
+        const snapshotUpsertSpy = vi.spyOn(prisma.prismaPoolSnapshot, 'upsert').mockReturnValue({} as any);
+        vi.spyOn(prisma, '$transaction').mockResolvedValue([]);
+
+        await syncSnapshots(Chain.SEPOLIA);
+
+        expect(snapshotUpsertSpy).toHaveBeenCalledTimes(2);
+        const yesterdayCall = snapshotUpsertSpy.mock.calls.find(
+            (call) => call[0].where.id_chain?.id === `0xpool1-${yesterdayMidnight}`,
+        )?.[0];
+        expect(yesterdayCall).toBeDefined();
+        expect(yesterdayCall?.update).toEqual({
+            swapsCount: 7,
+            volume24h: 420,
+            fees24h: 2.1,
+            surplus24h: 0.5,
+        });
+    });
 });

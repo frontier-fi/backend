@@ -46,7 +46,9 @@ export function EventController() {
             const vaultSubgraphClient = getVaultSubgraphClient(vault, chain);
 
             const poolsWithNewSwaps = await syncSwapsV3(vaultSubgraphClient, chain);
-            await updateVolumeAndFees(chain, poolsWithNewSwaps);
+            if (poolsWithNewSwaps.length > 0) {
+                await updateVolumeAndFees(chain, poolsWithNewSwaps);
+            }
             return poolsWithNewSwaps;
         },
         async updateVolumeAndFees(chain: Chain) {

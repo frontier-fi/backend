@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '../../../prisma/prisma-client';
 import * as contentControllerModule from '../../content/content-controller';
 import { PoolGqlLoaderService } from './pool-gql-loader.service';
+import { PoolAggregatorLoader } from './pool-aggregator-loader';
+import { tokenService } from '../../token/token.service';
 
 describe('PoolGqlLoaderService', () => {
     const loader = new PoolGqlLoaderService();
@@ -91,5 +93,101 @@ describe('PoolGqlLoaderService', () => {
 
         expect(featured).toHaveLength(1);
         expect(featured[0].poolId).toBe('0xpresent');
+    });
+
+    it('returns undefined priceRateProviderData in PoolAggregatorLoader when no rate provider review exists', async () => {
+        const aggregatorLoader = new PoolAggregatorLoader();
+        vi.spyOn(prisma.prismaToken, 'findMany').mockResolvedValue([
+            {
+                address: '0xtoken0',
+                chain: Chain.SEPOLIA,
+                name: 'Token 0',
+                symbol: 'TK0',
+                decimals: 18,
+                isBufferAllowed: true,
+                maxDeposit: '0',
+                maxWithdraw: '0',
+                underlyingTokenAddress: null,
+            } as any,
+        ]);
+        vi.spyOn(prisma.prismaTokenType, 'findMany').mockResolvedValue([]);
+        vi.spyOn(prisma.prismaErc4626ReviewData, 'findMany').mockResolvedValue([]);
+        vi.spyOn(prisma.prismaPriceRateProviderData, 'findMany').mockResolvedValue([]);
+        vi.spyOn(prisma.prismaPool, 'findMany').mockResolvedValue([
+            {
+                id: '0xpool1',
+                address: '0xpool1',
+                chain: Chain.SEPOLIA,
+                protocolVersion: 3,
+                type: 'WEIGHTED',
+                typeData: {},
+                hook: null,
+                liquidityManagement: null,
+                dynamicData: {
+                    poolId: '0xpool1',
+                    swapFee: '0.003',
+                    aggregateSwapFee: '0.5',
+                    aggregateYieldFee: '0.5',
+                    totalShares: '100',
+                    totalShares24hAgo: '100',
+                    totalLiquidity: 1000,
+                    totalLiquidity24hAgo: 1000,
+                    isInRecoveryMode: false,
+                    isPaused: false,
+                    swapEnabled: true,
+                },
+                tokens: [
+                    {
+                        id: '0xpool1-0xtoken0',
+                        poolId: '0xpool1',
+                        chain: Chain.SEPOLIA,
+                        address: '0xtoken0',
+                        index: 0,
+                        balance: '1000',
+                        balanceUSD: 1000,
+                        weight: '0.5',
+                        priceRate: '1',
+                        priceRateProvider: '0x0000000000000000000000000000000000000000',
+                        exemptFromProtocolYieldFee: false,
+                        scalingFactor: '1',
+                    },
+                ],
+            } as any,
+        ]);
+
+        const pools = await aggregatorLoader.aggregatorPools({ where: { chainIn: [Chain.SEPOLIA] } });
+        expect(pools).toHaveLength(1);
+        expect(pools[0].poolTokens[0].priceRateProviderData).toBeUndefined();
+    });
+
+    it('keys rateProviderData by address and chain in TokenService.getTokenDefinition and returns empty warnings array for empty string', async () => {
+        const tokenAddress = '0x0000000000000000000000000000000000000010';
+        vi.spyOn(prisma.prismaToken, 'findUnique').mockResolvedValue({
+            address: tokenAddress,
+            chain: Chain.SEPOLIA,
+            name: 'Token 0',
+            symbol: 'TK0',
+            decimals: 18,
+            isBufferAllowed: true,
+            coingeckoTokenId: null,
+            underlyingTokenAddress: null,
+            types: [],
+        } as any);
+        vi.spyOn(prisma.prismaPriceRateProviderData, 'findMany').mockResolvedValue([
+            {
+                chain: Chain.SEPOLIA,
+                tokenAddress,
+                rateProviderAddress: '0x0000000000000000000000000000000000000020',
+                reviewed: true,
+                summary: 'safe',
+                warnings: '',
+            } as any,
+        ]);
+        vi.spyOn(prisma.prismaErc4626ReviewData, 'findMany').mockResolvedValue([]);
+
+        const def = await tokenService.getTokenDefinition(tokenAddress, Chain.SEPOLIA);
+        expect(def?.rateProviderData?.address).toBe('0x0000000000000000000000000000000000000020');
+        expect(def?.priceRateProviderData?.address).toBe('0x0000000000000000000000000000000000000020');
+        expect(def?.rateProviderData?.warnings).toEqual([]);
     });
 });

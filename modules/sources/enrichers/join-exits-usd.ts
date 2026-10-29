@@ -24,10 +24,25 @@ export async function joinExitsUsd(events: JoinExitEvent[], chain: Chain): Promi
         return roundToHour(timestamp);
     });
 
+    let fallbackPrices: Map<string, number> | undefined;
+    const resolvePrice = async (
+        tokenPrices: { tokenAddress: string; price: number }[],
+        tokenAddress: string,
+    ): Promise<number> => {
+        const matched = tokenPrices.find((price) => price.tokenAddress.toLowerCase() === tokenAddress.toLowerCase());
+        if (matched) return matched.price;
+
+        if (!fallbackPrices) {
+            const currentPrices = (await prisma.prismaTokenCurrentPrice?.findMany({ where: { chain } })) || [];
+            fallbackPrices = new Map(currentPrices.map((p) => [p.tokenAddress.toLowerCase(), p.price]));
+        }
+        return fallbackPrices.get(tokenAddress.toLowerCase()) || 0;
+    };
+
     const dbEntries: JoinExitEvent[] = [];
     for (const [timestamp, events] of Object.entries(grouped)) {
         // Calculating USD amounts with token prices at the time of the event
-        // 🚨 Reading from the DB in a loop – will get slow with a large events volume
+        // 🚨 Reading from the DB in a loop – will get slow with a large events volume
         // But we need prices based on the event timestamp, so batching this should be based on timestamp ranges
         const tokenPrices = await prisma.prismaTokenPrice.findMany({
             where: {
@@ -39,13 +54,15 @@ export async function joinExitsUsd(events: JoinExitEvent[], chain: Chain): Promi
         });
 
         for (const event of events) {
-            const tokens = event.payload.tokens.map((token) => {
-                const tokenPrice = tokenPrices.find((price) => price.tokenAddress === token.address);
-                return {
-                    ...token,
-                    valueUSD: parseFloat(token.amount) * (tokenPrice?.price || 0),
-                };
-            });
+            const tokens = await Promise.all(
+                event.payload.tokens.map(async (token) => {
+                    const price = await resolvePrice(tokenPrices, token.address);
+                    return {
+                        ...token,
+                        valueUSD: parseFloat(token.amount) * price,
+                    };
+                }),
+            );
             const valueUSD = tokens.reduce((acc, token) => acc + token.valueUSD, 0);
 
             dbEntries.push({

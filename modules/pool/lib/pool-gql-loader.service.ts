@@ -68,7 +68,7 @@ export class PoolGqlLoaderService {
                 if (rateproviderData) {
                     token.priceRateProviderData = {
                         ...rateproviderData,
-                        warnings: rateproviderData.warnings?.split(',') || [],
+                        warnings: rateproviderData.warnings?.split(',').filter(Boolean) || [],
                         upgradeableComponents:
                             (rateproviderData.upgradableComponents as {
                                 implementationReviewed: string;
@@ -93,7 +93,7 @@ export class PoolGqlLoaderService {
                         if (rateproviderData) {
                             nestedToken.priceRateProviderData = {
                                 ...rateproviderData,
-                                warnings: rateproviderData.warnings?.split(',') || [],
+                                warnings: rateproviderData.warnings?.split(',').filter(Boolean) || [],
                                 upgradeableComponents:
                                     (rateproviderData.upgradableComponents as {
                                         implementationReviewed: string;

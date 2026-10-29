@@ -16,6 +16,7 @@ export const updateLifetimeValues = async (chain: Chain) => {
         const holdersCount = holders[key] || 0;
         const lifetimeSwapFees = lifetime[key]?.lifetimeSwapFees || 0;
         const lifetimeVolume = lifetime[key]?.lifetimeVolume || 0;
+        const swapsCount = lifetime[key]?.swapsCount || 0;
 
         return {
             where: {
@@ -28,6 +29,7 @@ export const updateLifetimeValues = async (chain: Chain) => {
                 holdersCount,
                 lifetimeSwapFees,
                 lifetimeVolume,
+                swapsCount,
             },
         };
     });
@@ -75,6 +77,7 @@ const getSwapLifetimeValues = async (chain: Chain) => {
         _sum: {
             fees24h: true,
             volume24h: true,
+            swapsCount: true,
         },
         where: {
             chain,
@@ -85,13 +88,14 @@ const getSwapLifetimeValues = async (chain: Chain) => {
         (acc, { poolId, chain, _sum }) => {
             const key = `${poolId}-${chain}`;
             if (!acc[key]) {
-                acc[key] = { lifetimeSwapFees: 0, lifetimeVolume: 0 };
+                acc[key] = { lifetimeSwapFees: 0, lifetimeVolume: 0, swapsCount: 0 };
             }
             acc[key].lifetimeSwapFees += _sum.fees24h || 0;
             acc[key].lifetimeVolume += _sum.volume24h || 0;
+            acc[key].swapsCount += _sum.swapsCount || 0;
             return acc;
         },
-        {} as Record<string, { lifetimeSwapFees: number; lifetimeVolume: number }>,
+        {} as Record<string, { lifetimeSwapFees: number; lifetimeVolume: number; swapsCount: number }>,
     );
 
     return lifetimeValues;
