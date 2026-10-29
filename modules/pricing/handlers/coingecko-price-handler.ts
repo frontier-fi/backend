@@ -8,7 +8,7 @@ interface CoingeckoConfig {
 }
 
 export class CoingeckoPriceHandler implements PriceHandler {
-    public readonly exitIfFails = true;
+    public readonly exitIfFails = false;
     public readonly id = 'CoingeckoPriceHandlerService';
 
     constructor(private readonly config: CoingeckoConfig) {}

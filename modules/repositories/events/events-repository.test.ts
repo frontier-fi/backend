@@ -61,3 +61,34 @@ describe('eventsRepository.getTokenFlows', () => {
         expect(sqlWithoutFrom.values).toContain(tokenB.toLowerCase());
     });
 });
+
+describe('eventsRepository.getEvents', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('applies userAddress filter even when poolId is omitted and supports poolIdIn and eventTypeIn', async () => {
+        const findManySpy = vi.spyOn(prisma.prismaPoolEvent, 'findMany').mockResolvedValue([]);
+        const userAddress = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
+        const poolA = '0x00000000000000000000000000000000000000aa';
+        const poolB = '0x00000000000000000000000000000000000000bb';
+
+        await eventsRepository.getEvents({
+            chain: Chain.SEPOLIA,
+            userAddress,
+            poolIdIn: [poolA, poolB],
+            eventTypeIn: ['JOIN', 'EXIT'],
+        });
+
+        expect(findManySpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: {
+                    chain: Chain.SEPOLIA,
+                    userAddress: userAddress.toLowerCase(),
+                    poolId: { in: [poolA.toLowerCase(), poolB.toLowerCase()] },
+                    type: { in: ['JOIN', 'EXIT'] },
+                },
+            }),
+        );
+    });
+});

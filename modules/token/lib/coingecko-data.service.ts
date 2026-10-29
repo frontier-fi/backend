@@ -167,17 +167,28 @@ export class CoingeckoDataService {
         return this.get<CoinId[]>(endpoint);
     }
 
-    private async get<T>(endpoint: string): Promise<T> {
+    private async get<T>(endpoint: string, retriesLeft = 1): Promise<T> {
         const remainingRequests = await requestRateLimiter.removeTokens(1);
         console.log('Remaining coingecko requests', remainingRequests);
 
-        const response = await fetch(this.rootUrl() + endpoint, { headers: this.authHeaders() });
+        let response: Response;
+        try {
+            response = await fetch(this.rootUrl() + endpoint, { headers: this.authHeaders() });
+        } catch (error) {
+            if (retriesLeft > 0) {
+                return this.get(endpoint, retriesLeft - 1);
+            }
+            throw error;
+        }
 
         if (!response.ok) {
             const body = await response.text();
             if (!this.useDemoApi && body.includes('"error_code":10011')) {
                 this.useDemoApi = true;
-                return this.get(endpoint);
+                return this.get(endpoint, retriesLeft);
+            }
+            if ((response.status === 502 || response.status === 503 || response.status === 504) && retriesLeft > 0) {
+                return this.get(endpoint, retriesLeft - 1);
             }
             if (response.status === 429) {
                 throw Error(`Coingecko ratelimit: ${response.status} ${response.statusText}`);

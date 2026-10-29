@@ -1,7 +1,7 @@
 import { Chain } from '@prisma/client';
 import { prisma } from '../../prisma/prisma-client';
 import { prismaBulkExecuteOperations } from '../../prisma/prisma-util';
-import { timestampRoundedUpToNearestHour } from '../common/time';
+import { now, roundToHour } from '../common/time';
 import { TokenPriceData, PriceItem } from './types';
 import { SwapRepository } from '../repositories/events/types';
 import { SwapEvent } from '../../prisma/prisma-types';
@@ -80,7 +80,7 @@ export class PricingRepository {
             ]),
         );
 
-        const hourlyTimestamp = timestampRoundedUpToNearestHour();
+        const hourlyTimestamp = roundToHour(now());
 
         const operations: any[] = [];
 

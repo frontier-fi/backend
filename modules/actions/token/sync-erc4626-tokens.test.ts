@@ -60,7 +60,7 @@ vi.mock('../../sources/contracts/v3/fetch-buffer-balances', () => ({
 }));
 
 import { syncErc4626Tokens } from './sync-erc4626-tokens';
-import { syncErc4626OnchainData } from './sync-erc4626-onchain-data';
+import { clearNonErc4626ReviewedCache, syncErc4626OnchainData } from './sync-erc4626-onchain-data';
 
 describe('syncErc4626Tokens', () => {
     const viemClient = {} as any;
@@ -174,6 +174,7 @@ describe('syncErc4626OnchainData', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        clearNonErc4626ReviewedCache();
     });
 
     it('self-heals reviewed ERC4626 tokens that are missing type or underlyingTokenAddress', async () => {
@@ -187,7 +188,9 @@ describe('syncErc4626OnchainData', () => {
         };
         const underlyingAddress = '0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357';
 
-        mockReviewFindMany.mockResolvedValueOnce([{ erc4626Address: untypedToken.address }]);
+        mockReviewFindMany.mockResolvedValueOnce([
+            { erc4626Address: untypedToken.address, assetAddress: underlyingAddress },
+        ]);
         // 1st findMany: untypedReviewedTokens
         mockTokenFindMany.mockResolvedValueOnce([untypedToken]);
         // fetchErc4626 inside syncErc4626Tokens
@@ -200,6 +203,37 @@ describe('syncErc4626OnchainData', () => {
         expect(mockFetchErc4626).toHaveBeenCalledTimes(1);
         expect(mockFetchErc4626).toHaveBeenCalledWith([untypedToken], viemClient);
         expect(mockTokenTypeUpsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('caches non-ERC4626 reviewed tokens after first probe so subsequent runs skip RPC multicalls', async () => {
+        const nonErc4626Token = {
+            address: '0x94a9d9ac8a22534e3faca9f4e7f2e2cf85d5e4c8',
+            decimals: 6,
+            name: 'USDC (Aave)',
+            symbol: 'usdc-aave',
+            chain: Chain.SEPOLIA,
+            underlyingTokenAddress: null,
+        };
+
+        // 1st run: reviewed list contains non-ERC4626 token
+        mockReviewFindMany.mockResolvedValueOnce([
+            { erc4626Address: nonErc4626Token.address, assetAddress: '0xother' },
+        ]);
+        mockTokenFindMany.mockResolvedValueOnce([nonErc4626Token]);
+        mockFetchErc4626.mockResolvedValueOnce([{ ...nonErc4626Token, underlyingTokenAddress: undefined }]);
+        mockTokenFindMany.mockResolvedValueOnce([]);
+
+        await syncErc4626OnchainData(vaultAddress, viemClient, Chain.SEPOLIA);
+        expect(mockFetchErc4626).toHaveBeenCalledTimes(1);
+
+        // 2nd run: cached as non-ERC4626 so untypedReviewedTokens query & RPC multicall are skipped
+        mockReviewFindMany.mockResolvedValueOnce([
+            { erc4626Address: nonErc4626Token.address, assetAddress: '0xother' },
+        ]);
+        mockTokenFindMany.mockResolvedValueOnce([]);
+
+        await syncErc4626OnchainData(vaultAddress, viemClient, Chain.SEPOLIA);
+        expect(mockFetchErc4626).toHaveBeenCalledTimes(1);
     });
 
     it('does not call syncErc4626Tokens when all reviewed ERC4626 tokens are already typed', async () => {

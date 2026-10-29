@@ -81,5 +81,17 @@ describe('aaveOnchainHandler', () => {
                 apr: 0.05,
             },
         ]);
+        expect(readContractMock).toHaveBeenCalledTimes(2);
+
+        // Subsequent call uses the cached legacy ABI on the first attempt without a wasted RPC call
+        readContractMock.mockClear();
+        const secondAprs = await aaveOnchainHandler({ markets: [sepoliaMarket] });
+        expect(secondAprs).toEqual([
+            {
+                address: staticAToken.toLowerCase(),
+                apr: 0.05,
+            },
+        ]);
+        expect(readContractMock).toHaveBeenCalledTimes(1);
     });
 });

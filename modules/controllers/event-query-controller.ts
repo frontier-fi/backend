@@ -116,10 +116,21 @@ export function EventsQueryController(env = process.env) {
                 // return getMultichainEvents(chainIn as Chain[], first);
             }
 
+            const mappedTypeIn = typeIn?.filter((t): t is GqlPoolEventType => !!t).map((t) => GqlTypeToDbType[t]);
+            const cleanPoolIdIn = poolIdIn?.filter((id): id is string => !!id);
+
             const conditions = {
                 chain: chainIn[0] as Chain,
-                ...(typeIn && typeIn.length > 0 ? { eventType: GqlTypeToDbType[typeIn[0] as GqlPoolEventType] } : {}),
-                ...(poolIdIn && poolIdIn.length > 0 ? { poolId: poolIdIn[0] as string } : {}),
+                ...(mappedTypeIn && mappedTypeIn.length === 1
+                    ? { eventType: mappedTypeIn[0] }
+                    : mappedTypeIn && mappedTypeIn.length > 1
+                      ? { eventTypeIn: mappedTypeIn }
+                      : {}),
+                ...(cleanPoolIdIn && cleanPoolIdIn.length === 1
+                    ? { poolId: cleanPoolIdIn[0] }
+                    : cleanPoolIdIn && cleanPoolIdIn.length > 1
+                      ? { poolIdIn: cleanPoolIdIn }
+                      : {}),
                 ...(poolId ? { poolId: poolId } : {}),
                 ...(type ? { eventType: GqlTypeToDbType[type] } : {}),
                 userAddress: userAddress || undefined,

@@ -90,7 +90,8 @@ export class TokenService {
                 isBufferAllowed: token.isBufferAllowed,
                 chainId: config[chain].chain.id,
                 tradable: !token.types.find((type) => type.type === 'BPT'),
-                rateProviderData: rateProviderData[token.address],
+                rateProviderData: rateProviderData[`${token.address}-${token.chain}`],
+                priceRateProviderData: rateProviderData[`${token.address}-${token.chain}`],
                 coingeckoId: token.coingeckoTokenId,
                 isErc4626: token.types.some((type) => type.type === 'ERC4626'),
                 erc4626ReviewData: erc4626Data[`${token.address}-${token.chain}`],
@@ -192,8 +193,8 @@ export class TokenService {
             chain: token.chain as GqlChain,
             chainId: config[token.chain].chain.id,
             tradable: !token.types.find((type) => type === 'BPT'),
-            rateProviderData: rateProviderData[token.address],
-            priceRateProviderData: rateProviderData[token.address],
+            rateProviderData: rateProviderData[`${token.address}-${token.chain}`],
+            priceRateProviderData: rateProviderData[`${token.address}-${token.chain}`],
             coingeckoId: token.coingeckoTokenId,
             isErc4626: token.types.some((type) => type === 'ERC4626'),
             underlyingTokenAddress: token.underlyingTokenAddress,
@@ -227,14 +228,15 @@ export class TokenService {
         const priceRateProviderDataResult: Record<string, GqlPriceRateProviderData | undefined> = {};
 
         for (const token of tokens) {
+            const key = `${token.address}-${token.chain}`;
             const providersForToken = priceRateProviders.filter(
                 (provider) => provider.tokenAddress === token.address && provider.chain === token.chain,
             );
 
             if (providersForToken.length === 1) {
-                priceRateProviderDataResult[token.address] = {
+                priceRateProviderDataResult[key] = {
                     ...providersForToken[0],
-                    warnings: providersForToken[0].warnings?.split(',') || [],
+                    warnings: providersForToken[0].warnings?.split(',').filter(Boolean) || [],
                     address: providersForToken[0].rateProviderAddress,
                 };
             } else if (providersForToken.length > 1) {
@@ -243,15 +245,15 @@ export class TokenService {
                 // if all are reviewed and safe, we can just return the first one
                 for (const provider of providersForToken) {
                     if (provider.reviewed && provider.summary === 'safe') {
-                        priceRateProviderDataResult[token.address] = {
+                        priceRateProviderDataResult[key] = {
                             ...provider,
-                            warnings: provider.warnings?.split(',') || [],
+                            warnings: provider.warnings?.split(',').filter(Boolean) || [],
                             address: provider.rateProviderAddress,
                         };
                     }
                 }
             } else {
-                priceRateProviderDataResult[token.address] = undefined;
+                priceRateProviderDataResult[key] = undefined;
             }
         }
         return priceRateProviderDataResult;
@@ -292,7 +294,7 @@ export class TokenService {
                 .then((reviews) =>
                     reviews.map((review) => ({
                         ...review,
-                        warnings: review.warnings?.split(',') || [],
+                        warnings: review.warnings?.split(',').filter(Boolean) || [],
                     })),
                 )
                 .then((reviews) =>
