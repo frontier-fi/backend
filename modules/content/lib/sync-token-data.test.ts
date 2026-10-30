@@ -129,4 +129,49 @@ describe('syncTokenContentData', () => {
 
         expect(mockSyncErc4626Tokens).not.toHaveBeenCalled();
     });
+
+    it('falls back to nativeAssetId for configured WETH when tokenlist omits coingeckoId', async () => {
+        const configuredSepoliaWeth = '0xfff9976782d46cc05630d1f6ebab18b2324d6b14';
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) => {
+                if (url.includes('tokenlist')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            name: 'Test List',
+                            timestamp: '2026-10-28T00:00:00Z',
+                            tokens: [
+                                {
+                                    chainId: 11155111,
+                                    address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
+                                    name: 'Wrapped Ether',
+                                    symbol: 'WETH',
+                                    decimals: 18,
+                                    logoURI: '',
+                                },
+                            ],
+                        }),
+                    };
+                }
+                return {
+                    ok: true,
+                    text: async () => '',
+                };
+            }),
+        );
+        mockTokenFindMany.mockResolvedValueOnce([{ address: configuredSepoliaWeth, chain: Chain.SEPOLIA }]);
+        mockTokenFindMany.mockResolvedValueOnce([]);
+
+        await syncTokenContentData([Chain.SEPOLIA]);
+
+        expect(mockTokenUpsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                create: expect.objectContaining({
+                    address: configuredSepoliaWeth,
+                    coingeckoTokenId: 'ethereum',
+                }),
+            }),
+        );
+    });
 });

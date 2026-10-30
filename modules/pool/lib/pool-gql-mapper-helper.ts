@@ -140,7 +140,7 @@ export async function enrichWithErc4626Data(poolTokens: GqlPoolTokenDetail[], ch
             if (erc4626ReviewData) {
                 token.erc4626ReviewData = {
                     ...erc4626ReviewData,
-                    warnings: erc4626ReviewData.warnings?.split(',') || [],
+                    warnings: erc4626ReviewData.warnings?.split(',').filter(Boolean) || [],
                 };
                 token.useUnderlyingForAddRemove = erc4626ReviewData.useUnderlyingForAddRemove;
                 token.useWrappedForAddRemove = erc4626ReviewData.useWrappedForAddRemove;
@@ -177,7 +177,7 @@ export async function enrichWithErc4626Data(poolTokens: GqlPoolTokenDetail[], ch
                     if (erc4626ReviewData) {
                         nestedToken.erc4626ReviewData = {
                             ...erc4626ReviewData,
-                            warnings: erc4626ReviewData.warnings?.split(',') || [],
+                            warnings: erc4626ReviewData.warnings?.split(',').filter(Boolean) || [],
                         };
                         nestedToken.useUnderlyingForAddRemove = erc4626ReviewData.useUnderlyingForAddRemove;
                         nestedToken.useWrappedForAddRemove = erc4626ReviewData.useWrappedForAddRemove;

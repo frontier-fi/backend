@@ -67,6 +67,24 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
             chain,
         },
     });
+    let fallbackPrices: Map<string, number> | undefined;
+    const getTokenPriceAtOrFallback = async (address: string): Promise<number | undefined> => {
+        const historical = prices.find((p) => p.tokenAddress.toLowerCase() === address);
+        if (historical) {
+            return historical.price;
+        }
+        if (!fallbackPrices) {
+            const currentPrices =
+                (await prisma.prismaTokenCurrentPrice?.findMany({
+                    where: {
+                        tokenAddress: { in: Array.from(tokenAddresses) },
+                        chain,
+                    },
+                })) || [];
+            fallbackPrices = new Map(currentPrices.map((p) => [p.tokenAddress.toLowerCase(), p.price]));
+        }
+        return fallbackPrices.get(address);
+    };
     const decimalsMap = await prisma.prismaToken
         .findMany({
             select: {
@@ -89,26 +107,28 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
         );
 
         // Calculate TVL
-        const tvl = tokens.reduce((tvl, address, idx) => {
-            if (idx === bptTokenIndex) return tvl;
+        let tvl = 0;
+        for (let idx = 0; idx < tokens.length; idx++) {
+            if (idx === bptTokenIndex) continue;
 
-            const price = prices.find((p) => p.tokenAddress.toLowerCase() === address);
+            const address = tokens[idx];
+            const price = await getTokenPriceAtOrFallback(address);
 
-            if (!price) {
-                return tvl;
+            if (price === undefined) {
+                continue;
             }
 
             const decimals = decimalsMap.get(address);
 
             if (decimals === undefined || decimals === null) {
                 console.error(`Decimals not found for ${address} in TVL 24h ago calculation`);
-                return tvl;
+                continue;
             }
 
             const balance = formatUnits(balances[idx], decimals);
 
-            return tvl + parseFloat(balance) * price.price;
-        }, 0);
+            tvl += parseFloat(balance) * price;
+        }
 
         data[poolId] = { tvl };
     }
@@ -194,7 +214,11 @@ export const updateLiquidityValuesForPools = async (chain: Chain, poolIds?: stri
                 continue;
             }
 
-            if (Math.abs(item.balanceUSD - item.previousBalanceUSD) > 1) {
+            if (
+                Math.abs(item.balanceUSD - item.previousBalanceUSD) > 1 ||
+                (item.previousBalanceUSD === 0 && item.balanceUSD > 0) ||
+                (item.previousBalanceUSD > 0 && item.balanceUSD === 0)
+            ) {
                 updates.push(
                     prisma.prismaPoolToken.update({
                         where: { id_chain: { id: item.id, chain: pool.chain } },
@@ -212,7 +236,11 @@ export const updateLiquidityValuesForPools = async (chain: Chain, poolIds?: stri
             continue;
         }
 
-        if (Math.abs(totalLiquidity - pdt.totalLiquidity) > 1) {
+        if (
+            Math.abs(totalLiquidity - pdt.totalLiquidity) > 1 ||
+            (pdt.totalLiquidity === 0 && totalLiquidity > 0) ||
+            (pdt.totalLiquidity > 0 && totalLiquidity === 0)
+        ) {
             updates.push(
                 prisma.prismaPoolDynamicData.update({
                     where: { id_chain: { id: pool.id, chain: pool.chain } },

@@ -230,11 +230,13 @@ export class PoolAggregatorLoader {
         console.timeEnd('dbPools');
 
         // Get review data
-        const erc4626ReviewDataMap = Object.fromEntries(erc4626ReviewData.map((data) => [data.erc4626Address, data]));
+        const erc4626ReviewDataMap = Object.fromEntries(
+            erc4626ReviewData.map((data) => [`${data.chain}-${data.erc4626Address}`, data]),
+        );
 
         // Get rateproviderdata data
         const rateproviderDataMap = Object.fromEntries(
-            rateProviderData.map((data) => [data.rateProviderAddress, data]),
+            rateProviderData.map((data) => [`${data.chain}-${data.rateProviderAddress}`, data]),
         );
 
         console.time('poolsMapping');
@@ -350,8 +352,11 @@ export class PoolAggregatorLoader {
                     ? underlyingMap[`${token.chain}-${token.token.underlyingTokenAddress}`]
                     : null;
                 const underlyingTypes = underlying?.types?.map((t) => t.type) || [];
-                const erc4626Review = erc4626ReviewMap[token.address] || {};
-                const rateProviderData = rateproviderDataMap[token.priceRateProvider || ''] || {};
+                const erc4626Review = erc4626ReviewMap[`${token.chain}-${token.address}`];
+                const hasRateProvider = Boolean(token.priceRateProvider && token.priceRateProvider !== zeroAddress);
+                const rateProviderData = hasRateProvider
+                    ? rateproviderDataMap[`${token.chain}-${token.priceRateProvider}`]
+                    : undefined;
                 const types = token.token.types?.map((t) => t.type) || [];
                 return {
                     address: token.address,
@@ -368,22 +373,34 @@ export class PoolAggregatorLoader {
                     isAllowed: !types.includes('BLOCKED_V3'),
                     isBufferAllowed: token.token.isBufferAllowed,
                     isExemptFromProtocolYieldFee: token.exemptFromProtocolYieldFee,
-                    canUseBufferForSwaps: erc4626Review.canUseBufferForSwaps,
-                    useUnderlyingForAddRemove: erc4626Review.useUnderlyingForAddRemove,
-                    useWrappedForAddRemove: erc4626Review.useWrappedForAddRemove,
+                    canUseBufferForSwaps: erc4626Review?.canUseBufferForSwaps,
+                    useUnderlyingForAddRemove: erc4626Review?.useUnderlyingForAddRemove,
+                    useWrappedForAddRemove: erc4626Review?.useWrappedForAddRemove,
                     priceRate: token.priceRate,
                     priceRateProvider: token.priceRateProvider,
-                    priceRateProviderData: {
-                        ...rateProviderData,
-                        warnings: rateProviderData.warnings?.split(',') || [],
-                        upgradeableComponents:
-                            (rateProviderData.upgradableComponents as {
-                                implementationReviewed: string;
-                                entryPoint: string;
-                            }[]) || [],
-                        address: rateProviderData.rateProviderAddress,
-                        reviewFile: rateProviderData.reviewUrl,
-                    },
+                    priceRateProviderData: hasRateProvider
+                        ? rateProviderData
+                            ? {
+                                  ...rateProviderData,
+                                  warnings: rateProviderData.warnings?.split(',').filter(Boolean) || [],
+                                  upgradeableComponents:
+                                      (rateProviderData.upgradableComponents as {
+                                          implementationReviewed: string;
+                                          entryPoint: string;
+                                      }[]) || [],
+                                  address: rateProviderData.rateProviderAddress,
+                                  reviewFile: rateProviderData.reviewUrl,
+                              }
+                            : {
+                                  address: token.priceRateProvider!,
+                                  reviewed: false,
+                                  name: null,
+                                  summary: 'unsafe',
+                                  reviewFile: null,
+                                  warnings: [],
+                                  upgradeableComponents: [],
+                              }
+                        : undefined,
                     maxDeposit: token.token.maxDeposit === '0' ? undefined : token.token.maxDeposit,
                     maxWithdraw: token.token.maxWithdraw === '0' ? undefined : token.token.maxWithdraw,
                     scalingFactor: token.scalingFactor,

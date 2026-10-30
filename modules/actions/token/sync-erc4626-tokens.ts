@@ -22,7 +22,7 @@ export const syncErc4626Tokens = async (
     }
 
     if (tokens.length === 0) {
-        return;
+        return [];
     }
 
     const enrichedTokensWithErc4626Data = await fetchErc4626AndUnderlyingTokenData(tokens, viemClient);
@@ -79,4 +79,6 @@ export const syncErc4626Tokens = async (
             });
         }
     }
+
+    return enrichedTokensWithErc4626Data;
 };

@@ -28,6 +28,22 @@ export async function swapsUsd(
         return roundToHour(timestamp);
     });
 
+    let fallbackPrices: Map<string, number> | undefined;
+    const resolvePrice = async (
+        tokenPrices: { tokenAddress: string; price: number }[],
+        tokenAddress?: string,
+    ): Promise<number> => {
+        if (!tokenAddress) return 0;
+        const matched = tokenPrices.find((price) => price.tokenAddress.toLowerCase() === tokenAddress.toLowerCase());
+        if (matched) return matched.price;
+
+        if (!fallbackPrices) {
+            const currentPrices = (await prisma.prismaTokenCurrentPrice?.findMany({ where: { chain } })) || [];
+            fallbackPrices = new Map(currentPrices.map((p) => [p.tokenAddress.toLowerCase(), p.price]));
+        }
+        return fallbackPrices.get(tokenAddress.toLowerCase()) || 0;
+    };
+
     const dbEntries: SwapEvent[] = [];
     for (const [timestamp, swaps] of Object.entries(groupedSwaps)) {
         const tokenPrices = await prisma.prismaTokenPrice.findMany({
@@ -40,12 +56,12 @@ export async function swapsUsd(
         });
 
         for (const swap of swaps) {
-            const tokenIn = tokenPrices.find((price) => price.tokenAddress === swap.payload.tokenIn.address);
-            const tokenOut = tokenPrices.find((price) => price.tokenAddress === swap.payload.tokenOut.address);
-            const feeToken = tokenPrices.find((price) => price.tokenAddress === swap.payload.fee.address);
-            const surplusToken = tokenPrices.find((price) => price.tokenAddress === swap.payload.surplus?.address);
-            let feeValueUSD = parseFloat(swap.payload.fee.amount) * (feeToken?.price || 0);
-            const dynamicFeeValueUSD = parseFloat(swap.payload.dynamicFee?.amount || '0') * (feeToken?.price || 0);
+            const tokenInPrice = await resolvePrice(tokenPrices, swap.payload.tokenIn.address);
+            const tokenOutPrice = await resolvePrice(tokenPrices, swap.payload.tokenOut.address);
+            const feeTokenPrice = await resolvePrice(tokenPrices, swap.payload.fee.address);
+            const surplusTokenPrice = await resolvePrice(tokenPrices, swap.payload.surplus?.address);
+            let feeValueUSD = parseFloat(swap.payload.fee.amount) * feeTokenPrice;
+            const dynamicFeeValueUSD = parseFloat(swap.payload.dynamicFee?.amount || '0') * feeTokenPrice;
 
             // FX pools have a different fee calculation
             // Replica of the subgraph logic:
@@ -91,14 +107,14 @@ export async function swapsUsd(
                 surplus: swap.payload.surplus
                     ? {
                           ...swap.payload.surplus,
-                          valueUSD: String((surplusToken?.price || 0) * parseFloat(swap.payload.surplus.amount)),
+                          valueUSD: String(surplusTokenPrice * parseFloat(swap.payload.surplus.amount)),
                       }
                     : undefined,
             };
 
             const valueUSD =
-                (tokenIn?.price || 0) * parseFloat(swap.payload.tokenIn.amount) ||
-                (tokenOut?.price || 0) * parseFloat(swap.payload.tokenOut.amount);
+                tokenInPrice * parseFloat(swap.payload.tokenIn.amount) ||
+                tokenOutPrice * parseFloat(swap.payload.tokenOut.amount);
 
             dbEntries.push({
                 ...swap,

@@ -179,11 +179,20 @@ export async function syncSnapshots(chain: Chain): Promise<string[]> {
     }
 
     // Use upserts to sync snapshots into the DB
+    // For prior-day snapshots, only update swap stats on existing rows so yesterday's TVL/shares/balances are not overwritten with today's values
     const upserts = upsertSnapshots.map((snapshot) =>
         prisma.prismaPoolSnapshot.upsert({
             where: { id_chain: { id: snapshot.id, chain: chain } },
             create: snapshot,
-            update: snapshot,
+            update:
+                snapshot.timestamp < snapshotTimestampForToday
+                    ? {
+                          swapsCount: snapshot.swapsCount,
+                          volume24h: snapshot.volume24h,
+                          fees24h: snapshot.fees24h,
+                          surplus24h: snapshot.surplus24h,
+                      }
+                    : snapshot,
         }),
     );
 

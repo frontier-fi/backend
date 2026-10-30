@@ -91,6 +91,27 @@ describe('mapPoolToken', () => {
         expect(erc4626Token.useUnderlyingForAddRemove).toBe(true);
         expect(erc4626Token.useWrappedForAddRemove).toBe(false);
         expect(erc4626Token.canUseBufferForSwaps).toBe(true);
+        expect(erc4626Token.erc4626ReviewData?.warnings).toEqual(['warn1', 'warn2']);
+
+        vi.restoreAllMocks();
+    });
+
+    it('returns an empty warnings array instead of [""] when review warnings string is empty', async () => {
+        vi.spyOn(prisma.prismaToken, 'findUnique').mockResolvedValue(null);
+        vi.spyOn(prisma.prismaErc4626ReviewData, 'findUnique').mockResolvedValue({
+            chain: Chain.SEPOLIA,
+            erc4626Address: '0xtoken',
+            assetAddress: '0xasset',
+            useUnderlyingForAddRemove: true,
+            useWrappedForAddRemove: true,
+            canUseBufferForSwaps: true,
+            warnings: '',
+        } as any);
+
+        const erc4626Token = mapPoolToken(token(['ERC4626']), 3);
+        await enrichWithErc4626Data([erc4626Token], Chain.SEPOLIA);
+
+        expect(erc4626Token.erc4626ReviewData?.warnings).toEqual([]);
 
         vi.restoreAllMocks();
     });

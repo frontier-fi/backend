@@ -94,6 +94,8 @@ export class ProtocolService {
         });
 
         const totalLiquidity = _.sumBy(pools, (pool) => (!pool.dynamicData ? 0 : pool.dynamicData.totalLiquidity));
+        const totalSwapFee = _.sumBy(pools, (pool) => pool.dynamicData?.lifetimeSwapFees || 0);
+        const totalSwapVolume = _.sumBy(pools, (pool) => pool.dynamicData?.lifetimeVolume || 0);
         const swapVolume24h = _.sumBy(pools, (pool) => pool.dynamicData?.volume24h || 0);
         const swapFee24h = _.sumBy(pools, (pool) => pool.dynamicData?.fees24h || 0);
 
@@ -110,8 +112,8 @@ export class ProtocolService {
         const protocolData = {
             chainId: `${config[chain].chain.id}`,
             totalLiquidity: `${totalLiquidity}`,
-            totalSwapFee: '0',
-            totalSwapVolume: '0',
+            totalSwapFee: `${totalSwapFee}`,
+            totalSwapVolume: `${totalSwapVolume}`,
             poolCount: `${poolCount}`,
             swapVolume24h: `${swapVolume24h}`,
             swapFee24h: `${swapFee24h}`,

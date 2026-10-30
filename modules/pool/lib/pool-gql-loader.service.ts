@@ -68,7 +68,7 @@ export class PoolGqlLoaderService {
                 if (rateproviderData) {
                     token.priceRateProviderData = {
                         ...rateproviderData,
-                        warnings: rateproviderData.warnings?.split(',') || [],
+                        warnings: rateproviderData.warnings?.split(',').filter(Boolean) || [],
                         upgradeableComponents:
                             (rateproviderData.upgradableComponents as {
                                 implementationReviewed: string;
@@ -76,6 +76,16 @@ export class PoolGqlLoaderService {
                             }[]) || [],
                         address: rateproviderData.rateProviderAddress,
                         reviewFile: rateproviderData.reviewUrl,
+                    };
+                } else {
+                    token.priceRateProviderData = {
+                        address: token.priceRateProvider,
+                        reviewed: false,
+                        name: null,
+                        summary: 'unsafe',
+                        reviewFile: null,
+                        warnings: [],
+                        upgradeableComponents: [],
                     };
                 }
             }
@@ -93,13 +103,24 @@ export class PoolGqlLoaderService {
                         if (rateproviderData) {
                             nestedToken.priceRateProviderData = {
                                 ...rateproviderData,
-                                warnings: rateproviderData.warnings?.split(',') || [],
+                                warnings: rateproviderData.warnings?.split(',').filter(Boolean) || [],
                                 upgradeableComponents:
                                     (rateproviderData.upgradableComponents as {
                                         implementationReviewed: string;
                                         entryPoint: string;
                                     }[]) || [],
                                 address: rateproviderData.rateProviderAddress,
+                                reviewFile: rateproviderData.reviewUrl,
+                            };
+                        } else {
+                            nestedToken.priceRateProviderData = {
+                                address: nestedToken.priceRateProvider,
+                                reviewed: false,
+                                name: null,
+                                summary: 'unsafe',
+                                reviewFile: null,
+                                warnings: [],
+                                upgradeableComponents: [],
                             };
                         }
                     }
@@ -156,7 +177,7 @@ export class PoolGqlLoaderService {
                 return gqlPools.filter((pool) => {
                     for (const token of pool.poolTokens) {
                         if (token.priceRateProvider && token.priceRateProvider !== ZERO_ADDRESS) {
-                            if (!token.priceRateProviderData) {
+                            if (!token.priceRateProviderData?.reviewed) {
                                 return false;
                             }
                         }
@@ -234,7 +255,7 @@ export class PoolGqlLoaderService {
             return gqlPools.filter((pool) => {
                 for (const token of pool.poolTokens) {
                     if (token.priceRateProvider && token.priceRateProvider !== ZERO_ADDRESS) {
-                        if (!token.priceRateProviderData) {
+                        if (!token.priceRateProviderData?.reviewed) {
                             return false;
                         }
                     }

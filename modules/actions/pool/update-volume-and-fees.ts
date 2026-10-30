@@ -12,6 +12,9 @@ const emptyStats = {
     surplus: 0,
 };
 
+const hasMetricChanged = (previous: number, next: number, threshold = 0.01) =>
+    (previous === 0 && next > 0) || (previous > 0 && next === 0) || Math.abs(previous - next) > threshold;
+
 /**
  * Updates 24h and 48h volume and fees for the pools provided based on swaps in the DB. Updates it for all pools if no poolIds provided.
  * Also updates yieldCapture for 24h and 48h based on the current total yield APR and the average totalLiquidity from now and 24 hours ago.
@@ -24,6 +27,10 @@ export async function updateVolumeAndFees(
     poolIds?: string[],
     eventRepo: SwapStatsRepository = eventsRepository,
 ) {
+    if (poolIds && poolIds.length === 0) {
+        return;
+    }
+
     const yesterday = moment().subtract(1, 'day').unix();
     const twoDaysAgo = moment().subtract(2, 'day').unix();
 
@@ -134,18 +141,18 @@ export async function updateVolumeAndFees(
 
         if (
             pool.dynamicData &&
-            (Math.abs(pool.dynamicData.volume24h - volume24h) > 1 ||
-                Math.abs(pool.dynamicData.fees24h - fees24h) > 1 ||
-                Math.abs(pool.dynamicData.surplus24h - surplus24h) > 1 ||
-                Math.abs(pool.dynamicData.volume48h - volume48h) > 1 ||
-                Math.abs(pool.dynamicData.fees48h - fees48h) > 1 ||
-                Math.abs(pool.dynamicData.surplus48h - surplus48h) > 1 ||
-                Math.abs(pool.dynamicData.protocolFees24h - protocolFees24h) > 1 ||
-                Math.abs(pool.dynamicData.protocolFees48h - protocolFees48h) > 1 ||
-                Math.abs(pool.dynamicData.yieldCapture24h - yieldCapture24h) > 1 ||
-                Math.abs(pool.dynamicData.yieldCapture48h - yieldCapture48h) > 1 ||
-                Math.abs(pool.dynamicData.protocolYieldCapture24h - protocolYieldCapture24h) > 1 ||
-                Math.abs(pool.dynamicData.protocolYieldCapture48h - protocolYieldCapture48h) > 1)
+            (hasMetricChanged(pool.dynamicData.volume24h, volume24h) ||
+                hasMetricChanged(pool.dynamicData.fees24h, fees24h) ||
+                hasMetricChanged(pool.dynamicData.surplus24h, surplus24h) ||
+                hasMetricChanged(pool.dynamicData.volume48h, volume48h) ||
+                hasMetricChanged(pool.dynamicData.fees48h, fees48h) ||
+                hasMetricChanged(pool.dynamicData.surplus48h, surplus48h) ||
+                hasMetricChanged(pool.dynamicData.protocolFees24h, protocolFees24h) ||
+                hasMetricChanged(pool.dynamicData.protocolFees48h, protocolFees48h) ||
+                hasMetricChanged(pool.dynamicData.yieldCapture24h, yieldCapture24h) ||
+                hasMetricChanged(pool.dynamicData.yieldCapture48h, yieldCapture48h) ||
+                hasMetricChanged(pool.dynamicData.protocolYieldCapture24h, protocolYieldCapture24h) ||
+                hasMetricChanged(pool.dynamicData.protocolYieldCapture48h, protocolYieldCapture48h))
         ) {
             operations.push(
                 prisma.prismaPoolDynamicData.update({
