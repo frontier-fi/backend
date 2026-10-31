@@ -57,8 +57,6 @@ export class Router {
         }
 
         // break swapAmount into 25%, 50%, 75% and 100% ratios, so we're able to split quote into multiple paths
-        let validPaths = [...paths];
-        let selectedPaths: PathLocal[] = [];
         const swapAmounts = [
             swapAmount.mulDownFixed(parseEther(String(0.25))),
             swapAmount.mulDownFixed(parseEther(String(0.5))),
@@ -69,15 +67,28 @@ export class Router {
         // initialize quotePaths arrays for each swapAmount ratio
         const quotePathsByRatio: PathWithAmount[][] = swapAmounts.map(() => []);
 
+        // Track paths that have already exceeded buffer/pool capacity at a smaller ratio
+        const capacityExceededPaths = new Set<PathLocal>();
+
         // Quote paths for each swapAmount ratio
         swapAmounts.forEach((amount, i) => {
-            validPaths.forEach((path) => {
+            if (amount.amount === 0n) {
+                return;
+            }
+            paths.forEach((path) => {
+                if (capacityExceededPaths.has(path)) {
+                    return;
+                }
                 try {
                     const pathWithAmount = new PathWithAmount(path.tokens, path.pools, path.isBuffer, amount);
 
                     // remove paths with buffer steps that would revert onchain because the swap
                     // amount exceeds the buffer's capacity (buffer balance + erc4626 maxDeposit/maxWithdraw)
                     const exceedsBufferCapacity = pathWithAmount.swapStepsExceedingBufferCapacity > 0;
+                    if (exceedsBufferCapacity) {
+                        capacityExceededPaths.add(path);
+                        return;
+                    }
 
                     /**
                      * Remove paths that return 0 amount
@@ -87,9 +98,8 @@ export class Router {
                         pathWithAmount.swapKind === SwapKind.GivenIn
                             ? pathWithAmount.outputAmount
                             : pathWithAmount.inputAmount;
-                    if (calculatedAmount.amount > 0n && !exceedsBufferCapacity) {
+                    if (calculatedAmount.amount > 0n) {
                         quotePathsByRatio[i].push(pathWithAmount);
-                        selectedPaths.push(path);
                     }
                 } catch (error) {
                     // const pathString =
@@ -101,9 +111,6 @@ export class Router {
                     return;
                 }
             });
-
-            validPaths = selectedPaths;
-            selectedPaths = [];
         });
 
         // sort each quotePaths array by outputAmount or inputAmount
@@ -141,10 +148,10 @@ export class Router {
             splitPaths.push([quotePaths100[0]]);
         }
 
-        if (quotePaths75.length > 0 && quotePaths25.length > 1) {
+        if (quotePaths75.length > 0 && quotePaths25.length > 0) {
             // select first path from quotePaths25 that has no pool in common with quotePaths75[0]
             const bestPath25 = quotePaths25.find(
-                (path) => !quotePaths75[0].pools.some((pool) => path.pools.includes(pool)),
+                (path) => !quotePaths75[0].pools.some((pool) => path.pools.some((p) => p.id === pool.id)),
             );
             if (bestPath25) {
                 try {
@@ -157,7 +164,7 @@ export class Router {
 
         if (quotePaths50.length > 1) {
             const secondBestPath50 = quotePaths50.find(
-                (path) => !quotePaths50[0].pools.some((pool) => path.pools.includes(pool)),
+                (path) => !quotePaths50[0].pools.some((pool) => path.pools.some((p) => p.id === pool.id)),
             );
             if (secondBestPath50) {
                 try {
@@ -206,6 +213,10 @@ export class Router {
         // create paths with copied pools and `mutateBalances = true` to make sure reusing pools works as expected
         const pathUp = new PathWithAmount(pathA.tokens, poolsA, pathA.isBuffer, swapAmountUp, true);
         const pathDown = new PathWithAmount(pathB.tokens, poolsB, pathB.isBuffer, swapAmountDown, true);
+
+        if (pathUp.swapStepsExceedingBufferCapacity > 0 || pathDown.swapStepsExceedingBufferCapacity > 0) {
+            throw new Error('Split path exceeds buffer capacity');
+        }
 
         return [pathUp, pathDown];
     }

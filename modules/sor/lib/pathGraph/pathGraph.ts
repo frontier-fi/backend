@@ -276,13 +276,18 @@ export class PathGraph {
         tokenPrices?: Map<string, number>;
     }): PathSegment {
         let limitUSD: number | undefined = undefined;
-        if (swapKind !== undefined && tokenPrices) {
+        if (swapKind !== undefined) {
             const limit = pool.getLimitAmountSwap(tokenIn, tokenOut, swapKind);
-            const priceToken = (swapKind as SwapKind) === SwapKind.GivenIn ? tokenIn : tokenOut;
-            const price = tokenPrices.get(priceToken.address.toLowerCase());
-            if (price !== undefined) {
-                const amount = Number(formatUnits(limit, priceToken.decimals));
-                limitUSD = amount * price;
+            if (limit <= 0n) {
+                throw new Error('Zero swap limit');
+            }
+            if (tokenPrices) {
+                const priceToken = (swapKind as SwapKind) === SwapKind.GivenIn ? tokenIn : tokenOut;
+                const price = tokenPrices.get(priceToken.address.toLowerCase());
+                if (price !== undefined) {
+                    const amount = Number(formatUnits(limit, priceToken.decimals));
+                    limitUSD = amount * price;
+                }
             }
         }
 
@@ -325,7 +330,7 @@ export class PathGraph {
         const existingPathSegment = tokenInNode.get(pathSegment.tokenOut.address) || [];
 
         const sorted = [...existingPathSegment, pathSegment].sort((a, b) =>
-            a.normalizedLiquidity > b.normalizedLiquidity ? -1 : 1,
+            a.normalizedLiquidity > b.normalizedLiquidity ? -1 : a.normalizedLiquidity < b.normalizedLiquidity ? 1 : 0,
         );
 
         tokenInNode.set(
@@ -483,7 +488,7 @@ export class PathGraph {
 
                     // bottleneck normalizedLiquidity across segments so far
                     const edgeNL = edge.normalizedLiquidity;
-                    const newBoundNL = p.boundNL < edgeNL ? p.boundNL : edgeNL;
+                    const newBoundNL = p.ranks.length === 0 || edgeNL < p.boundNL ? edgeNL : p.boundNL;
 
                     const ranks = p.ranks.length === 0 ? [r] : [...p.ranks, r];
                     next.push({ ranks, boundNL: newBoundNL });
@@ -493,7 +498,7 @@ export class PathGraph {
             if (next.length === 0) return [];
 
             // Keep only the best by bottleneck NL (desc)
-            next.sort((a, b) => (a.boundNL < b.boundNL ? 1 : -1));
+            next.sort((a, b) => (a.boundNL < b.boundNL ? 1 : a.boundNL > b.boundNL ? -1 : 0));
             pathCandidateProps = next.slice(0, beamWidth);
         }
 
@@ -532,7 +537,9 @@ export class PathGraph {
         );
 
         // Sort by bottleneck normalized liquidity (descending) and take top K
-        flattenedCandidates.sort((a, b) => (a.candidate.boundNL < b.candidate.boundNL ? 1 : -1));
+        flattenedCandidates.sort((a, b) =>
+            a.candidate.boundNL < b.candidate.boundNL ? 1 : a.candidate.boundNL > b.candidate.boundNL ? -1 : 0,
+        );
 
         return flattenedCandidates.slice(0, beamWidth);
     }
