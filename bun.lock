@@ -8,7 +8,7 @@
         "@aave-dao/aave-address-book": "^4.74.6",
         "@apollo/server": "^5.5.1",
         "@as-integrations/express5": "^1.1.2",
-        "@balancer-labs/balancer-maths": "^0.0.41",
+        "@balancer-labs/balancer-maths": "https://github.com/frontier-fi/maths/releases/download/v0.0.42/frontier-maths.tgz",
         "@balancer/sdk": "^5.2.9",
         "@escape.tech/graphql-armor": "^3.2.0",
         "@prisma/client": "^6.19.3",
@@ -206,7 +206,7 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@balancer-labs/balancer-maths": ["@balancer-labs/balancer-maths@0.0.41", "", {}, "sha512-ihYLgOnFoVbyN1HJmLT2WH4DzCJt65PMfjtZVoXc4JaK+2Pd8dwcRVbpdLfyXAqfpVZAW9zqB/2JnBHemyuMrQ=="],
+    "@balancer-labs/balancer-maths": ["@balancer-labs/balancer-maths@https://github.com/frontier-fi/maths/releases/download/v0.0.42/frontier-maths.tgz", {}, "sha512-EHw+fJSrX8i0mllsgi8dOpBPzdBd8Pa8XX7VVpErrxDC1/YyksNCu1Z7J05PYY9gY/7UGImUfCHdp2bQ1oh5ZQ=="],
 
     "@balancer/sdk": ["@balancer/sdk@5.2.9", "", { "dependencies": { "@balancer-labs/balancer-maths": "0.0.40", "viem": "2.49.3" } }, "sha512-Z5nbFeMBJe1s1DhtJjVmHGrf2ThCMWHsb+CrfXWvtgQbMzquQtaL0g3+57XChSQLFv8mO+u292pKS7YUyzHAJg=="],
 

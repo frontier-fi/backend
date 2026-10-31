@@ -107,7 +107,7 @@ export function readTestData(debug = false): TestData {
     return testData;
 }
 
-function mapPools(pools: TransformBigintToString<SupportedPools>[]): PrismaPoolAndHookWithDynamic[] {
+export function mapPools(pools: TransformBigintToString<SupportedPools>[]): PrismaPoolAndHookWithDynamic[] {
     const bufferPools: BufferPool[] = pools
         .filter((pool) => pool.poolType === 'Buffer')
         .map((pool) => ({
@@ -179,7 +179,7 @@ function mapPools(pools: TransformBigintToString<SupportedPools>[]): PrismaPoolA
     return prismaPools;
 }
 
-function mapBufferPools(pools: TransformBigintToString<SupportedPools>[]): BufferPoolData[] {
+export function mapBufferPools(pools: TransformBigintToString<SupportedPools>[]): BufferPoolData[] {
     const bufferPools: BufferPool[] = pools
         .filter((pool) => pool.poolType === 'Buffer')
         .map((pool) => ({
@@ -193,11 +193,15 @@ function mapBufferPools(pools: TransformBigintToString<SupportedPools>[]): Buffe
 
     const bufferPoolData: BufferPoolData[] = bufferPools.map((pool) => ({
         ...pool,
-        poolId: pool.poolAddress,
-        address: pool.poolAddress as Address,
-        mainToken: { address: pool.tokens[0] as Address, decimals: pool.decimals[0], balance: pool.mainTokenBalance! },
+        poolId: pool.poolAddress.toLowerCase(),
+        address: pool.poolAddress.toLowerCase() as Address,
+        mainToken: {
+            address: pool.tokens[0].toLowerCase() as Address,
+            decimals: pool.decimals[0],
+            balance: pool.mainTokenBalance!,
+        },
         underlyingToken: {
-            address: pool.tokens[1] as Address,
+            address: pool.tokens[1].toLowerCase() as Address,
             decimals: pool.decimals[1],
             balance: pool.underlyingTokenBalance!,
         },

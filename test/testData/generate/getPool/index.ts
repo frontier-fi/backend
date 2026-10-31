@@ -1,6 +1,7 @@
-import type { Address, Chain } from 'viem';
-import { createPublicClient, http, zeroAddress } from 'viem';
-import { AddressProvider, CHAINS, isSameAddress, vaultExtensionAbi_V3 } from '@balancer/sdk';
+import type { Address } from 'viem';
+import { isAddressEqual, zeroAddress } from 'viem';
+import VaultV3Abi from '../../../../modules/sources/contracts/abis/VaultV3';
+import { getBatchedPublicClient, resolveVaultAddress } from '../getSwapPath';
 
 import type { PoolBase, TestBase } from '../../types';
 import { WeightedPool } from './weightedPool';
@@ -24,9 +25,11 @@ export async function getPool(
     if (!poolData[poolType]) throw new Error(`getPool: Unsupported pool type: ${poolType}`);
 
     console.log('Fetching pool data...');
-    const immutable = await poolData[poolType].fetchImmutableData(poolAddress, blockNumber);
-    const mutable = await poolData[poolType].fetchMutableData(poolAddress, blockNumber);
-    const hooksContract = await fetchHookAddress(poolType, rpcUrl, chainId, poolAddress, blockNumber);
+    const [immutable, mutable, hooksContract] = await Promise.all([
+        poolData[poolType].fetchImmutableData(poolAddress, blockNumber),
+        poolData[poolType].fetchMutableData(poolAddress, blockNumber),
+        fetchHookAddress(poolType, rpcUrl, chainId, poolAddress, blockNumber),
+    ]);
 
     console.log('Done');
 
@@ -51,20 +54,17 @@ async function fetchHookAddress(
     let hooksContract: Address | undefined;
 
     if (poolType !== 'Buffer') {
-        const publicClient = createPublicClient({
-            transport: http(rpcUrl),
-            chain: CHAINS[chainId] as Chain,
-        });
+        const publicClient = getBatchedPublicClient(rpcUrl, chainId);
         ({ hooksContract } = await publicClient.readContract({
-            address: AddressProvider.Vault(chainId),
-            abi: vaultExtensionAbi_V3,
+            address: resolveVaultAddress(chainId),
+            abi: VaultV3Abi,
             functionName: 'getHooksConfig',
             args: [poolAddress],
             blockNumber,
         }));
     }
 
-    if (!hooksContract || isSameAddress(hooksContract, zeroAddress) || isSameAddress(hooksContract, poolAddress)) {
+    if (!hooksContract || isAddressEqual(hooksContract, zeroAddress) || isAddressEqual(hooksContract, poolAddress)) {
         return undefined;
     }
 
