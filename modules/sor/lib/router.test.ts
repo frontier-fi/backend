@@ -3,6 +3,7 @@ import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
 import { parseEther } from 'viem';
 
 import { Router } from './router';
+import { BasePool } from './basePool';
 import { PathLocal, PathWithAmount } from './path';
 import { BufferPool } from './poolsV3/buffer/bufferPool';
 import { WeightedPoolV3 } from './poolsV3/weighted/weightedPool';
@@ -437,6 +438,145 @@ describe('Router split-routing & conservation invariants', () => {
         }
 
         expect(getOutputAmount(bestPaths!).amount).toBe(actualSequentialOutput);
+    });
+
+    it('splits a trade across two Boosted pools that share ERC-4626 BufferPools when buffer capacity is sufficient', () => {
+        const router = new Router();
+        const wTokenA = new Token(chainId, '0x0000000000000000000000000000000000000a01', 18, 'wTokenA');
+        const wTokenC = new Token(chainId, '0x0000000000000000000000000000000000000c01', 18, 'wTokenC');
+
+        const sharedBufferIn = new BufferPool(
+            '0x000000000000000000000000000000000000b010',
+            '0x000000000000000000000000000000000000b010',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenA, 0n, 0),
+            new BasePoolToken(tokenA, 0n, 1),
+            parseEther('1000000'), // ample wrap capacity
+            parseEther('1000000'),
+        );
+
+        const sharedBufferOut = new BufferPool(
+            '0x000000000000000000000000000000000000b020',
+            '0x000000000000000000000000000000000000b020',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenC, 0n, 0),
+            new BasePoolToken(tokenC, 0n, 1),
+            parseEther('1000000'),
+            parseEther('1000000'), // ample unwrap capacity
+        );
+
+        const boostedPool1 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002011',
+            wTokenA,
+            wTokenC,
+            '10000',
+            '10000',
+        );
+        const boostedPool2 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002012',
+            wTokenA,
+            wTokenC,
+            '10000',
+            '10000',
+        );
+
+        const boostedPath1 = new PathLocal(
+            [tokenA, wTokenA, wTokenC, tokenC],
+            [sharedBufferIn, boostedPool1, sharedBufferOut],
+            [true, false, true],
+        );
+        const boostedPath2 = new PathLocal(
+            [tokenA, wTokenA, wTokenC, tokenC],
+            [sharedBufferIn, boostedPool2, sharedBufferOut],
+            [true, false, true],
+        );
+
+        const swapAmount = TokenAmount.fromRawAmount(tokenA, parseEther('1000'));
+        const singlePoolOutput = new PathWithAmount(
+            boostedPath1.tokens,
+            boostedPath1.pools,
+            boostedPath1.isBuffer,
+            swapAmount,
+        ).outputAmount.amount;
+
+        const bestPaths = router.getBestPaths([boostedPath1, boostedPath2], SwapKind.GivenIn, swapAmount);
+
+        expect(bestPaths).not.toBeNull();
+        // Should split 50/50 across the two independent Boosted pools despite sharing the linear BufferPools
+        expect(bestPaths!).toHaveLength(2);
+        expect(getOutputAmount(bestPaths!).amount).toBeGreaterThan(singlePoolOutput);
+    });
+
+    it('mutates BufferPool remaining capacity when mutateBalances=true and rejects split paths whose combined wrap exceeds shared buffer capacity', () => {
+        const router = new Router();
+        const wTokenA = new Token(chainId, '0x0000000000000000000000000000000000000a02', 18, 'wTokenA');
+        const wTokenC = new Token(chainId, '0x0000000000000000000000000000000000000c02', 18, 'wTokenC');
+
+        // Shared buffer only allows wrapping up to 1500 tokenA in total (0 internal buffer balance + 1500 maxDeposit)
+        const constrainedSharedBufferIn = new BufferPool(
+            '0x000000000000000000000000000000000000b030',
+            '0x000000000000000000000000000000000000b030',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenA, 0n, 0),
+            new BasePoolToken(tokenA, 0n, 1),
+            parseEther('1500'),
+            parseEther('1500'),
+        );
+
+        // 1. Direct unit check: mutating a copy of BufferPool with a 1000 tokenA wrap must reduce remaining wrap limit to 500
+        const bufferCopy: BasePool = constrainedSharedBufferIn.copy();
+        expect(bufferCopy.getLimitAmountSwap(tokenA, wTokenA, SwapKind.GivenIn)).toBe(parseEther('1500'));
+        bufferCopy.swapGivenIn(tokenA, wTokenA, TokenAmount.fromRawAmount(tokenA, parseEther('1000')), true);
+        expect(bufferCopy.getLimitAmountSwap(tokenA, wTokenA, SwapKind.GivenIn)).toBe(parseEther('500'));
+
+        // 2. End-to-end Router check: for a 2000 tokenA swap, each 50% leg (1000 tokenA) fits in 1500 individually,
+        // but together (1000 + 1000 = 2000 > 1500) they exceed the shared buffer's capacity and must not be paired.
+        const sharedBufferOut = new BufferPool(
+            '0x000000000000000000000000000000000000b040',
+            '0x000000000000000000000000000000000000b040',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenC, 0n, 0),
+            new BasePoolToken(tokenC, 0n, 1),
+            parseEther('1000000'),
+            parseEther('1000000'),
+        );
+
+        const boostedPool1 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002021',
+            wTokenA,
+            wTokenC,
+            '50000',
+            '50000',
+        );
+        const boostedPool2 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002022',
+            wTokenA,
+            wTokenC,
+            '50000',
+            '50000',
+        );
+
+        const boostedPath1 = new PathLocal(
+            [tokenA, wTokenA, wTokenC, tokenC],
+            [constrainedSharedBufferIn, boostedPool1, sharedBufferOut],
+            [true, false, true],
+        );
+        const boostedPath2 = new PathLocal(
+            [tokenA, wTokenA, wTokenC, tokenC],
+            [constrainedSharedBufferIn, boostedPool2, sharedBufferOut],
+            [true, false, true],
+        );
+
+        // Total swap = 2000 tokenA -> 100% (2000) exceeds 1500, 75% (1500) + 25% (500) = 2000 exceeds 1500,
+        // and 50% (1000) + 50% (1000) = 2000 exceeds 1500. No valid route can use only constrainedSharedBufferIn.
+        const swapAmount = TokenAmount.fromRawAmount(tokenA, parseEther('2000'));
+        const bestPaths = router.getBestPaths([boostedPath1, boostedPath2], SwapKind.GivenIn, swapAmount);
+
+        expect(bestPaths).toBeNull();
     });
 });
 

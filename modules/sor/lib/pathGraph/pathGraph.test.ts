@@ -1046,5 +1046,50 @@ describe('PathGraph search algorithms', () => {
             expect(paths).toHaveLength(1);
             expect(paths[0].pools[0].id).toBe('livePool');
         });
+
+        test('getCandidatePaths does not discard a valid multi-hop path when upstream swapGivenOut throws near the downstream pool limit boundary', () => {
+            const g = new PathGraph();
+
+            // Hop 1 (A -> B): supports up to 10,000 ExactIn and 9,900 ExactOut,
+            // but its math throws a convergence error when queried via swapGivenOut above 9,500 (near its 9,900 asymptote)
+            const poolAB = createMockPool('poolAB', [tokenA, tokenB], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: (_tIn: Token, _tOut: Token, kind: SwapKind) =>
+                    kind === SwapKind.GivenIn ? 10_000n * 10n ** 18n : 9_900n * 10n ** 18n,
+                swapGivenOut: (tIn: Token, _tOut: Token, amountOut: TokenAmount) => {
+                    if (amountOut.amount > 9_500n * 10n ** 18n) {
+                        throw new Error('Newton-Raphson failed to converge near asymptotic pool limit');
+                    }
+                    return TokenAmount.fromRawAmount(tIn, amountOut.amount);
+                },
+            });
+
+            // Hop 2 (B -> C): has a GivenIn limit of 9,800 (which is < poolAB's 9,900 ExactOut limit,
+            // causing getLimitAmountSwapForPath to call poolAB.swapGivenOut(9,800) and trigger the boundary throw)
+            const poolBC = createMockPool('poolBC', [tokenB, tokenC], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: () => 9_800n * 10n ** 18n,
+            });
+
+            g.buildGraph({
+                pools: [poolAB, poolBC],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            // User only wants to swap 100 tokenA (minLimitThreshold = 50 tokenA), well within both pools' safe capacity
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenC,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 100n * 10n ** 18n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: { ...baseConfig },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools.map((p) => p.id)).toEqual(['poolAB', 'poolBC']);
+        });
     });
 });
