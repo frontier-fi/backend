@@ -578,6 +578,89 @@ describe('Router split-routing & conservation invariants', () => {
 
         expect(bestPaths).toBeNull();
     });
+
+    it('continues searching for a valid 50/50 split partner when the first candidate pair exceeds shared buffer capacity', () => {
+        const router = new Router();
+        const wTokenA = new Token(chainId, '0x0000000000000000000000000000000000000a03', 18, 'wTokenA');
+        const wTokenC = new Token(chainId, '0x0000000000000000000000000000000000000c03', 18, 'wTokenC');
+
+        // Shared buffer has capacity 1500: enough for ONE 50% leg (1000), but NOT two 50% legs (1000 + 1000 = 2000 > 1500)
+        const constrainedSharedBufferIn = new BufferPool(
+            '0x000000000000000000000000000000000000b050',
+            '0x000000000000000000000000000000000000b050',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenA, 0n, 0),
+            new BasePoolToken(tokenA, 0n, 1),
+            parseEther('1500'),
+            parseEther('1500'),
+        );
+        const sharedBufferOut = new BufferPool(
+            '0x000000000000000000000000000000000000b060',
+            '0x000000000000000000000000000000000000b060',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenC, 0n, 0),
+            new BasePoolToken(tokenC, 0n, 1),
+            parseEther('1000000'),
+            parseEther('1000000'),
+        );
+
+        // Boosted pools 1 & 2 are the most liquid (so they rank #1 and #2 at 50%), but both share constrainedSharedBufferIn
+        const boostedPool1 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002031',
+            wTokenA,
+            wTokenC,
+            '50000',
+            '50000',
+        );
+        const boostedPool2 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002032',
+            wTokenA,
+            wTokenC,
+            '45000',
+            '45000',
+        );
+        // Pool 3 is a direct non-buffer pool (tokenA -> tokenC) ranked #3 at 50%
+        const directPool3 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002033',
+            tokenA,
+            tokenC,
+            '20000',
+            '20000',
+        );
+
+        const boostedPath1 = new PathLocal(
+            [tokenA, wTokenA, wTokenC, tokenC],
+            [constrainedSharedBufferIn, boostedPool1, sharedBufferOut],
+            [true, false, true],
+        );
+        const boostedPath2 = new PathLocal(
+            [tokenA, wTokenA, wTokenC, tokenC],
+            [constrainedSharedBufferIn, boostedPool2, sharedBufferOut],
+            [true, false, true],
+        );
+        const directPath3 = new PathLocal([tokenA, tokenC], [directPool3], [false]);
+
+        const swapAmount = TokenAmount.fromRawAmount(tokenA, parseEther('2000'));
+        const singleDirectOutput = new PathWithAmount(
+            directPath3.tokens,
+            directPath3.pools,
+            directPath3.isBuffer,
+            swapAmount,
+        ).outputAmount.amount;
+
+        // Pairing boostedPath1 (#1) + boostedPath2 (#2) fails because 1000 + 1000 = 2000 > 1500 on constrainedSharedBufferIn.
+        // Router must fall back to pairing boostedPath1 (#1, 1000 <= 1500) + directPath3 (#3, 1000), which beats 100% on directPath3!
+        const bestPaths = router.getBestPaths([boostedPath1, boostedPath2, directPath3], SwapKind.GivenIn, swapAmount);
+
+        expect(bestPaths).not.toBeNull();
+        expect(bestPaths!).toHaveLength(2);
+        expect(getOutputAmount(bestPaths!).amount).toBeGreaterThan(singleDirectOutput);
+        for (const path of bestPaths!) {
+            expect(path.swapStepsExceedingBufferCapacity).toBe(0);
+        }
+    });
 });
 
 describe('SOR pool & routing mathematical property tests', () => {
@@ -713,6 +796,367 @@ describe('SOR pool & routing mathematical property tests', () => {
             // Because token6 has 6 decimals (1 unit = 1e12 in scale18), requiredIn should be within 2 units of rawIn
             const diff = requiredIn.amount > rawIn ? requiredIn.amount - rawIn : rawIn - requiredIn.amount;
             expect(diff).toBeLessThanOrEqual(2n);
+        }
+    });
+});
+
+describe('SOR deterministic property & brute-force optimality fuzzing', () => {
+    const chainId = 11155111;
+    const tokenIn6 = new Token(chainId, '0x0000000000000000000000000000000000000f06', 6, 'USDC');
+    const tokenMid18 = new Token(chainId, '0x0000000000000000000000000000000000000f12', 18, 'WETH');
+    const tokenOut18 = new Token(chainId, '0x0000000000000000000000000000000000000f18', 18, 'DAI');
+    const wTokenIn6 = new Token(chainId, '0x0000000000000000000000000000000000000f66', 6, 'stataUSDC');
+    const wTokenOut18 = new Token(chainId, '0x0000000000000000000000000000000000000f88', 18, 'stataDAI');
+
+    // Mulberry32 deterministic PRNG for reproducible fuzz trials
+    function createRng(seed: number) {
+        let state = seed >>> 0;
+        return {
+            nextFloat(): number {
+                state = (state + 0x6d2b79f5) >>> 0;
+                let t = Math.imul(state ^ (state >>> 15), 1 | state);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            },
+            nextInt(min: number, max: number): number {
+                return Math.floor(this.nextFloat() * (max - min + 1)) + min;
+            },
+        };
+    }
+
+    function buildRandomWeightedPool(
+        id: `0x${string}`,
+        t0: Token,
+        t1: Token,
+        bal0: string,
+        bal1: string,
+        fee: string,
+        rate0 = '1',
+        rate1 = '1',
+    ): WeightedPoolV3 {
+        return WeightedPoolV3.fromPrismaPool(
+            prismaPoolFactory.build({
+                id,
+                address: id,
+                chain: Chain.SEPOLIA,
+                type: 'WEIGHTED',
+                protocolVersion: 3,
+                tokens: [
+                    prismaPoolTokenFactory.build({
+                        address: t0.address,
+                        index: 0,
+                        balance: bal0,
+                        weight: '0.5',
+                        priceRate: rate0,
+                        token: poolTokenFactory.build({ address: t0.address, decimals: t0.decimals }),
+                    }),
+                    prismaPoolTokenFactory.build({
+                        address: t1.address,
+                        index: 1,
+                        balance: bal1,
+                        weight: '0.5',
+                        priceRate: rate1,
+                        token: poolTokenFactory.build({ address: t1.address, decimals: t1.decimals }),
+                    }),
+                ],
+                dynamicData: prismaPoolDynamicDataFactory.build({
+                    swapFee: fee,
+                    aggregateSwapFee: '0.5',
+                    totalShares: bal0,
+                }),
+                liquidityManagement: {
+                    disableUnbalancedLiquidity: false,
+                    enableAddLiquidityCustom: false,
+                    enableDonation: false,
+                    enableRemoveLiquidityCustom: false,
+                },
+            }),
+        );
+    }
+
+    function canSplitOracle(pathA: PathLocal, pathB: PathLocal): boolean {
+        return !pathA.pools.some((pool) => pool.poolType !== 'Buffer' && pathB.pools.some((p) => p.id === pool.id));
+    }
+
+    function simulateQuoteOracle(
+        swapAmount: TokenAmount,
+        pathA: PathLocal,
+        ratioBps: bigint,
+        pathB?: PathLocal,
+    ): PathWithAmount[] | null {
+        try {
+            if (!pathB || ratioBps === 10_000n) {
+                const single = new PathWithAmount(pathA.tokens, pathA.pools, pathA.isBuffer, swapAmount);
+                if (single.swapStepsExceedingBufferCapacity > 0) return null;
+                const calc = single.swapKind === SwapKind.GivenIn ? single.outputAmount : single.inputAmount;
+                return calc.amount > 0n ? [single] : null;
+            }
+
+            if (!canSplitOracle(pathA, pathB)) return null;
+
+            const amountUp = swapAmount.mulDownFixed((ratioBps * 10n ** 18n) / 10_000n);
+            const amountDown = swapAmount.sub(amountUp);
+            if (amountUp.amount <= 0n || amountDown.amount <= 0n) return null;
+
+            // Check individual legs first just like quotePathsByRatio
+            const quoteA = new PathWithAmount(pathA.tokens, pathA.pools, pathA.isBuffer, amountUp);
+            const quoteB = new PathWithAmount(pathB.tokens, pathB.pools, pathB.isBuffer, amountDown);
+            if (quoteA.swapStepsExceedingBufferCapacity > 0 || quoteB.swapStepsExceedingBufferCapacity > 0) return null;
+
+            const uniquePools = [...new Set(pathA.pools.concat(pathB.pools))];
+            const poolsCopy = uniquePools.map((p) => p.copy());
+            const poolsA = pathA.pools.map((p) => poolsCopy.find((c) => c.id === p.id)!) as BasePool[];
+            const poolsB = pathB.pools.map((p) => poolsCopy.find((c) => c.id === p.id)!) as BasePool[];
+
+            const pathUp = new PathWithAmount(pathA.tokens, poolsA, pathA.isBuffer, amountUp, true);
+            const pathDown = new PathWithAmount(pathB.tokens, poolsB, pathB.isBuffer, amountDown, true);
+            if (pathUp.swapStepsExceedingBufferCapacity > 0 || pathDown.swapStepsExceedingBufferCapacity > 0) {
+                return null;
+            }
+            return [pathUp, pathDown];
+        } catch {
+            return null;
+        }
+    }
+
+    it('matches brute-force oracle optimality, wei conservation, and stateful Vault execution across 40 randomized multi-pool & Boosted topologies', () => {
+        const rng = createRng(0xdecafbad);
+        const router = new Router();
+
+        for (let trial = 0; trial < 40; trial++) {
+            const swapKind = trial % 2 === 0 ? SwapKind.GivenIn : SwapKind.GivenOut;
+
+            // Randomly sized direct, 2-hop, and shared-buffer Boosted pools
+            const balDirect1 = String(rng.nextInt(5_000, 80_000));
+            const balDirect2 = String(rng.nextInt(5_000, 80_000));
+            const balBoosted1 = String(rng.nextInt(10_000, 100_000));
+            const balBoosted2 = String(rng.nextInt(10_000, 100_000));
+            const balHop = String(rng.nextInt(15_000, 90_000));
+
+            const fee1 = `0.00${rng.nextInt(1, 9)}`;
+            const fee2 = `0.00${rng.nextInt(1, 9)}`;
+            const rateIn = `1.0${rng.nextInt(0, 9)}`;
+            const rateOut = `1.0${rng.nextInt(0, 9)}`;
+
+            const directPool1 = buildRandomWeightedPool(
+                '0x000000000000000000000000000000000000f001',
+                tokenIn6,
+                tokenOut18,
+                balDirect1,
+                balDirect1,
+                fee1,
+            );
+            const directPool2 = buildRandomWeightedPool(
+                '0x000000000000000000000000000000000000f002',
+                tokenIn6,
+                tokenOut18,
+                balDirect2,
+                balDirect2,
+                fee2,
+            );
+            const hopPoolA = buildRandomWeightedPool(
+                '0x000000000000000000000000000000000000f003',
+                tokenIn6,
+                tokenMid18,
+                balHop,
+                balHop,
+                '0.002',
+            );
+            const hopPoolB = buildRandomWeightedPool(
+                '0x000000000000000000000000000000000000f004',
+                tokenMid18,
+                tokenOut18,
+                balHop,
+                balHop,
+                '0.002',
+            );
+            const boostedPool1 = buildRandomWeightedPool(
+                '0x000000000000000000000000000000000000f005',
+                wTokenIn6,
+                wTokenOut18,
+                balBoosted1,
+                balBoosted1,
+                '0.001',
+                rateIn,
+                rateOut,
+            );
+            const boostedPool2 = buildRandomWeightedPool(
+                '0x000000000000000000000000000000000000f006',
+                wTokenIn6,
+                wTokenOut18,
+                balBoosted2,
+                balBoosted2,
+                '0.0015',
+                rateIn,
+                rateOut,
+            );
+
+            // Vary buffer deposit/withdraw caps from tight (e.g. 1,200 USDC) to ample (200,000 USDC)
+            const bufferCapIn = BigInt(rng.nextInt(1_200, 120_000)) * 10n ** 6n;
+            const bufferCapOut = BigInt(rng.nextInt(1_200, 120_000)) * 10n ** 18n;
+
+            const bufferIn = new BufferPool(
+                wTokenIn6.address,
+                wTokenIn6.address,
+                chainId,
+                parseEther(rateIn),
+                new BasePoolToken(wTokenIn6, 0n, 0),
+                new BasePoolToken(tokenIn6, 0n, 1),
+                bufferCapIn,
+                bufferCapIn,
+            );
+            const bufferOut = new BufferPool(
+                wTokenOut18.address,
+                wTokenOut18.address,
+                chainId,
+                parseEther(rateOut),
+                new BasePoolToken(wTokenOut18, 0n, 0),
+                new BasePoolToken(tokenOut18, 0n, 1),
+                bufferCapOut,
+                bufferCapOut,
+            );
+
+            const allPools: BasePool[] = [
+                directPool1,
+                directPool2,
+                hopPoolA,
+                hopPoolB,
+                boostedPool1,
+                boostedPool2,
+                bufferIn,
+                bufferOut,
+            ];
+
+            // Include odd-wei trade amounts to stress rounding conservation
+            const rawTradeUnits = BigInt(rng.nextInt(200, 8_000));
+            const rawAmount =
+                swapKind === SwapKind.GivenIn
+                    ? rawTradeUnits * 10n ** 6n + BigInt(rng.nextInt(0, 7))
+                    : rawTradeUnits * 10n ** 18n + BigInt(rng.nextInt(0, 7));
+            const amountToken = swapKind === SwapKind.GivenIn ? tokenIn6 : tokenOut18;
+            const swapAmount = TokenAmount.fromRawAmount(amountToken, rawAmount);
+
+            const candidatePaths = router.getCandidatePaths(
+                tokenIn6,
+                tokenOut18,
+                allPools,
+                swapAmount,
+                swapKind,
+                false,
+                new Map(),
+            );
+
+            expect(candidatePaths.length).toBeGreaterThan(0);
+
+            const bestPaths = router.getBestPaths(candidatePaths, swapKind, swapAmount);
+
+            const isBetter = (candidate: bigint, current: bigint | null) =>
+                current === null || (swapKind === SwapKind.GivenIn ? candidate > current : candidate < current);
+
+            // 1. Brute-force reference oracle over all single paths (100%) and valid 50/50 & 25/75 splits
+            let oracleGridBestScore: bigint | null = null;
+            // 2. Continuous 10%-step brute-force oracle (10/90, 20/80, ..., 90/10) to bound discretization loss
+            let continuous10PctBestScore: bigint | null = null;
+
+            for (const pA of candidatePaths) {
+                const single = simulateQuoteOracle(swapAmount, pA, 10_000n);
+                if (single) {
+                    const score =
+                        swapKind === SwapKind.GivenIn ? getOutputAmount(single).amount : getInputAmount(single).amount;
+                    if (isBetter(score, oracleGridBestScore)) {
+                        oracleGridBestScore = score;
+                    }
+                    if (isBetter(score, continuous10PctBestScore)) {
+                        continuous10PctBestScore = score;
+                    }
+                }
+            }
+
+            // Evaluate 2-path splits across candidate pairs for both the SOR grid (25/75, 50/50) and 10%-step continuous grid
+            for (let i = 0; i < candidatePaths.length; i++) {
+                for (let j = 0; j < candidatePaths.length; j++) {
+                    if (i === j) continue;
+                    const pA = candidatePaths[i];
+                    const pB = candidatePaths[j];
+                    if (!canSplitOracle(pA, pB)) continue;
+
+                    for (const gridBps of [2_500n, 5_000n]) {
+                        const split = simulateQuoteOracle(swapAmount, pA, gridBps, pB);
+                        if (split) {
+                            const score =
+                                swapKind === SwapKind.GivenIn
+                                    ? getOutputAmount(split).amount
+                                    : getInputAmount(split).amount;
+                            if (isBetter(score, oracleGridBestScore)) {
+                                oracleGridBestScore = score;
+                            }
+                        }
+                    }
+
+                    for (const stepBps of [1_000n, 2_000n, 3_000n, 4_000n, 5_000n, 6_000n, 7_000n, 8_000n, 9_000n]) {
+                        const split = simulateQuoteOracle(swapAmount, pA, stepBps, pB);
+                        if (split) {
+                            const score =
+                                swapKind === SwapKind.GivenIn
+                                    ? getOutputAmount(split).amount
+                                    : getInputAmount(split).amount;
+                            if (isBetter(score, continuous10PctBestScore)) {
+                                continuous10PctBestScore = score;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (oracleGridBestScore !== null) {
+                expect(bestPaths).not.toBeNull();
+
+                // Invariant 1: Exact wei conservation
+                if (swapKind === SwapKind.GivenIn) {
+                    expect(getInputAmount(bestPaths!).amount).toBe(swapAmount.amount);
+                } else {
+                    expect(getOutputAmount(bestPaths!).amount).toBe(swapAmount.amount);
+                }
+
+                // Invariant 2: Zero buffer capacity violations & no duplicate non-buffer pools across split legs
+                const seenNonBufferPools = new Set<string>();
+                for (const p of bestPaths!) {
+                    expect(p.swapStepsExceedingBufferCapacity).toBe(0);
+                    for (const pool of p.pools) {
+                        if (pool.poolType !== 'Buffer') {
+                            expect(seenNonBufferPools.has(pool.id)).toBe(false);
+                            seenNonBufferPools.add(pool.id);
+                        }
+                    }
+                }
+
+                const routerScore =
+                    swapKind === SwapKind.GivenIn
+                        ? getOutputAmount(bestPaths!).amount
+                        : getInputAmount(bestPaths!).amount;
+
+                // Invariant 3: Router must match the brute-force 25/50/75/100 grid optimum within 1 bp (99.99%)
+                // and stay within 50 bps (99.5%) of the continuous 10%-step brute-force optimum
+                if (swapKind === SwapKind.GivenIn) {
+                    expect(routerScore * 10_000n).toBeGreaterThanOrEqual(oracleGridBestScore * 9_999n);
+                    expect(routerScore * 10_000n).toBeGreaterThanOrEqual(continuous10PctBestScore! * 9_950n);
+                } else {
+                    expect(routerScore * 9_999n).toBeLessThanOrEqual(oracleGridBestScore * 10_000n);
+                    expect(routerScore * 9_950n).toBeLessThanOrEqual(continuous10PctBestScore! * 10_000n);
+                }
+
+                // Invariant 4: Stateful sequential execution invariant (BatchRouter simulation with mutateBalances = true)
+                const livePoolMap = new Map(allPools.map((p) => [p.id, p.copy()]));
+                let sequentialTotal = 0n;
+                for (const p of bestPaths!) {
+                    const statefulPools = p.pools.map((pool) => livePoolMap.get(pool.id)!);
+                    const executed = new PathWithAmount(p.tokens, statefulPools, p.isBuffer, p.swapAmount, true);
+                    expect(executed.swapStepsExceedingBufferCapacity).toBe(0);
+                    sequentialTotal +=
+                        swapKind === SwapKind.GivenIn ? executed.outputAmount.amount : executed.inputAmount.amount;
+                }
+                expect(routerScore).toBe(sequentialTotal);
+            }
         }
     });
 });

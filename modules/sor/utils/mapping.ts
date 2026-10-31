@@ -138,25 +138,27 @@ function mapBatchSwap(path: PathWithAmount, share: number): GqlSorSwapRoute {
     const tokenInAmount = formatUnits(path.inputAmount.amount, path.tokens[0].decimals);
     const tokenOutAmount = formatUnits(path.outputAmount.amount, path.tokens[path.tokens.length - 1].decimals);
 
-    const hops = [];
-    let i = 0;
-    for (const pool of path.pools) {
-        if (pool.poolType !== 'Buffer') {
-            hops.push({
-                tokenIn: `${path.tokens[i].address}`,
-                tokenOut: `${path.tokens[i + 1].address}`,
-                tokenInAmount: i === 0 ? tokenInAmount : '0',
-                tokenOutAmount: i === path.pools.length - 1 ? tokenOutAmount : '0',
-                poolId: pool.id,
-                pool: aGqlPoolMinimal({
-                    symbol: '',
-                    address: pool.address,
-                    poolTokens: [],
-                }),
-            });
-        }
-        i++;
-    }
+    const nonBufferStepIndices = path.pools
+        .map((pool, index) => (pool.poolType !== 'Buffer' ? index : -1))
+        .filter((index) => index !== -1);
+    const stepIndicesToMap =
+        nonBufferStepIndices.length > 0 ? nonBufferStepIndices : path.pools.map((_, index) => index);
+
+    const hops = stepIndicesToMap.map((stepIndex, hopIdx) => {
+        const pool = path.pools[stepIndex];
+        return {
+            tokenIn: `${path.tokens[stepIndex].address}`,
+            tokenOut: `${path.tokens[stepIndex + 1].address}`,
+            tokenInAmount: hopIdx === 0 ? tokenInAmount : '0',
+            tokenOutAmount: hopIdx === stepIndicesToMap.length - 1 ? tokenOutAmount : '0',
+            poolId: pool.id,
+            pool: aGqlPoolMinimal({
+                symbol: '',
+                address: pool.address,
+                poolTokens: [],
+            }),
+        };
+    });
 
     return {
         tokenIn,

@@ -1146,5 +1146,53 @@ describe('PathGraph search algorithms', () => {
 
             expect(excessivePaths).toHaveLength(0);
         });
+
+        test('getCandidatePaths falls back to maxDepthFallback when all paths within maxDepth fail validation', () => {
+            const g = new PathGraph();
+            const hop1 = new Token(1, '0xhop1', 18, 'HOP1');
+            const hop2 = new Token(1, '0xhop2', 18, 'HOP2');
+            const hop3 = new Token(1, '0xhop3', 18, 'HOP3');
+
+            // Shallow 2-hop path (A -> B -> D, tokenPath length = 3 <= maxDepth 3):
+            // Exists in the graph so findAllValidTokenPaths sees results.length > 0,
+            // but its second hop has a tiny limit (100n < minLimitThreshold 500n) so isValidPath rejects it!
+            const shallowPool1 = createMockPool('shallow1', [tokenA, tokenB], {
+                getLimitAmountSwap: () => 10_000n,
+            });
+            const shallowPool2Bottleneck = createMockPool('shallow2', [tokenB, tokenD], {
+                getLimitAmountSwap: () => 100n,
+            });
+
+            // Deeper 4-hop path (A -> hop1 -> hop2 -> hop3 -> D, tokenPath length = 5 > maxDepth 3, <= maxDepthFallback 5):
+            // Has ample capacity (10,000n >= 500n) on every hop.
+            const deep1 = createMockPool('deep1', [tokenA, hop1], { getLimitAmountSwap: () => 10_000n });
+            const deep2 = createMockPool('deep2', [hop1, hop2], { getLimitAmountSwap: () => 10_000n });
+            const deep3 = createMockPool('deep3', [hop2, hop3], { getLimitAmountSwap: () => 10_000n });
+            const deep4 = createMockPool('deep4', [hop3, tokenD], { getLimitAmountSwap: () => 10_000n });
+
+            g.buildGraph({
+                pools: [shallowPool1, shallowPool2Bottleneck, deep1, deep2, deep3, deep4],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: {
+                    ...baseConfig,
+                    maxDepth: 3,
+                    maxDepthFallback: 5,
+                    minSwapAmountRatio: 0.5, // minLimitThreshold = 500n
+                },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools.map((p) => p.id)).toEqual(['deep1', 'deep2', 'deep3', 'deep4']);
+        });
     });
 });

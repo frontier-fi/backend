@@ -56,4 +56,47 @@ describe('SOR mapping utils', () => {
         expect(routes[0].tokenOutAmount).toBe('0.03');
         expect(routes[1].tokenOutAmount).toBe('0.01');
     });
+
+    it('populates non-zero tokenInAmount and tokenOutAmount on route hops when path starts and ends with ERC-4626 buffers', () => {
+        const wTokenA = new Token(11155111, '0x00000000000000000000000000000000000000aa', 6, 'wUSDC');
+        const wTokenB = new Token(11155111, '0x00000000000000000000000000000000000000bb', 18, 'wWETH');
+
+        const bufferIn = {
+            id: wTokenA.address,
+            address: wTokenA.address,
+            poolType: 'Buffer',
+            swapGivenIn: () => TokenAmount.fromRawAmount(wTokenA, 25_000_000n),
+            swapGivenInGreaterThanBufferLimit: () => false,
+            getLimitAmountSwap: () => 1_000_000_000_000n,
+        } as any;
+        const boostedPool = {
+            id: '0x0000000000000000000000000000000000000099',
+            address: '0x0000000000000000000000000000000000000099',
+            poolType: 'Stable',
+            swapGivenIn: () => TokenAmount.fromRawAmount(wTokenB, 10_000_000_000_000_000n),
+        } as any;
+        const bufferOut = {
+            id: wTokenB.address,
+            address: wTokenB.address,
+            poolType: 'Buffer',
+            swapGivenIn: () => TokenAmount.fromRawAmount(tokenB, 10_000_000_000_000_000n),
+            swapGivenInGreaterThanBufferLimit: () => false,
+            getLimitAmountSwap: () => 1_000_000_000_000_000_000_000n,
+        } as any;
+
+        const boostedPath = new PathWithAmount(
+            [tokenA, wTokenA, wTokenB, tokenB],
+            [bufferIn, boostedPool, bufferOut],
+            [true, false, true],
+            TokenAmount.fromRawAmount(tokenA, 25_000_000n),
+        );
+
+        const routes = mapRoutes([boostedPath]);
+
+        expect(routes).toHaveLength(1);
+        expect(routes[0].hops).toHaveLength(1);
+        expect(routes[0].hops[0].poolId).toBe(boostedPool.id);
+        expect(routes[0].hops[0].tokenInAmount).toBe('25');
+        expect(routes[0].hops[0].tokenOutAmount).toBe('0.01');
+    });
 });

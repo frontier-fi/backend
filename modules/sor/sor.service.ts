@@ -21,6 +21,7 @@ import { PathGraphTraversalConfig } from './lib/pathGraph/pathGraphTypes';
 import { Chain } from '@prisma/client';
 
 const DEFAULT_MAX_DEPTH = 4;
+const FALLBACK_MAX_DEPTH = 6;
 
 export class SorService {
     async getSorSwapPaths(args: QuerySorGetSwapPathsArgs, signal?: AbortSignal): Promise<GqlSorGetSwapPaths> {
@@ -128,6 +129,22 @@ export class SorService {
                 swapOptions,
                 input.signal,
             );
+
+            if (!paths) {
+                swapOptions = this.buildSwapOptions(FALLBACK_MAX_DEPTH);
+                paths = await SOR.getPathsWithPools(
+                    tokenIn,
+                    tokenOut,
+                    swapKind,
+                    input.swapAmount.amount,
+                    poolsFromDb,
+                    bufferPools,
+                    input.protocolVersion,
+                    tokenPrices,
+                    swapOptions,
+                    input.signal,
+                );
+            }
 
             if (!paths) {
                 return { paths: null, protocolVersion: input.protocolVersion, returnAmount: '0' };

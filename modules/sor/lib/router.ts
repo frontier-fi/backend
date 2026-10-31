@@ -149,24 +149,64 @@ export class Router {
         }
 
         if (quotePaths75.length > 0 && quotePaths25.length > 0) {
-            // select first path from quotePaths25 that has no non-buffer pool in common with quotePaths75[0]
-            const bestPath25 = quotePaths25.find((path) => this.canSplitPaths(quotePaths75[0], path));
-            if (bestPath25) {
-                try {
-                    splitPaths.push(this.splitPaths(swapAmount, bestPath25, quotePaths75[0])); // 25/75
-                } catch (error) {
-                    console.log('Error splitting paths 25/75: ', error);
+            // select first valid 25/75 pair anchored on the best 75% path
+            for (const path75 of quotePaths75) {
+                let paired = false;
+                for (const path25 of quotePaths25) {
+                    if (!this.canSplitPaths(path75, path25)) {
+                        continue;
+                    }
+                    try {
+                        splitPaths.push(this.splitPaths(swapAmount, path25, path75)); // 25/75
+                        paired = true;
+                        break;
+                    } catch (error) {
+                        console.log('Error splitting paths 25/75: ', error);
+                    }
+                }
+                if (paired) {
+                    break;
+                }
+            }
+
+            // also try anchoring on the best 25% path paired with a compatible 75% path
+            for (const path25 of quotePaths25) {
+                let paired = false;
+                for (const path75 of quotePaths75) {
+                    if (!this.canSplitPaths(path25, path75)) {
+                        continue;
+                    }
+                    try {
+                        splitPaths.push(this.splitPaths(swapAmount, path25, path75)); // 25/75
+                        paired = true;
+                        break;
+                    } catch (error) {
+                        console.log('Error splitting paths 25/75: ', error);
+                    }
+                }
+                if (paired) {
+                    break;
                 }
             }
         }
 
         if (quotePaths50.length > 1) {
-            const secondBestPath50 = quotePaths50.find((path) => this.canSplitPaths(quotePaths50[0], path));
-            if (secondBestPath50) {
-                try {
-                    splitPaths.push(this.splitPaths(swapAmount, quotePaths50[0], secondBestPath50)); // 50/50
-                } catch (error) {
-                    console.log('Error splitting paths 50/50: ', error);
+            for (let i = 0; i < quotePaths50.length; i++) {
+                let paired = false;
+                for (let j = i + 1; j < quotePaths50.length; j++) {
+                    if (!this.canSplitPaths(quotePaths50[i], quotePaths50[j])) {
+                        continue;
+                    }
+                    try {
+                        splitPaths.push(this.splitPaths(swapAmount, quotePaths50[i], quotePaths50[j])); // 50/50
+                        paired = true;
+                        break;
+                    } catch (error) {
+                        console.log('Error splitting paths 50/50: ', error);
+                    }
+                }
+                if (paired) {
+                    break;
                 }
             }
         }

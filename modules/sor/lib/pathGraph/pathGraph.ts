@@ -123,9 +123,60 @@ export class PathGraph {
         // Calculate minimum limit threshold based on swap amount and ratio
         const minLimitThreshold = (swapAmount.amount * BigInt(Math.floor(config.minSwapAmountRatio * 100))) / 100n;
 
-        const tokenPaths = this.findAllValidTokenPaths({
+        let paths = this.findAndValidatePathsForConfig({
             tokenIn: tokenIn.address,
             tokenOut: tokenOut.address,
+            swapKind,
+            minLimitThreshold,
+            config,
+            signal,
+        });
+
+        // If shallow paths within config.maxDepth were discovered by BFS (preventing findAllValidTokenPaths
+        // from using config.maxDepthFallback), but all of those shallow paths failed validation,
+        // retry traversal up to config.maxDepthFallback.
+        if (paths.length === 0 && config.maxDepthFallback > config.maxDepth) {
+            paths = this.findAndValidatePathsForConfig({
+                tokenIn: tokenIn.address,
+                tokenOut: tokenOut.address,
+                swapKind,
+                minLimitThreshold,
+                config: { ...config, maxDepth: config.maxDepthFallback },
+                signal,
+            });
+        }
+
+        return paths.map((path) => {
+            const pathTokens: Token[] = path.map((segment) => segment.tokenOut);
+            pathTokens.unshift(tokenIn);
+            pathTokens[pathTokens.length - 1] = tokenOut;
+
+            return new PathLocal(
+                pathTokens,
+                path.map((segment) => segment.pool),
+                path.map((segment) => segment.isBuffer),
+            );
+        });
+    }
+
+    private findAndValidatePathsForConfig({
+        tokenIn,
+        tokenOut,
+        swapKind,
+        minLimitThreshold,
+        config,
+        signal,
+    }: {
+        tokenIn: string;
+        tokenOut: string;
+        swapKind: SwapKind;
+        minLimitThreshold: bigint;
+        config: PathGraphTraversalConfig;
+        signal?: AbortSignal;
+    }): PathSegment[][] {
+        const tokenPaths = this.findAllValidTokenPaths({
+            tokenIn,
+            tokenOut,
             config,
             signal,
         });
@@ -178,19 +229,7 @@ export class PathGraph {
         }
 
         // Step 2: Expand and validate the selected candidates
-        const paths = this.expandAndValidateCandidates(allPathCandidates, swapKind, minLimitThreshold, config, signal);
-
-        return paths.map((path) => {
-            const pathTokens: Token[] = path.map((segment) => segment.tokenOut);
-            pathTokens.unshift(tokenIn);
-            pathTokens[pathTokens.length - 1] = tokenOut;
-
-            return new PathLocal(
-                pathTokens,
-                path.map((segment) => segment.pool),
-                path.map((segment) => segment.isBuffer),
-            );
-        });
+        return this.expandAndValidateCandidates(allPathCandidates, swapKind, minLimitThreshold, config, signal);
     }
 
     private buildPoolAddressMap(pools: BasePool[]) {
