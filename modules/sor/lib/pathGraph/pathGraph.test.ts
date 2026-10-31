@@ -1091,5 +1091,60 @@ describe('PathGraph search algorithms', () => {
             expect(paths).toHaveLength(1);
             expect(paths[0].pools.map((p) => p.id)).toEqual(['poolAB', 'poolBC']);
         });
+
+        test('getCandidatePaths computes multi-hop SwapKind.GivenOut path limits in tokenOut units rather than tokenIn units (6-dec tokenIn -> 18-dec tokenOut)', () => {
+            const g = new PathGraph();
+            const usdc6 = new Token(1, '0xusdc', 6, 'USDC');
+            const weth18 = new Token(1, '0xweth', 18, 'WETH');
+            const dai18 = new Token(1, '0xdai', 18, 'DAI');
+
+            // Hop 1 (USDC 6-dec -> WETH 18-dec): max 30,000 USDC in (3e10 raw), max 10 WETH out (10e18 raw)
+            const poolUsdcWeth = createMockPool('poolUsdcWeth', [usdc6, weth18], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: (_tIn: Token, _tOut: Token, kind: SwapKind) =>
+                    kind === SwapKind.GivenIn ? 30_000n * 10n ** 6n : 10n * 10n ** 18n,
+            });
+
+            // Hop 2 (WETH 18-dec -> DAI 18-dec): max 50 WETH in (50e18 raw), max 100,000 DAI out (100,000e18 raw),
+            // and 1 WETH in swaps to 2,000 DAI out (so 10 WETH from Hop 1 produces 20,000 DAI max output)
+            const poolWethDai = createMockPool('poolWethDai', [weth18, dai18], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: (_tIn: Token, _tOut: Token, kind: SwapKind) =>
+                    kind === SwapKind.GivenIn ? 50n * 10n ** 18n : 100_000n * 10n ** 18n,
+                swapGivenIn: (_tIn: Token, tOut: Token, amountIn: TokenAmount) =>
+                    TokenAmount.fromRawAmount(tOut, amountIn.amount * 2_000n),
+            });
+
+            g.buildGraph({
+                pools: [poolUsdcWeth, poolWethDai],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenOut,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            // 1. A GivenOut swap for 1,000 DAI (minLimitThreshold = 500e18 DAI) is well within the 20,000 DAI path limit
+            const validPaths = g.getCandidatePaths({
+                tokenIn: usdc6,
+                tokenOut: dai18,
+                swapAmount: TokenAmount.fromRawAmount(dai18, 1_000n * 10n ** 18n),
+                swapKind: SwapKind.GivenOut,
+                graphTraversalConfig: { ...baseConfig, minSwapAmountRatio: 0.5 },
+            });
+
+            expect(validPaths).toHaveLength(1);
+            expect(validPaths[0].pools.map((p) => p.id)).toEqual(['poolUsdcWeth', 'poolWethDai']);
+
+            // 2. A GivenOut swap for 50,000 DAI (minLimitThreshold = 25,000e18 DAI) exceeds the 20,000 DAI bottleneck from Hop 1
+            const excessivePaths = g.getCandidatePaths({
+                tokenIn: usdc6,
+                tokenOut: dai18,
+                swapAmount: TokenAmount.fromRawAmount(dai18, 50_000n * 10n ** 18n),
+                swapKind: SwapKind.GivenOut,
+                graphTraversalConfig: { ...baseConfig, minSwapAmountRatio: 0.5 },
+            });
+
+            expect(excessivePaths).toHaveLength(0);
+        });
     });
 });
