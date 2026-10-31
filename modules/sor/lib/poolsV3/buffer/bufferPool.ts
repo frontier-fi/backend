@@ -15,8 +15,8 @@ export class BufferPool implements BasePoolMethodsV3 {
     public readonly swapFee = 0n;
     public readonly rate: bigint;
     public readonly tokens: BasePoolToken[];
-    public readonly maxDeposit: bigint;
-    public readonly maxWithdraw: bigint;
+    public maxDeposit: bigint;
+    public maxWithdraw: bigint;
 
     private readonly tokenMap: Map<string, BasePoolToken>;
     private readonly decimalDiff: number; // mainDecimals - underlyingDecimals
@@ -178,7 +178,12 @@ export class BufferPool implements BasePoolMethodsV3 {
         }
     }
 
-    public swapGivenIn(tokenIn: Token, tokenOut: Token, swapAmount: TokenAmount): TokenAmount {
+    public swapGivenIn(
+        tokenIn: Token,
+        tokenOut: Token,
+        swapAmount: TokenAmount,
+        mutateBalances?: boolean,
+    ): TokenAmount {
         const { tIn, tOut } = this.getPoolTokens(tokenIn, tokenOut);
 
         const calculatedAmount = this.vault.swap(
@@ -198,10 +203,21 @@ export class BufferPool implements BasePoolMethodsV3 {
             ? this.toUnderlyingDecimals(calculatedAmount) // main→underlying
             : this.toMainDecimals(calculatedAmount); // underlying→main
 
-        return TokenAmount.fromRawAmount(tOut.token, scaledAmount);
+        const outputAmount = TokenAmount.fromRawAmount(tOut.token, scaledAmount);
+
+        if (mutateBalances) {
+            this.mutateBufferState(isUnwrap, swapAmount, outputAmount);
+        }
+
+        return outputAmount;
     }
 
-    public swapGivenOut(tokenIn: Token, tokenOut: Token, swapAmount: TokenAmount): TokenAmount {
+    public swapGivenOut(
+        tokenIn: Token,
+        tokenOut: Token,
+        swapAmount: TokenAmount,
+        mutateBalances?: boolean,
+    ): TokenAmount {
         const { tIn, tOut } = this.getPoolTokens(tokenIn, tokenOut);
 
         const calculatedAmount = this.vault.swap(
@@ -221,7 +237,48 @@ export class BufferPool implements BasePoolMethodsV3 {
             ? this.toMainDecimals(calculatedAmount) // underlyingDec→mainDec
             : this.toUnderlyingDecimals(calculatedAmount); // mainDec→underlyingDec
 
-        return TokenAmount.fromRawAmount(tIn.token, scaledAmount);
+        const inputAmount = TokenAmount.fromRawAmount(tIn.token, scaledAmount);
+
+        if (mutateBalances) {
+            this.mutateBufferState(isUnwrap, inputAmount, swapAmount);
+        }
+
+        return inputAmount;
+    }
+
+    private mutateBufferState(isUnwrap: boolean, inputAmount: TokenAmount, outputAmount: TokenAmount): void {
+        const mainTokenAmount = this.tokens[0];
+        const underlyingTokenAmount = this.tokens[1];
+
+        if (!isUnwrap) {
+            // wrap: inputAmount is underlying, outputAmount is main
+            const mainAsUnderlying = this.toUnderlyingDecimals(MathSol.mulDownFixed(mainTokenAmount.amount, this.rate));
+            const wrapRequiredToRebalance =
+                (mainAsUnderlying + underlyingTokenAmount.amount) / 2n - underlyingTokenAmount.amount;
+
+            if (wrapRequiredToRebalance > this.maxDeposit) {
+                mainTokenAmount.amount =
+                    mainTokenAmount.amount > outputAmount.amount ? mainTokenAmount.amount - outputAmount.amount : 0n;
+                underlyingTokenAmount.amount += inputAmount.amount;
+            } else {
+                this.maxDeposit = this.maxDeposit > inputAmount.amount ? this.maxDeposit - inputAmount.amount : 0n;
+            }
+        } else {
+            // unwrap: inputAmount is main, outputAmount is underlying
+            const underlyingAsMain = this.toMainDecimals(MathSol.divDownFixed(underlyingTokenAmount.amount, this.rate));
+            const maxWithdrawAsMain = this.toMainDecimals(MathSol.divDownFixed(this.maxWithdraw, this.rate));
+            const unwrapRequiredToRebalance = (underlyingAsMain + mainTokenAmount.amount) / 2n - mainTokenAmount.amount;
+
+            if (unwrapRequiredToRebalance > maxWithdrawAsMain) {
+                underlyingTokenAmount.amount =
+                    underlyingTokenAmount.amount > outputAmount.amount
+                        ? underlyingTokenAmount.amount - outputAmount.amount
+                        : 0n;
+                mainTokenAmount.amount += inputAmount.amount;
+            } else {
+                this.maxWithdraw = this.maxWithdraw > outputAmount.amount ? this.maxWithdraw - outputAmount.amount : 0n;
+            }
+        }
     }
 
     public getPoolState(): BufferState {

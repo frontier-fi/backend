@@ -448,13 +448,17 @@ export class PathGraph {
             if (poolLimitExactOut <= limit) {
                 limit = poolLimitExactIn;
             } else {
-                const pulledLimit = path[i].pool.swapGivenOut(
-                    path[i].tokenIn,
-                    path[i].tokenOut,
-                    TokenAmount.fromRawAmount(path[i].tokenOut, limit),
-                ).amount;
+                try {
+                    const pulledLimit = path[i].pool.swapGivenOut(
+                        path[i].tokenIn,
+                        path[i].tokenOut,
+                        TokenAmount.fromRawAmount(path[i].tokenOut, limit),
+                    ).amount;
 
-                limit = pulledLimit > poolLimitExactIn ? poolLimitExactIn : pulledLimit;
+                    limit = pulledLimit > poolLimitExactIn ? poolLimitExactIn : pulledLimit;
+                } catch {
+                    limit = (poolLimitExactIn * limit) / poolLimitExactOut;
+                }
             }
         }
 

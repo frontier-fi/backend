@@ -149,10 +149,8 @@ export class Router {
         }
 
         if (quotePaths75.length > 0 && quotePaths25.length > 0) {
-            // select first path from quotePaths25 that has no pool in common with quotePaths75[0]
-            const bestPath25 = quotePaths25.find(
-                (path) => !quotePaths75[0].pools.some((pool) => path.pools.some((p) => p.id === pool.id)),
-            );
+            // select first path from quotePaths25 that has no non-buffer pool in common with quotePaths75[0]
+            const bestPath25 = quotePaths25.find((path) => this.canSplitPaths(quotePaths75[0], path));
             if (bestPath25) {
                 try {
                     splitPaths.push(this.splitPaths(swapAmount, bestPath25, quotePaths75[0])); // 25/75
@@ -163,9 +161,7 @@ export class Router {
         }
 
         if (quotePaths50.length > 1) {
-            const secondBestPath50 = quotePaths50.find(
-                (path) => !quotePaths50[0].pools.some((pool) => path.pools.some((p) => p.id === pool.id)),
-            );
+            const secondBestPath50 = quotePaths50.find((path) => this.canSplitPaths(quotePaths50[0], path));
             if (secondBestPath50) {
                 try {
                     splitPaths.push(this.splitPaths(swapAmount, quotePaths50[0], secondBestPath50)); // 50/50
@@ -197,6 +193,16 @@ export class Router {
         }
 
         return bestSplitPaths;
+    }
+
+    private canSplitPaths(pathA: PathLocal, pathB: PathLocal): boolean {
+        const hasNonBufferPool =
+            pathA.pools.some((pool) => pool.poolType !== 'Buffer') ||
+            pathB.pools.some((pool) => pool.poolType !== 'Buffer');
+        if (!hasNonBufferPool) {
+            return !pathA.pools.some((pool) => pathB.pools.some((p) => p.id === pool.id));
+        }
+        return !pathA.pools.some((pool) => pool.poolType !== 'Buffer' && pathB.pools.some((p) => p.id === pool.id));
     }
 
     // split paths making sure there is no dust left behind from rounding swapAmount ratios
