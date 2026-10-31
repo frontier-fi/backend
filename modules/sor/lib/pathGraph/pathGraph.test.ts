@@ -981,5 +981,70 @@ describe('PathGraph search algorithms', () => {
 
             expect(paths.length).toBeLessThanOrEqual(5);
         });
+
+        test('selectTopCandidatesPerTokenPath computes non-zero bottleneck boundNL and ranks most liquid combinations first', () => {
+            const g = new PathGraph();
+
+            const pABHigh = createMockPool('pABHigh', [tokenA, tokenB], { getNormalizedLiquidity: () => 1000n });
+            const pABLow = createMockPool('pABLow', [tokenA, tokenB], { getNormalizedLiquidity: () => 100n });
+            const pBCHigh = createMockPool('pBCHigh', [tokenB, tokenC], { getNormalizedLiquidity: () => 900n });
+            const pBCLow = createMockPool('pBCLow', [tokenB, tokenC], { getNormalizedLiquidity: () => 50n });
+
+            g.buildGraph({
+                pools: [pABHigh, pABLow, pBCHigh, pBCLow],
+                enableAddRemoveLiquidityPaths: false,
+                maxPathSegmentsPerTokenPair: 2,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const edgesAB = (g as any).edges.get(tokenA.address).get(tokenB.address);
+            const edgesBC = (g as any).edges.get(tokenB.address).get(tokenC.address);
+
+            const top1 = (g as any).selectTopCandidatesPerTokenPath([edgesAB, edgesBC], 1);
+
+            expect(top1).toHaveLength(1);
+            // Best combination is [0, 0] (pABHigh=1000n + pBCHigh=900n -> bottleneck 900n), NOT [1, 1] (boundNL=0n)
+            expect(top1[0].ranks).toEqual([0, 0]);
+            expect(top1[0].boundNL).toBe(900n);
+        });
+
+        test('buildGraph does not allow zero-limit dead pools to evict live pools when tokenPrices is missing', () => {
+            const g = new PathGraph();
+
+            // A dead/paused pool or depleted buffer with stale high normalizedLiquidity (2000n) but 0n swap limit
+            const deadHighNLPool = createMockPool('deadHighNL', [tokenA, tokenB], {
+                getNormalizedLiquidity: () => 2000n,
+                getLimitAmountSwap: () => 0n,
+            });
+            // A live pool with lower normalizedLiquidity (500n) and healthy swap limit (10000n)
+            const livePool = createMockPool('livePool', [tokenA, tokenB], {
+                getNormalizedLiquidity: () => 500n,
+                getLimitAmountSwap: () => 10_000n,
+            });
+
+            // Even when tokenPrices is empty (e.g. unpriced Sepolia test tokens -> minLimitThresholdUSD = 0),
+            // deadHighNLPool (limit = 0n) must not evict livePool when maxPathSegmentsPerTokenPair = 1
+            g.buildGraph({
+                pools: [deadHighNLPool, livePool],
+                enableAddRemoveLiquidityPaths: false,
+                maxPathSegmentsPerTokenPair: 1,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenB,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: { ...baseConfig },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools[0].id).toBe('livePool');
+        });
     });
 });
