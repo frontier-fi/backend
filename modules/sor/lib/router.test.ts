@@ -4,6 +4,7 @@ import { parseEther } from 'viem';
 
 import { Router } from './router';
 import { SOR } from './sor';
+import { PathGraph } from './pathGraph/pathGraph';
 import { BasePool } from './basePool';
 import { PathLocal, PathWithAmount } from './path';
 import { BufferPool } from './poolsV3/buffer/bufferPool';
@@ -938,6 +939,132 @@ describe('Router split-routing & conservation invariants', () => {
             { minSplitBenefitBps: 500n },
         );
         expect(singleWithHurdleQuote).toHaveLength(1);
+    });
+
+    it('retries with maxDepthFallback in SOR.getPathsWithPools without rebuilding PathGraph when shallow paths fail multi-hop quoting', async () => {
+        const tokenM1 = new Token(chainId, '0x00000000000000000000000000000000000000d1', 18, 'M1');
+        const tokenM2 = new Token(chainId, '0x00000000000000000000000000000000000000d2', 18, 'M2');
+
+        const makePrismaWeightedPool = (id: `0x${string}`, t0: Token, t1: Token, bal0: string, bal1: string) =>
+            prismaPoolFactory.build({
+                id,
+                address: id,
+                chain: Chain.SEPOLIA,
+                type: 'WEIGHTED',
+                protocolVersion: 3,
+                tokens: [
+                    prismaPoolTokenFactory.build({
+                        address: t0.address,
+                        index: 0,
+                        balance: bal0,
+                        weight: '0.5',
+                        priceRate: '1',
+                        token: poolTokenFactory.build({ address: t0.address, decimals: 18 }),
+                    }),
+                    prismaPoolTokenFactory.build({
+                        address: t1.address,
+                        index: 1,
+                        balance: bal1,
+                        weight: '0.5',
+                        priceRate: '1',
+                        token: poolTokenFactory.build({ address: t1.address, decimals: 18 }),
+                    }),
+                ],
+                dynamicData: prismaPoolDynamicDataFactory.build({
+                    swapFee: '0.003',
+                    aggregateSwapFee: '0',
+                    totalShares: bal0,
+                    tokenPairsData: [
+                        {
+                            tokenA: t0.address,
+                            tokenB: t1.address,
+                            normalizedLiquidity: '5000000000000000000000',
+                            spotPrice: '1',
+                        },
+                    ],
+                }),
+                liquidityManagement: {
+                    disableUnbalancedLiquidity: true,
+                    enableAddLiquidityCustom: false,
+                    enableDonation: false,
+                    enableRemoveLiquidityCustom: false,
+                },
+            });
+
+        // Shallow 2-hop path (A -> M1 -> C, token length 3 <= maxDepth 3):
+        // Hop 1 (A -> M1) has deep liquidity (passes 50% minLimitThreshold),
+        // Hop 2 (M1 -> C) has tiny liquidity (100 M1, max swap = 30 M1) -> passes PathGraph's > 0n check when no USD prices
+        // are provided, so getCandidatePaths(maxDepth: 3) returns [A -> M1 -> C], which then reverts in getBestPaths even at 25% (250 A).
+        const shallowHop1 = makePrismaWeightedPool(
+            '0x0000000000000000000000000000000000002081',
+            tokenA,
+            tokenM1,
+            '10000',
+            '10000',
+        );
+        const shallowHop2Bottleneck = makePrismaWeightedPool(
+            '0x0000000000000000000000000000000000002082',
+            tokenM1,
+            tokenC,
+            '100',
+            '100',
+        );
+
+        // Deeper 3-hop path (A -> M2 -> B -> C, token length 4 > maxDepth 3, <= maxDepthFallback 5): all hops have deep liquidity
+        const deepHop1 = makePrismaWeightedPool(
+            '0x0000000000000000000000000000000000002083',
+            tokenA,
+            tokenM2,
+            '10000',
+            '10000',
+        );
+        const deepHop2 = makePrismaWeightedPool(
+            '0x0000000000000000000000000000000000002084',
+            tokenM2,
+            tokenB,
+            '10000',
+            '10000',
+        );
+        const deepHop3 = makePrismaWeightedPool(
+            '0x0000000000000000000000000000000000002085',
+            tokenB,
+            tokenC,
+            '10000',
+            '10000',
+        );
+
+        const buildGraphSpy = vi.spyOn(PathGraph.prototype, 'buildGraph');
+        try {
+            const paths = await SOR.getPathsWithPools(
+                tokenA,
+                tokenC,
+                SwapKind.GivenIn,
+                parseEther('1000'),
+                [shallowHop1, shallowHop2Bottleneck, deepHop1, deepHop2, deepHop3],
+                [],
+                3,
+                new Map(),
+                {
+                    graphTraversalConfig: {
+                        maxDepth: 3,
+                        maxDepthFallback: 5,
+                    },
+                },
+            );
+
+            expect(paths).not.toBeNull();
+            expect(paths!).toHaveLength(1);
+            expect(paths![0].tokens.map((t) => t.address)).toEqual([
+                tokenA.address,
+                tokenM2.address,
+                tokenB.address,
+                tokenC.address,
+            ]);
+            // Graph was built only once across initial + fallback traversal
+            expect(buildGraphSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            buildGraphSpy.mockRestore();
+        }
     });
 });
 

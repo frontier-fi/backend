@@ -17,7 +17,6 @@ import {
 } from './utils';
 import { PathWithAmount } from './lib/path';
 import { getInputAmount, getOutputAmount } from './lib/utils';
-import { DEFAULT_MAX_DEPTH_FALLBACK } from './lib/pathGraph/pathGraph';
 import { Chain } from '@prisma/client';
 
 export class SorService {
@@ -112,7 +111,7 @@ export class SorService {
                 throw new SorAbortError();
             }
 
-            let paths = await SOR.getPathsWithPools(
+            const paths = await SOR.getPathsWithPools(
                 tokenIn,
                 tokenOut,
                 swapKind,
@@ -124,27 +123,6 @@ export class SorService {
                 undefined,
                 input.signal,
             );
-
-            // retry with fallback max depth if shallow paths were found by BFS but rejected during quoting
-            if (!paths) {
-                paths = await SOR.getPathsWithPools(
-                    tokenIn,
-                    tokenOut,
-                    swapKind,
-                    input.swapAmount.amount,
-                    poolsFromDb,
-                    bufferPools,
-                    input.protocolVersion,
-                    tokenPrices,
-                    {
-                        graphTraversalConfig: {
-                            maxDepth: DEFAULT_MAX_DEPTH_FALLBACK,
-                            maxDepthFallback: DEFAULT_MAX_DEPTH_FALLBACK,
-                        },
-                    },
-                    input.signal,
-                );
-            }
 
             if (!paths) {
                 return { paths: null, protocolVersion: input.protocolVersion, returnAmount: '0' };

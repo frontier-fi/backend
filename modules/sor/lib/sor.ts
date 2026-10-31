@@ -1,6 +1,7 @@
 import { SwapKind, Token } from '@balancer/sdk';
 
 import { Router } from './router';
+import { DEFAULT_MAX_DEPTH, DEFAULT_MAX_DEPTH_FALLBACK } from './pathGraph/pathGraph';
 import { SorAbortError } from '../errors';
 import { PrismaPoolAndHookWithDynamic } from '../../../prisma/prisma-types';
 import { checkInputs, isLiquidityManagement } from './utils/helpers';
@@ -127,12 +128,49 @@ export class SOR {
             throw new SorAbortError();
         }
 
-        const bestPaths = router.getBestPaths(
+        let bestPaths = router.getBestPaths(
             candidatePaths,
             swapKind,
             checkedSwapAmount,
             swapOptions?.minSplitBenefitBps,
         );
+
+        // Retry traversal with maxDepthFallback on the already-built graph if shallow paths were found by BFS
+        // but all failed end-to-end quoting in getBestPaths
+        const maxDepth = swapOptions?.graphTraversalConfig?.maxDepth ?? DEFAULT_MAX_DEPTH;
+        const maxDepthFallback = swapOptions?.graphTraversalConfig?.maxDepthFallback ?? DEFAULT_MAX_DEPTH_FALLBACK;
+        if (!bestPaths && maxDepthFallback > maxDepth) {
+            if (signal?.aborted) {
+                throw new SorAbortError();
+            }
+            const fallbackCandidates = router.getCandidatePaths(
+                tokenIn,
+                tokenOut,
+                basePools,
+                checkedSwapAmount,
+                swapKind,
+                protocolVersion === 3,
+                tokenPrices,
+                {
+                    ...swapOptions?.graphTraversalConfig,
+                    maxDepth: maxDepthFallback,
+                    maxDepthFallback,
+                },
+                signal,
+                false,
+            );
+            if (fallbackCandidates.length > 0) {
+                if (signal?.aborted) {
+                    throw new SorAbortError();
+                }
+                bestPaths = router.getBestPaths(
+                    fallbackCandidates,
+                    swapKind,
+                    checkedSwapAmount,
+                    swapOptions?.minSplitBenefitBps,
+                );
+            }
+        }
 
         if (!bestPaths) return null;
 

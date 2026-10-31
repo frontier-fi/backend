@@ -23,21 +23,24 @@ export class Router {
         tokenPrices: Map<string, number>,
         graphTraversalConfig?: Partial<PathGraphTraversalConfig>,
         signal?: AbortSignal,
+        rebuildGraph = true,
     ): PathLocal[] {
-        const minSwapAmountRatio = graphTraversalConfig?.minSwapAmountRatio ?? 0.5;
-        // Compute USD threshold if prices provided
-        const priceToken = swapKind === SwapKind.GivenIn ? tokenIn : tokenOut;
-        const price = tokenPrices.get(priceToken.address.toLowerCase());
-        const amount = Number(formatUnits(swapAmount.amount, priceToken.decimals));
-        const minLimitThresholdUSD = amount * minSwapAmountRatio * (price ?? 0);
+        if (rebuildGraph) {
+            const minSwapAmountRatio = graphTraversalConfig?.minSwapAmountRatio ?? 0.5;
+            // Compute USD threshold if prices provided
+            const priceToken = swapKind === SwapKind.GivenIn ? tokenIn : tokenOut;
+            const price = tokenPrices.get(priceToken.address.toLowerCase());
+            const amount = Number(formatUnits(swapAmount.amount, priceToken.decimals));
+            const minLimitThresholdUSD = amount * minSwapAmountRatio * (price ?? 0);
 
-        this.pathGraph.buildGraph({
-            pools,
-            enableAddRemoveLiquidityPaths,
-            swapKind,
-            tokenPrices,
-            minLimitThresholdUSD,
-        });
+            this.pathGraph.buildGraph({
+                pools,
+                enableAddRemoveLiquidityPaths,
+                swapKind,
+                tokenPrices,
+                minLimitThresholdUSD,
+            });
+        }
 
         const candidatePaths = this.pathGraph.getCandidatePaths({
             tokenIn,
@@ -421,6 +424,11 @@ export class Router {
         if (calcUp.amount <= 0n || calcDown.amount <= 0n) {
             throw new Error('Split path returned zero amount');
         }
+
+        // Restore unmutated pool references so downstream consumers (e.g. priceImpact probe quoting)
+        // observe the pre-swap pool state, matching single-path quotes.
+        (pathUp as { pools: BasePool[] }).pools = pathA.pools;
+        (pathDown as { pools: BasePool[] }).pools = pathB.pools;
 
         return [pathUp, pathDown];
     }
