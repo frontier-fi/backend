@@ -11,6 +11,12 @@ import { BufferPool, GyroECLPPool, StablePoolV3, WeightedPoolV3 } from './poolsV
 import { BufferPoolData } from '../utils/data';
 
 export class SOR {
+    private static readonly prismaPoolCache = new WeakMap<
+        PrismaPoolAndHookWithDynamic,
+        { stateKey: string; pool: BasePool }
+    >();
+    private static readonly bufferPoolCache = new WeakMap<BufferPoolData, { stateKey: string; pool: BufferPool }>();
+
     static async getPathsWithPools(
         tokenIn: Token,
         tokenOut: Token,
@@ -49,19 +55,31 @@ export class SOR {
                 continue;
             }
             try {
+                const stateKey = `${prismaPool.dynamicData?.swapFee ?? ''}:${prismaPool.dynamicData?.totalShares ?? ''}:${prismaPool.tokens.map((t) => `${t.balance}:${t.priceRate}`).join(',')}`;
+                const cached = this.prismaPoolCache.get(prismaPool);
+                if (cached && cached.stateKey === stateKey) {
+                    basePools.push(cached.pool.copy());
+                    continue;
+                }
+
+                let pool: BasePool | undefined;
                 switch (prismaPool.type) {
                     case 'WEIGHTED':
-                        basePools.push(WeightedPoolV3.fromPrismaPool(prismaPool));
+                        pool = WeightedPoolV3.fromPrismaPool(prismaPool);
                         break;
                     case 'STABLE':
-                        basePools.push(StablePoolV3.fromPrismaPool(prismaPool));
+                        pool = StablePoolV3.fromPrismaPool(prismaPool);
                         break;
                     case 'ECLP':
-                        basePools.push(GyroECLPPool.fromPrismaPool(prismaPool));
+                        pool = GyroECLPPool.fromPrismaPool(prismaPool);
                         break;
                     default:
                         console.log('Unsupported pool type');
                         break;
+                }
+                if (pool) {
+                    this.prismaPoolCache.set(prismaPool, { stateKey, pool });
+                    basePools.push(pool.copy());
                 }
             } catch (e: any) {
                 // Do nothing, just skip the pool
@@ -71,7 +89,15 @@ export class SOR {
 
         if (protocolVersion === 3) {
             for (const bufferPool of bufferPools) {
-                basePools.push(BufferPool.fromBufferPoolData(bufferPool));
+                const stateKey = `${bufferPool.unwrapRate}:${bufferPool.mainToken.balance}:${bufferPool.underlyingToken.balance}:${bufferPool.maxDeposit}:${bufferPool.maxWithdraw}`;
+                const cached = this.bufferPoolCache.get(bufferPool);
+                if (cached && cached.stateKey === stateKey) {
+                    basePools.push(cached.pool.copy());
+                    continue;
+                }
+                const pool = BufferPool.fromBufferPoolData(bufferPool);
+                this.bufferPoolCache.set(bufferPool, { stateKey, pool });
+                basePools.push(pool.copy());
             }
         }
 
@@ -101,7 +127,12 @@ export class SOR {
             throw new SorAbortError();
         }
 
-        const bestPaths = router.getBestPaths(candidatePaths, swapKind, checkedSwapAmount);
+        const bestPaths = router.getBestPaths(
+            candidatePaths,
+            swapKind,
+            checkedSwapAmount,
+            swapOptions?.minSplitBenefitBps,
+        );
 
         if (!bestPaths) return null;
 

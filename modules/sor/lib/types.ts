@@ -12,5 +12,6 @@ export interface SorSwapOptions {
     slippage?: bigint;
     funds?: FundManagement;
     deadline?: bigint;
+    minSplitBenefitBps?: bigint;
     graphTraversalConfig?: Partial<PathGraphTraversalConfig>;
 }

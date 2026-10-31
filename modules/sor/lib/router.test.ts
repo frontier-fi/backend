@@ -3,6 +3,7 @@ import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
 import { parseEther } from 'viem';
 
 import { Router } from './router';
+import { SOR } from './sor';
 import { BasePool } from './basePool';
 import { PathLocal, PathWithAmount } from './path';
 import { BufferPool } from './poolsV3/buffer/bufferPool';
@@ -661,6 +662,283 @@ describe('Router split-routing & conservation invariants', () => {
             expect(path.swapStepsExceedingBufferCapacity).toBe(0);
         }
     });
+
+    it('refines split ratios locally (e.g. 40/60) to beat coarse 25/75 and 50/50 splits on asymmetric pools', () => {
+        const router = new Router();
+        // Pool 1 has 40,000 liquidity and Pool 2 has 60,000 liquidity -> exact optimal split is 40% / 60%
+        const pool40 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002041',
+            tokenA,
+            tokenB,
+            '40000',
+            '40000',
+        );
+        const pool60 = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002042',
+            tokenA,
+            tokenB,
+            '60000',
+            '60000',
+        );
+
+        const path40 = new PathLocal([tokenA, tokenB], [pool40], [false]);
+        const path60 = new PathLocal([tokenA, tokenB], [pool60], [false]);
+        const swapAmount = TokenAmount.fromRawAmount(tokenA, parseEther('5000'));
+
+        // Compute coarse 50/50 and 25/75 outputs for comparison
+        const out50 =
+            new PathWithAmount(
+                path40.tokens,
+                [pool40.copy()],
+                [false],
+                TokenAmount.fromRawAmount(tokenA, parseEther('2500')),
+            ).outputAmount.amount +
+            new PathWithAmount(
+                path60.tokens,
+                [pool60.copy()],
+                [false],
+                TokenAmount.fromRawAmount(tokenA, parseEther('2500')),
+            ).outputAmount.amount;
+        const out25_75 =
+            new PathWithAmount(
+                path40.tokens,
+                [pool40.copy()],
+                [false],
+                TokenAmount.fromRawAmount(tokenA, parseEther('1250')),
+            ).outputAmount.amount +
+            new PathWithAmount(
+                path60.tokens,
+                [pool60.copy()],
+                [false],
+                TokenAmount.fromRawAmount(tokenA, parseEther('3750')),
+            ).outputAmount.amount;
+
+        const bestPaths = router.getBestPaths([path40, path60], SwapKind.GivenIn, swapAmount);
+        expect(bestPaths).not.toBeNull();
+        expect(bestPaths!).toHaveLength(2);
+
+        const refinedOut = getOutputAmount(bestPaths!).amount;
+        expect(refinedOut).toBeGreaterThan(out50);
+        expect(refinedOut).toBeGreaterThan(out25_75);
+    });
+
+    it('clamps a buffer-constrained Boosted path to its exact buffer limit when it fails even the 25% grid checkpoint', () => {
+        const router = new Router();
+        const wTokenA = new Token(chainId, '0x0000000000000000000000000000000000000a04', 18, 'wTokenA');
+
+        // Buffer only has capacity for 200 tokenA (20% of a 1000 tokenA swap -> fails at 25%, 50%, 75%, and 100% checkpoints!)
+        const tightBufferIn = new BufferPool(
+            '0x000000000000000000000000000000000000b070',
+            '0x000000000000000000000000000000000000b070',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenA, 0n, 0),
+            new BasePoolToken(tokenA, 0n, 1),
+            parseEther('200'),
+            parseEther('200'),
+        );
+
+        // Deep Boosted pool with low fee (0.01%) vs shallower direct pool with higher fee (0.3%)
+        const deepBoostedPool = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002051',
+            wTokenA,
+            tokenC,
+            '100000',
+            '100000',
+            '0.0001',
+        );
+        const directPool = createWeightedPairPool(
+            '0x0000000000000000000000000000000000002052',
+            tokenA,
+            tokenC,
+            '10000',
+            '10000',
+            '0.003',
+        );
+
+        const boostedPath = new PathLocal([tokenA, wTokenA, tokenC], [tightBufferIn, deepBoostedPool], [true, false]);
+        const directPath = new PathLocal([tokenA, tokenC], [directPool], [false]);
+
+        const swapAmount = TokenAmount.fromRawAmount(tokenA, parseEther('1000'));
+        const singleDirectOut = new PathWithAmount(directPath.tokens, directPath.pools, directPath.isBuffer, swapAmount)
+            .outputAmount.amount;
+
+        const bestPaths = router.getBestPaths([boostedPath, directPath], SwapKind.GivenIn, swapAmount);
+        expect(bestPaths).not.toBeNull();
+        expect(bestPaths!).toHaveLength(2);
+        // First leg is clamped to the exact 200 tokenA buffer cap, second leg routes the remaining 800 tokenA
+        expect(bestPaths![0].inputAmount.amount).toBe(parseEther('200'));
+        expect(bestPaths![1].inputAmount.amount).toBe(parseEther('800'));
+        expect(getOutputAmount(bestPaths!).amount).toBeGreaterThan(singleDirectOut);
+        for (const path of bestPaths!) {
+            expect(path.swapStepsExceedingBufferCapacity).toBe(0);
+        }
+    });
+
+    it('avoids unnecessary 2-path splits when splitting yields zero improvement or falls below minSplitBenefitBps', () => {
+        const router = new Router();
+        const wTokenA = new Token(chainId, '0x0000000000000000000000000000000000000a05', 18, 'wTokenA');
+
+        // 1. Two linear 1:1 BufferPools have zero price impact -> splitting 50/50 produces 0 gain over a single path
+        const linearBuf1 = new BufferPool(
+            '0x000000000000000000000000000000000000b081',
+            '0x000000000000000000000000000000000000b081',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenA, parseEther('10000'), 0),
+            new BasePoolToken(tokenA, parseEther('10000'), 1),
+            parseEther('10000'),
+            parseEther('10000'),
+        );
+        const linearBuf2 = new BufferPool(
+            '0x000000000000000000000000000000000000b082',
+            '0x000000000000000000000000000000000000b082',
+            chainId,
+            parseEther('1'),
+            new BasePoolToken(wTokenA, parseEther('10000'), 0),
+            new BasePoolToken(tokenA, parseEther('10000'), 1),
+            parseEther('10000'),
+            parseEther('10000'),
+        );
+
+        const bufPath1 = new PathLocal([tokenA, wTokenA], [linearBuf1], [true]);
+        const bufPath2 = new PathLocal([tokenA, wTokenA], [linearBuf2], [true]);
+        const swapAmount = TokenAmount.fromRawAmount(tokenA, parseEther('100'));
+
+        const linearBest = router.getBestPaths([bufPath1, bufPath2], SwapKind.GivenIn, swapAmount);
+        expect(linearBest).not.toBeNull();
+        expect(linearBest!).toHaveLength(1);
+
+        // 2. Two Weighted pools where 50/50 split improves output by ~49 bps:
+        //    - With default minSplitBenefitBps = 0n, it splits into 2 paths.
+        //    - With minSplitBenefitBps = 100n (100 bps hurdle), it prefers the single 100% path.
+        const pool1 = createWeightedPairPool('0x0000000000000000000000000000000000002061', tokenA, tokenB);
+        const pool2 = createWeightedPairPool('0x0000000000000000000000000000000000002062', tokenA, tokenB);
+        const wPath1 = new PathLocal([tokenA, tokenB], [pool1], [false]);
+        const wPath2 = new PathLocal([tokenA, tokenB], [pool2], [false]);
+
+        const splitWithHurdle = router.getBestPaths([wPath1, wPath2], SwapKind.GivenIn, swapAmount, 100n);
+        expect(splitWithHurdle).not.toBeNull();
+        expect(splitWithHurdle!).toHaveLength(1);
+    });
+
+    it('caches BasePool prototypes in SOR.getPathsWithPools across repeated calls while isolating balance mutations and invalidating on state change', async () => {
+        const prismaPool = prismaPoolFactory.build({
+            id: '0x0000000000000000000000000000000000002071',
+            address: '0x0000000000000000000000000000000000002071',
+            chain: Chain.SEPOLIA,
+            type: 'WEIGHTED',
+            protocolVersion: 3,
+            tokens: [
+                prismaPoolTokenFactory.build({
+                    address: tokenA.address,
+                    index: 0,
+                    balance: '10000',
+                    weight: '0.5',
+                    priceRate: '1',
+                    token: poolTokenFactory.build({ address: tokenA.address, decimals: 18 }),
+                }),
+                prismaPoolTokenFactory.build({
+                    address: tokenB.address,
+                    index: 1,
+                    balance: '10000',
+                    weight: '0.5',
+                    priceRate: '1',
+                    token: poolTokenFactory.build({ address: tokenB.address, decimals: 18 }),
+                }),
+            ],
+            dynamicData: prismaPoolDynamicDataFactory.build({
+                swapFee: '0.003',
+                aggregateSwapFee: '0',
+                totalShares: '10000',
+                tokenPairsData: [
+                    {
+                        tokenA: tokenA.address,
+                        tokenB: tokenB.address,
+                        normalizedLiquidity: '5000000000000000000000',
+                        spotPrice: '1',
+                    },
+                ],
+            }),
+            liquidityManagement: {
+                disableUnbalancedLiquidity: true,
+                enableAddLiquidityCustom: false,
+                enableDonation: false,
+                enableRemoveLiquidityCustom: false,
+            },
+        });
+
+        const quote1 = await SOR.getPathsWithPools(
+            tokenA,
+            tokenB,
+            SwapKind.GivenIn,
+            parseEther('500'),
+            [prismaPool],
+            [],
+            3,
+            new Map(),
+        );
+        const quote2 = await SOR.getPathsWithPools(
+            tokenA,
+            tokenB,
+            SwapKind.GivenIn,
+            parseEther('500'),
+            [prismaPool],
+            [],
+            3,
+            new Map(),
+        );
+
+        expect(quote1).not.toBeNull();
+        expect(quote2).not.toBeNull();
+        expect(quote1![0].outputAmount.amount).toBe(quote2![0].outputAmount.amount);
+
+        // Mutating token balance on the same prismaPool object reference must invalidate the cached prototype
+        prismaPool.tokens[1].balance = '20000';
+        const quoteAfterBalanceIncrease = await SOR.getPathsWithPools(
+            tokenA,
+            tokenB,
+            SwapKind.GivenIn,
+            parseEther('500'),
+            [prismaPool],
+            [],
+            3,
+            new Map(),
+        );
+        expect(quoteAfterBalanceIncrease![0].outputAmount.amount).toBeGreaterThan(quote1![0].outputAmount.amount);
+
+        // Threading swapOptions.minSplitBenefitBps through SOR.getPathsWithPools:
+        // With two identical pools, default minSplitBenefitBps splits into 2 paths, whereas a 500 bps hurdle keeps 1 path
+        const prismaPool2 = {
+            ...prismaPool,
+            id: '0x0000000000000000000000000000000000002072' as const,
+            address: '0x0000000000000000000000000000000000002072' as const,
+        };
+        const splitQuote = await SOR.getPathsWithPools(
+            tokenA,
+            tokenB,
+            SwapKind.GivenIn,
+            parseEther('200'),
+            [prismaPool, prismaPool2],
+            [],
+            3,
+            new Map(),
+        );
+        expect(splitQuote).toHaveLength(2);
+
+        const singleWithHurdleQuote = await SOR.getPathsWithPools(
+            tokenA,
+            tokenB,
+            SwapKind.GivenIn,
+            parseEther('200'),
+            [prismaPool, prismaPool2],
+            [],
+            3,
+            new Map(),
+            { minSplitBenefitBps: 500n },
+        );
+        expect(singleWithHurdleQuote).toHaveLength(1);
+    });
 });
 
 describe('SOR pool & routing mathematical property tests', () => {
@@ -1135,14 +1413,14 @@ describe('SOR deterministic property & brute-force optimality fuzzing', () => {
                         ? getOutputAmount(bestPaths!).amount
                         : getInputAmount(bestPaths!).amount;
 
-                // Invariant 3: Router must match the brute-force 25/50/75/100 grid optimum within 1 bp (99.99%)
-                // and stay within 50 bps (99.5%) of the continuous 10%-step brute-force optimum
+                // Invariant 3: Router must match both the brute-force 25/50/75/100 grid optimum
+                // and the continuous 10%-step brute-force optimum within 1 bp (99.99%)
                 if (swapKind === SwapKind.GivenIn) {
                     expect(routerScore * 10_000n).toBeGreaterThanOrEqual(oracleGridBestScore * 9_999n);
-                    expect(routerScore * 10_000n).toBeGreaterThanOrEqual(continuous10PctBestScore! * 9_950n);
+                    expect(routerScore * 10_000n).toBeGreaterThanOrEqual(continuous10PctBestScore! * 9_999n);
                 } else {
                     expect(routerScore * 9_999n).toBeLessThanOrEqual(oracleGridBestScore * 10_000n);
-                    expect(routerScore * 9_950n).toBeLessThanOrEqual(continuous10PctBestScore! * 10_000n);
+                    expect(routerScore * 9_999n).toBeLessThanOrEqual(continuous10PctBestScore! * 10_000n);
                 }
 
                 // Invariant 4: Stateful sequential execution invariant (BatchRouter simulation with mutateBalances = true)

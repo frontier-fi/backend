@@ -6,6 +6,8 @@ import { formatUnits } from 'viem';
 import { SorAbortError } from '../../errors';
 
 const DEFAULT_MAX_PATH_SEGMENTS_PER_TOKEN_PAIR = 4;
+export const DEFAULT_MAX_DEPTH = 8;
+export const DEFAULT_MAX_DEPTH_FALLBACK = 10;
 
 type PathCandidateProps = { ranks: number[]; boundNL: bigint };
 
@@ -110,12 +112,13 @@ export class PathGraph {
 
         // apply defaults, allowing caller override whatever they'd like
         const config: PathGraphTraversalConfig = {
-            maxDepth: 8,
-            maxDepthFallback: 10,
+            maxDepth: DEFAULT_MAX_DEPTH,
+            maxDepthFallback: DEFAULT_MAX_DEPTH_FALLBACK,
             maxQueue: 1_000_000,
             maxTokenPaths: 50,
             maxBuffersInPath: isHyperEvm ? 2 : 5, // limited only on HyperEvm due to gas cost limits on small blocks - virtually unlimited otherwise
             maxCandidatesPerTokenPath: 20,
+            maxCandidatesGlobally: 100,
             minSwapAmountRatio: 0.5, // Default to 50% so we're sure selected paths support splitPath logic
             ...graphTraversalConfig,
         };
@@ -187,10 +190,10 @@ export class PathGraph {
         }
 
         // Step 1: Generate all candidate combinations across all token paths
-        const allPathCandidates: Array<{
+        const candidateGroups: Array<{
             tokenPath: string[];
             pathSegmentsPerTokenPair: PathSegment[][];
-            pathCandidateProps: PathCandidateProps;
+            candidates: PathCandidateProps[];
         }> = [];
 
         for (const tokenPath of tokenPaths) {
@@ -214,14 +217,20 @@ export class PathGraph {
                 config.maxCandidatesPerTokenPath,
             );
 
-            for (const pathCandidateProps of pathCandidates) {
-                allPathCandidates.push({
+            if (pathCandidates.length > 0) {
+                candidateGroups.push({
                     tokenPath,
                     pathSegmentsPerTokenPair,
-                    pathCandidateProps,
+                    candidates: pathCandidates,
                 });
             }
         }
+
+        // Apply global beam search cap across all token paths by bottleneck normalized liquidity
+        const allPathCandidates = this.selectTopCandidatesGlobally(
+            candidateGroups,
+            config.maxCandidatesGlobally ?? 100,
+        );
 
         // Check if aborted before validation
         if (signal?.aborted) {
@@ -403,7 +412,15 @@ export class PathGraph {
             const neighbors = this.edges.get(node);
             if (!neighbors) continue;
 
-            for (const [neighbor] of neighbors) {
+            // Visit neighbors in descending order of their top edge's normalizedLiquidity
+            // so that high-liquidity corridors are prioritized when maxTokenPaths is reached
+            const sortedNeighbors = [...neighbors.entries()].sort((a, b) => {
+                const liqA = a[1][0]?.normalizedLiquidity ?? 0n;
+                const liqB = b[1][0]?.normalizedLiquidity ?? 0n;
+                return liqA > liqB ? -1 : liqA < liqB ? 1 : 0;
+            });
+
+            for (const [neighbor] of sortedNeighbors) {
                 // small hot-path optimization: check length bounds before cloning array
                 const maxDepth = results.length > 0 ? config.maxDepth : config.maxDepthFallback;
                 if (tokenPath.length + 1 > maxDepth) continue;
@@ -597,26 +614,30 @@ export class PathGraph {
         allCandidates: Array<{
             tokenPath: string[];
             pathSegmentsPerTokenPair: PathSegment[][];
-            candidates: { ranks: number[]; boundNL: bigint }[];
+            candidates: PathCandidateProps[];
         }>,
         beamWidth: number,
     ): Array<{
         tokenPath: string[];
         pathSegmentsPerTokenPair: PathSegment[][];
-        candidate: { ranks: number[]; boundNL: bigint };
+        pathCandidateProps: PathCandidateProps;
     }> {
         // Flatten all candidates with their associated data
         const flattenedCandidates = allCandidates.flatMap(({ tokenPath, pathSegmentsPerTokenPair, candidates }) =>
-            candidates.map((candidate) => ({
+            candidates.map((pathCandidateProps) => ({
                 tokenPath,
                 pathSegmentsPerTokenPair,
-                candidate,
+                pathCandidateProps,
             })),
         );
 
         // Sort by bottleneck normalized liquidity (descending) and take top K
         flattenedCandidates.sort((a, b) =>
-            a.candidate.boundNL < b.candidate.boundNL ? 1 : a.candidate.boundNL > b.candidate.boundNL ? -1 : 0,
+            a.pathCandidateProps.boundNL < b.pathCandidateProps.boundNL
+                ? 1
+                : a.pathCandidateProps.boundNL > b.pathCandidateProps.boundNL
+                  ? -1
+                  : 0,
         );
 
         return flattenedCandidates.slice(0, beamWidth);

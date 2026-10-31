@@ -1194,5 +1194,126 @@ describe('PathGraph search algorithms', () => {
             expect(paths).toHaveLength(1);
             expect(paths[0].pools.map((p) => p.id)).toEqual(['deep1', 'deep2', 'deep3', 'deep4']);
         });
+
+        test('default maxDepth (8) discovers multi-hop Regular + Boosted (5 tokens) and Boosted + Boosted (7 tokens) routes alongside a direct pool', () => {
+            const g = new PathGraph();
+            const wA = new Token(1, '0xwa', 18, 'wA');
+            const wB1 = new Token(1, '0xwb1', 18, 'wB1');
+            const wB2 = new Token(1, '0xwb2', 18, 'wB2');
+            const wD = new Token(1, '0xwd', 18, 'wD');
+
+            // 1. Direct shallow pool (A -> D, 2 tokens)
+            const directPool = createMockPool('directAD', [tokenA, tokenD]);
+
+            // 2. 7-token (6-hop) Boosted -> Boosted route: A -> [bufA] -> wA -> [boosted1] -> wB1 -> [bufB1] -> B -> [bufB2] -> wB2 -> [boosted2] -> wD -> [bufD] -> D
+            const bufA = createMockPool('bufA', [tokenA, wA], { poolType: 'Buffer' });
+            const boosted1 = createMockPool('boosted1', [wA, wB1]);
+            const bufB1 = createMockPool('bufB1', [wB1, tokenB], { poolType: 'Buffer' });
+            const bufB2 = createMockPool('bufB2', [tokenB, wB2], { poolType: 'Buffer' });
+            const boosted2 = createMockPool('boosted2', [wB2, wD]);
+            const bufD = createMockPool('bufD', [wD, tokenD], { poolType: 'Buffer' });
+
+            g.buildGraph({
+                pools: [directPool, bufA, boosted1, bufB1, bufB2, boosted2, bufD],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            // Using PathGraph's default traversal config (no maxDepth override)
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+            });
+
+            const poolIdLists = paths.map((p) => p.pools.map((pool) => pool.id));
+            expect(poolIdLists).toContainEqual(['directAD']);
+            expect(poolIdLists).toContainEqual(['bufA', 'boosted1', 'bufB1', 'bufB2', 'boosted2', 'bufD']);
+        });
+
+        test('findAllValidTokenPaths expands neighbors in descending normalizedLiquidity order when maxTokenPaths caps BFS', () => {
+            const g = new PathGraph();
+            const hub = new Token(1, '0xhub', 18);
+            const target = new Token(1, '0xtarget', 18);
+            const spokes = Array.from({ length: 6 }, (_, i) => new Token(1, `0xspoke${i}`, 18));
+
+            // Insert spokes in ascending liquidity order (spoke0 = 100n ... spoke5 = 600n)
+            const pools = spokes.flatMap((spoke, i) => {
+                const liq = BigInt((i + 1) * 100);
+                return [
+                    createMockPool(`hub_${i}`, [hub, spoke], { getNormalizedLiquidity: () => liq }),
+                    createMockPool(`spoke_${i}`, [spoke, target], { getNormalizedLiquidity: () => liq }),
+                ];
+            });
+
+            g.buildGraph({
+                pools,
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const tokenPaths = g['findAllValidTokenPaths']({
+                tokenIn: hub.address,
+                tokenOut: target.address,
+                config: { ...baseConfig, maxTokenPaths: 3 },
+            });
+
+            // Must prioritize the 3 highest-liquidity spokes (spoke5, spoke4, spoke3) rather than insertion order (spoke0, spoke1, spoke2)
+            expect(tokenPaths).toEqual([
+                [hub.address, spokes[5].address, target.address],
+                [hub.address, spokes[4].address, target.address],
+                [hub.address, spokes[3].address, target.address],
+            ]);
+        });
+
+        test('getCandidatePaths applies selectTopCandidatesGlobally (maxCandidatesGlobally) across all token paths by bottleneck liquidity', () => {
+            const g = new PathGraph();
+            const midLow = new Token(1, '0xmidlow', 18);
+            const midHigh = new Token(1, '0xmidhigh', 18);
+
+            // Token path 1 (A -> midLow -> D): bottleneck liquidity = 200n
+            const pLow1 = createMockPool('pLow1', [tokenA, midLow], { getNormalizedLiquidity: () => 900n });
+            const pLow2 = createMockPool('pLow2', [midLow, tokenD], { getNormalizedLiquidity: () => 200n });
+
+            // Token path 2 (A -> midHigh -> D): 2 candidates with bottleneck liquidity 850n and 750n
+            const pHigh1a = createMockPool('pHigh1a', [tokenA, midHigh], { getNormalizedLiquidity: () => 850n });
+            const pHigh1b = createMockPool('pHigh1b', [tokenA, midHigh], { getNormalizedLiquidity: () => 750n });
+            const pHigh2 = createMockPool('pHigh2', [midHigh, tokenD], { getNormalizedLiquidity: () => 950n });
+
+            g.buildGraph({
+                pools: [pLow1, pLow2, pHigh1a, pHigh1b, pHigh2],
+                enableAddRemoveLiquidityPaths: false,
+                maxPathSegmentsPerTokenPair: 4,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: {
+                    ...baseConfig,
+                    maxCandidatesPerTokenPath: 5,
+                    maxCandidatesGlobally: 2,
+                    minSwapAmountRatio: 0,
+                },
+            });
+
+            // Global beam search must keep only the top 2 candidates by bottleneck NL (850n and 750n on midHigh),
+            // pruning the 200n bottleneck candidate on midLow even though pLow1 had 900n first-hop liquidity!
+            expect(paths).toHaveLength(2);
+            expect(paths.map((p) => p.pools.map((pool) => pool.id))).toEqual([
+                ['pHigh1a', 'pHigh2'],
+                ['pHigh1b', 'pHigh2'],
+            ]);
+        });
     });
 });

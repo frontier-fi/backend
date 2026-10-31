@@ -26,6 +26,7 @@ export interface PathGraphTraversalConfig {
     maxTokenPaths: number;
     maxBuffersInPath: number;
     maxCandidatesPerTokenPath: number;
+    maxCandidatesGlobally?: number;
     minSwapAmountRatio: number;
     poolIdsToInclude?: string[];
 }
