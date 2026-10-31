@@ -2,11 +2,33 @@ import { Chain, PrismaPoolType } from '@prisma/client';
 import { PoolType } from '../subgraphs/pools/generated/types';
 import { StableData } from '../../pool/subgraph-pool';
 import { V3JoinedSubgraphPool } from '../subgraphs';
-import { parseEther } from 'viem';
+import { parseEther, zeroAddress } from 'viem';
 import { PoolUpsertData } from '../../../prisma/prisma-types';
 import { hookTransformer } from './hook-transformer';
 import { normalizeAddress } from '../../web3/addresses';
 import _ from 'lodash';
+
+const resolvePriceRateProvider = (
+    rateProviders: V3JoinedSubgraphPool['rateProviders'],
+    tokenAddress: string,
+    index: number,
+): string => {
+    if (!rateProviders || rateProviders.length === 0) {
+        return zeroAddress;
+    }
+    const normalizedToken = normalizeAddress(tokenAddress);
+    const byToken = rateProviders.find(
+        (rp) => rp?.token?.address && normalizeAddress(rp.token.address) === normalizedToken,
+    );
+    if (byToken) {
+        return normalizeAddress(byToken.address);
+    }
+    const positional = rateProviders[index];
+    if (positional && !positional.token?.address && positional.address) {
+        return normalizeAddress(positional.address);
+    }
+    return zeroAddress;
+};
 
 // Subgraph to DB format transformation
 export const poolUpsertTransformerV3 = (
@@ -100,7 +122,7 @@ export const poolUpsertTransformerV3 = (
             address: normalizeAddress(token.address),
             index: token.index,
             nestedPoolId: token.nestedPool ? normalizeAddress(token.nestedPool.id) : null,
-            priceRateProvider: normalizeAddress(poolData.rateProviders![i].address),
+            priceRateProvider: resolvePriceRateProvider(poolData.rateProviders, token.address, i),
             exemptFromProtocolYieldFee: !token.paysYieldFees,
             scalingFactor: token.scalingFactor,
             balance: token.balance,

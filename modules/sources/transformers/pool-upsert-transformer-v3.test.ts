@@ -308,4 +308,25 @@ describe('poolUpsertTransformerV3', () => {
         expect(sepoliaPool('stable').hookConfig.hook.address).toBe('0x0000000000000000000000000000000000000000');
         expect(poolUpsertTransformerV3(sepoliaPool('stable'), Chain.SEPOLIA, 1)?.pool.hook).toBeUndefined();
     });
+
+    it('matches rateProviders by token.address and defaults missing entries to zeroAddress', () => {
+        const wethRateProvider = '0x9999999999999999999999999999999999999999';
+        const checksummedWeth = '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9';
+        const sparse = poolUpsertTransformerV3(
+            sepoliaPool('weighted', {
+                // Only token[1] (WETH) has a RateProvider row; token[0] (USDC) has none
+                rateProviders: [{ address: wethRateProvider, token: { address: checksummedWeth } }],
+            }),
+            Chain.SEPOLIA,
+            1,
+        );
+
+        expect(sparse?.poolToken[0].address).toBe(USDC);
+        expect(sparse?.poolToken[0].priceRateProvider).toBe(ZERO);
+        expect(sparse?.poolToken[1].address).toBe(WETH);
+        expect(sparse?.poolToken[1].priceRateProvider).toBe(wethRateProvider);
+
+        const empty = poolUpsertTransformerV3(sepoliaPool('weighted', { rateProviders: [] }), Chain.SEPOLIA, 1);
+        expect(empty?.poolToken.map((t) => t.priceRateProvider)).toEqual([ZERO, ZERO]);
+    });
 });
