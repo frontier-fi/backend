@@ -1578,6 +1578,10 @@ describe('SOR deterministic property & brute-force optimality fuzzing', () => {
             poolType: 'Weighted',
             swapFee: 0n,
             tokens: [],
+            getPoolTokens: (tIn: Token, tOut: Token) => ({
+                tIn: new BasePoolToken(tIn, parseEther('1000000'), 0),
+                tOut: new BasePoolToken(tOut, parseEther('1000000'), 1),
+            }),
             getNormalizedLiquidity: () => parseEther('1'),
             getLimitAmountSwap: () => parseEther('1000000'),
             swapGivenIn: (_tIn: Token, _tOut: Token, amount: TokenAmount) =>
