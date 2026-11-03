@@ -64,7 +64,7 @@ export class WeightedPoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
             pool.address,
             pool.chain,
             parseEther(pool.dynamicData.swapFee),
-            parseEther(pool.dynamicData.aggregateSwapFee),
+            pool.dynamicData.isInRecoveryMode ? 0n : parseEther(pool.dynamicData.aggregateSwapFee),
             parseEther(pool.dynamicData.totalShares),
             poolTokens,
             pool.dynamicData.tokenPairsData as TokenPairData[],

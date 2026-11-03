@@ -16,6 +16,11 @@ fragment TypePool on Pool {
     }
     stableParams {
         amp
+        ampStartValue
+        ampEndValue
+        ampStartTime
+        ampEndTime
+        ampIsUpdating
     }
     eclpParams {
         alpha

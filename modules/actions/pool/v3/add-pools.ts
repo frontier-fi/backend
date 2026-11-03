@@ -105,9 +105,35 @@ export const addPools = async (
                                 ...token,
                                 chain,
                             },
-                            update: token.address === pool.id ? token : {},
+                            update: token.address === pool.id || token.underlyingTokenAddress ? token : {},
                         }),
                     )) ||
+                    []),
+                ...((tokens &&
+                    tokens
+                        .filter((token) => Boolean(token.underlyingTokenAddress))
+                        .map((token) =>
+                            prisma.prismaTokenType.upsert({
+                                where: {
+                                    id_chain: {
+                                        id: `${token.address}-erc4626`,
+                                        chain,
+                                    },
+                                },
+                                create: {
+                                    id: `${token.address}-erc4626`,
+                                    chain,
+                                    tokenAddress: token.address,
+                                    type: 'ERC4626',
+                                },
+                                update: {
+                                    id: `${token.address}-erc4626`,
+                                    chain,
+                                    tokenAddress: token.address,
+                                    type: 'ERC4626',
+                                },
+                            }),
+                        )) ||
                     []),
                 ...((poolToken &&
                     poolToken.map((token) =>

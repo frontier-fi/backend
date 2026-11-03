@@ -79,8 +79,10 @@ export function PoolController(tracer?: any) {
                 })
             ).map(({ id }) => id);
 
+            const lastSyncedBlock = await getLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3);
+
             let poolsToSync: V3JoinedSubgraphPool[] = [];
-            if (syncNewPoolsOnly) {
+            if (syncNewPoolsOnly && lastSyncedBlock > 0) {
                 poolsToSync = pools.filter((pool) => !dbIds.includes(pool.id));
             } else {
                 poolsToSync = pools;
@@ -97,12 +99,26 @@ export function PoolController(tracer?: any) {
                 chain,
             );
 
-            // Sync token flags for the new tokens
-            await syncErc4626Tokens(
-                getViemClient(chain),
-                chain,
-                inserts.flatMap(({ tokens }) => tokens),
-            );
+            // Skip the 7-call ERC4626 RPC probe for tokens already classified by the vault subgraph (token.isErc4626)
+            const subgraphClassifiedAddresses = new Set<string>();
+            for (const pool of poolsToSync) {
+                subgraphClassifiedAddresses.add(pool.id.toLowerCase());
+                for (const pt of pool.tokens) {
+                    if (pt.token?.isErc4626 !== undefined) {
+                        subgraphClassifiedAddresses.add(pt.address.toLowerCase());
+                        if (pt.token.underlyingToken?.address) {
+                            subgraphClassifiedAddresses.add(pt.token.underlyingToken.address.toLowerCase());
+                        }
+                    }
+                }
+            }
+            const unclassifiedTokens = inserts
+                .flatMap(({ tokens }) => tokens)
+                .filter((t) => !subgraphClassifiedAddresses.has(t.address.toLowerCase()));
+
+            if (unclassifiedTokens.length > 0) {
+                await syncErc4626Tokens(getViemClient(chain), chain, unclassifiedTokens);
+            }
 
             await syncRateProviderReviews();
 
@@ -176,6 +192,21 @@ export function PoolController(tracer?: any) {
                 }
 
                 changedIds = Array.from(allChangedPools).map((pool) => pool.toLowerCase());
+            }
+
+            // Include any V3 STABLE pool currently in the middle of an amp ramp so amp & tokenPair
+            // data stay synced without requiring a subgraph polling blockHandler.
+            const rampingStablePools = await prisma.prismaPool.findMany({
+                where: {
+                    chain,
+                    protocolVersion: 3,
+                    type: 'STABLE',
+                    typeData: { path: ['ampIsUpdating'], equals: true },
+                },
+                select: { id: true },
+            });
+            if (rampingStablePools.length > 0) {
+                changedIds = Array.from(new Set([...changedIds, ...rampingStablePools.map((p) => p.id.toLowerCase())]));
             }
 
             if (changedIds.length === 0) {

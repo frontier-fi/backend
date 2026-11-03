@@ -8,7 +8,7 @@ import {
     LiquidityManagement,
 } from '../../../apps/api/gql/generated-schema';
 import _ from 'lodash';
-import { EclpData, StableData } from '../subgraph-pool';
+import { EclpData, resolveStableAmp, StableData } from '../subgraph-pool';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { zeroAddress } from 'viem';
@@ -430,7 +430,7 @@ export class PoolAggregatorLoader {
             case 'STABLE':
                 return {
                     ...mappedData,
-                    amp: (typeData as StableData).amp,
+                    amp: resolveStableAmp(typeData as StableData),
                 };
             case 'ECLP':
                 return {

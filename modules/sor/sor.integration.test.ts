@@ -736,7 +736,9 @@ describe.skipIf(!process.env.TEST_LIVE_RPC)(
         let blockNumber: bigint;
         let knownPrismaPools: PrismaPoolAndHookWithDynamic[];
         let clusterPrismaPools: PrismaPoolAndHookWithDynamic[];
+        let manifestPrismaPools: PrismaPoolAndHookWithDynamic[];
         let boostedPrismaPool: PrismaPoolAndHookWithDynamic;
+        let manifestBoostedPrismaPool: PrismaPoolAndHookWithDynamic;
         let boostedBufferPools: BufferPoolData[];
 
         const T0 = new Token(chainId, '0x04d41887928367030259cd4bd9e75cce2bd682b4', 18);
@@ -753,13 +755,22 @@ describe.skipIf(!process.env.TEST_LIVE_RPC)(
                 { id: '0x16338e097e4d0dcd8c7a2bc7fa68d64438fdd09d', type: 'STABLE' }, // T2-T7
             ] as const;
 
+            const manifestSpecs = [
+                { id: '0x4898409f170de235844822a9545a54dbe637c049', type: 'STABLE' }, // 3-token USDC-USDT-DAI
+                { id: '0x38b18996af15a435083b02055f6ba54350394743', type: 'WEIGHTED' }, // 20/80 WBTC-USDC
+                { id: '0xfd6bb4aa6d62147bdbe1c8666f4f84863c597798', type: 'GYROE' }, // WETH-USDC ECLP
+                { id: '0x1a9f43c8feb989e4d08adfd03084bc9c1edbb7c6', type: 'WEIGHTED' }, // 50/50 T1-USDC
+                { id: '0x310ae5f8d67fac313f5a47ac0dfff7df216c8e79', type: 'WEIGHTED' }, // 50/50 WBTC-AAVE
+            ] as const;
+
             const boostedSpecs = [
-                { id: '0xd0d0f7908328d5de430e741f5376db1aae7b60b3', type: 'WEIGHTED' }, // stataEthWBTC-stataEthAAVE
+                { id: '0xd0d0f7908328d5de430e741f5376db1aae7b60b3', type: 'WEIGHTED' }, // stataEthWBTC-stataEthAAVE (v1)
+                { id: '0x8e06ef1a2e854feaee0a83510acd05f8e443fa4f', type: 'WEIGHTED' }, // stataEthWBTC-stataEthAAVE (manifest)
                 { id: '0x131a121bda71ed810bcaf2ac9079214925e59c18', type: 'Buffer' }, // stataEthWBTC
                 { id: '0x56771cef0cb422e125564cccc98bb05fdc718e77', type: 'Buffer' }, // stataEthAAVE
             ] as const;
 
-            const [rawKnown, rawCluster, rawBoosted] = await Promise.all([
+            const [rawKnown, rawCluster, rawManifest, rawBoosted] = await Promise.all([
                 Promise.all(
                     KNOWN_POOLS.map((p) =>
                         fetchOnChainPool(
@@ -775,13 +786,19 @@ describe.skipIf(!process.env.TEST_LIVE_RPC)(
                     clusterSpecs.map((p) => fetchOnChainPool(rpcUrl, chainId, blockNumber, p.type, p.id as Address)),
                 ),
                 Promise.all(
+                    manifestSpecs.map((p) => fetchOnChainPool(rpcUrl, chainId, blockNumber, p.type, p.id as Address)),
+                ),
+                Promise.all(
                     boostedSpecs.map((p) => fetchOnChainPool(rpcUrl, chainId, blockNumber, p.type, p.id as Address)),
                 ),
             ]);
 
             knownPrismaPools = mapPools(rawKnown as any);
             clusterPrismaPools = mapPools(rawCluster as any);
-            boostedPrismaPool = mapPools(rawBoosted as any)[0];
+            manifestPrismaPools = mapPools(rawManifest as any);
+            const mappedBoostedPools = mapPools(rawBoosted as any);
+            boostedPrismaPool = mappedBoostedPools[0];
+            manifestBoostedPrismaPool = mappedBoostedPools[1];
             boostedBufferPools = mapBufferPools(rawBoosted as any);
         }, 60_000);
 
@@ -1012,6 +1029,229 @@ describe.skipIf(!process.env.TEST_LIVE_RPC)(
                 SwapKind.GivenOut,
                 100_000_000_000_000_000n,
                 [boostedPrismaPool],
+                boostedBufferPools,
+                3,
+                new Map(),
+            );
+            expect(sorBoostedOut).not.toBeNull();
+            expect(sorBoostedOut![0].isBuffer).toEqual([true, false, true]);
+
+            const onChainBoostedOut = await queryBatchRouterWithViem({
+                client,
+                batchRouterAddress,
+                swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenOut, sorBoostedOut!),
+                blockNumber,
+            });
+            const sorAmountIn = Number(formatUnits(getInputAmount(sorBoostedOut!).amount, WBTC.decimals));
+            const onChainAmountIn = Number(formatUnits(onChainBoostedOut.totalAmounts[0], WBTC.decimals));
+            expect(onChainAmountIn / sorAmountIn).toBeCloseTo(1, 3);
+        }, 60_000);
+
+        test('matches live BatchRouter with 0-wei drift across all 3 pairs of the 3-token StablePool (USDC/USDT/DAI, 6/6/18 decimals) for GivenIn and GivenOut', async () => {
+            const stable3Pool = manifestPrismaPools[0]; // 0x4898409f170de235844822a9545a54dbe637c049
+            expect(stable3Pool.tokens).toHaveLength(3);
+
+            const poolTokens = stable3Pool.tokens.map(
+                (pt) => new Token(chainId, pt.address as Address, pt.token.decimals),
+            );
+            const pairs = [
+                [poolTokens[0], poolTokens[1]],
+                [poolTokens[0], poolTokens[2]],
+                [poolTokens[1], poolTokens[2]],
+            ] as const;
+
+            for (const [tokenIn, tokenOut] of pairs) {
+                const amountInRaw = 100n * 10n ** BigInt(tokenIn.decimals); // 100 units
+
+                const sorPathsIn = await SOR.getPathsWithPools(
+                    tokenIn,
+                    tokenOut,
+                    SwapKind.GivenIn,
+                    amountInRaw,
+                    [stable3Pool],
+                    [],
+                    3,
+                    new Map(),
+                );
+                expect(sorPathsIn).not.toBeNull();
+
+                const onChainExactIn = await queryBatchRouterWithViem({
+                    client,
+                    batchRouterAddress,
+                    swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenIn, sorPathsIn!),
+                    blockNumber,
+                });
+                expect(onChainExactIn.totalAmounts[0]).toBe(getOutputAmount(sorPathsIn!).amount);
+
+                const targetOutRaw = getOutputAmount(sorPathsIn!).amount;
+                const sorPathsOut = await SOR.getPathsWithPools(
+                    tokenIn,
+                    tokenOut,
+                    SwapKind.GivenOut,
+                    targetOutRaw,
+                    [stable3Pool],
+                    [],
+                    3,
+                    new Map(),
+                );
+                expect(sorPathsOut).not.toBeNull();
+
+                const onChainExactOut = await queryBatchRouterWithViem({
+                    client,
+                    batchRouterAddress,
+                    swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenOut, sorPathsOut!),
+                    blockNumber,
+                });
+                expect(onChainExactOut.totalAmounts[0]).toBe(getInputAmount(sorPathsOut!).amount);
+            }
+        }, 60_000);
+
+        test('matches live BatchRouter with 0-wei drift on manifest 20/80 WEIGHTED (WBTC/USDC), WETH/USDC ECLP, T1/USDC, and WBTC/AAVE pools for GivenIn and GivenOut', async () => {
+            for (const prismaPool of manifestPrismaPools.slice(1)) {
+                const t0 = new Token(
+                    chainId,
+                    prismaPool.tokens[0].address as Address,
+                    prismaPool.tokens[0].token.decimals,
+                );
+                const t1 = new Token(
+                    chainId,
+                    prismaPool.tokens[1].address as Address,
+                    prismaPool.tokens[1].token.decimals,
+                );
+                const amountInRaw = 10n ** BigInt(Math.max(1, t0.decimals - 3)); // 0.001 tokenIn
+
+                const sorPathsIn = await SOR.getPathsWithPools(
+                    t0,
+                    t1,
+                    SwapKind.GivenIn,
+                    amountInRaw,
+                    [prismaPool],
+                    [],
+                    3,
+                    new Map(),
+                );
+                expect(sorPathsIn).not.toBeNull();
+
+                const onChainExactIn = await queryBatchRouterWithViem({
+                    client,
+                    batchRouterAddress,
+                    swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenIn, sorPathsIn!),
+                    blockNumber,
+                });
+                expect(onChainExactIn.totalAmounts[0]).toBe(getOutputAmount(sorPathsIn!).amount);
+
+                const targetOutRaw = getOutputAmount(sorPathsIn!).amount;
+                const sorPathsOut = await SOR.getPathsWithPools(
+                    t0,
+                    t1,
+                    SwapKind.GivenOut,
+                    targetOutRaw,
+                    [prismaPool],
+                    [],
+                    3,
+                    new Map(),
+                );
+                expect(sorPathsOut).not.toBeNull();
+
+                const onChainExactOut = await queryBatchRouterWithViem({
+                    client,
+                    batchRouterAddress,
+                    swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenOut, sorPathsOut!),
+                    blockNumber,
+                });
+                expect(onChainExactOut.totalAmounts[0]).toBe(getInputAmount(sorPathsOut!).amount);
+            }
+        }, 60_000);
+
+        test('matches live BatchRouter with 0-wei drift on cross-decimal multi-hop (WBTC 8 dec -> USDC 6 dec -> T1 18 dec) for GivenIn and GivenOut', async () => {
+            const wbtcUsdcPool = manifestPrismaPools[1]; // 0x38b18996af15a435083b02055f6ba54350394743
+            const t1UsdcPool = manifestPrismaPools[3]; // 0x1a9f43c8feb989e4d08adfd03084bc9c1edbb7c6
+            const WBTC = new Token(chainId, '0x29f2d40b0605204364af54ec677bd022da425d03', 8, 'WBTC');
+
+            const sorMultiHopIn = await SOR.getPathsWithPools(
+                WBTC,
+                T1,
+                SwapKind.GivenIn,
+                100_000n, // 0.001 WBTC
+                [wbtcUsdcPool, t1UsdcPool],
+                [],
+                3,
+                new Map(),
+            );
+            expect(sorMultiHopIn).not.toBeNull();
+            expect(sorMultiHopIn![0].pools).toHaveLength(2);
+
+            const onChainMultiHopIn = await queryBatchRouterWithViem({
+                client,
+                batchRouterAddress,
+                swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenIn, sorMultiHopIn!),
+                blockNumber,
+            });
+            expect(onChainMultiHopIn.pathAmounts).toEqual(sorMultiHopIn!.map((p) => p.outputAmount.amount));
+            expect(onChainMultiHopIn.totalAmounts[0]).toBe(getOutputAmount(sorMultiHopIn!).amount);
+
+            const targetOutRaw = getOutputAmount(sorMultiHopIn!).amount;
+            const sorMultiHopOut = await SOR.getPathsWithPools(
+                WBTC,
+                T1,
+                SwapKind.GivenOut,
+                targetOutRaw,
+                [wbtcUsdcPool, t1UsdcPool],
+                [],
+                3,
+                new Map(),
+            );
+            expect(sorMultiHopOut).not.toBeNull();
+            expect(sorMultiHopOut![0].pools).toHaveLength(2);
+
+            const onChainMultiHopOut = await queryBatchRouterWithViem({
+                client,
+                batchRouterAddress,
+                swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenOut, sorMultiHopOut!),
+                blockNumber,
+            });
+            expect(onChainMultiHopOut.pathAmounts).toEqual(sorMultiHopOut!.map((p) => p.inputAmount.amount));
+            expect(onChainMultiHopOut.totalAmounts[0]).toBe(getInputAmount(sorMultiHopOut!).amount);
+        }, 60_000);
+
+        test('matches live BatchRouter on manifest 80/20 Boosted pool (0x8e06... with custom rateProviders) for GivenIn and GivenOut', async () => {
+            const wbtcUnderlying = boostedBufferPools[0].underlyingToken;
+            const aaveUnderlying = boostedBufferPools[1].underlyingToken;
+            const WBTC = new Token(chainId, wbtcUnderlying.address, wbtcUnderlying.decimals, 'WBTC');
+            const AAVE = new Token(chainId, aaveUnderlying.address, aaveUnderlying.decimals, 'AAVE');
+
+            // GivenIn: 0.001 WBTC -> stataEthWBTC -> 0x8e06... -> stataEthAAVE -> AAVE
+            const sorBoostedIn = await SOR.getPathsWithPools(
+                WBTC,
+                AAVE,
+                SwapKind.GivenIn,
+                100_000n,
+                [manifestBoostedPrismaPool],
+                boostedBufferPools,
+                3,
+                new Map(),
+            );
+            expect(sorBoostedIn).not.toBeNull();
+            expect(sorBoostedIn![0].isBuffer).toEqual([true, false, true]);
+            expect(sorBoostedIn![0].pools[1].address.toLowerCase()).toBe('0x8e06ef1a2e854feaee0a83510acd05f8e443fa4f');
+
+            const onChainBoostedIn = await queryBatchRouterWithViem({
+                client,
+                batchRouterAddress,
+                swapPathInput: fromSorPathsToSwapPathInput(SwapKind.GivenIn, sorBoostedIn!),
+                blockNumber,
+            });
+            const sorAmountOut = Number(formatUnits(getOutputAmount(sorBoostedIn!).amount, AAVE.decimals));
+            const onChainAmountOut = Number(formatUnits(onChainBoostedIn.totalAmounts[0], AAVE.decimals));
+            expect(onChainAmountOut / sorAmountOut).toBeCloseTo(1, 3);
+
+            // GivenOut: WBTC -> 0.1 AAVE
+            const sorBoostedOut = await SOR.getPathsWithPools(
+                WBTC,
+                AAVE,
+                SwapKind.GivenOut,
+                100_000_000_000_000_000n,
+                [manifestBoostedPrismaPool],
                 boostedBufferPools,
                 3,
                 new Map(),

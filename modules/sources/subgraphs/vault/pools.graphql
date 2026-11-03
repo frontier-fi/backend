@@ -3,6 +3,8 @@ fragment VaultPool on Pool {
     isPaused
     isInRecoveryMode
     swapFee
+    aggregateSwapFee
+    aggregateYieldFee
     address
     name
     symbol
@@ -23,9 +25,24 @@ fragment VaultPool on Pool {
         symbol
         decimals
         balance
+        tokenType
+        rateProvider
         totalProtocolSwapFee
         totalProtocolYieldFee
         paysYieldFees
+        buffer {
+            wrappedBalance
+            underlyingBalance
+        }
+        token {
+            isErc4626
+            underlyingToken {
+                address
+                name
+                symbol
+                decimals
+            }
+        }
         nestedPool {
             id
             tokens {

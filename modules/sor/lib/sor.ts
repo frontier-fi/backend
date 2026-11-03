@@ -4,6 +4,7 @@ import { Router } from './router';
 import { DEFAULT_MAX_DEPTH, DEFAULT_MAX_DEPTH_FALLBACK } from './pathGraph/pathGraph';
 import { SorAbortError } from '../errors';
 import { PrismaPoolAndHookWithDynamic } from '../../../prisma/prisma-types';
+import { computeStableAmp, StableData } from '../../pool/subgraph-pool';
 import { checkInputs, isLiquidityManagement } from './utils/helpers';
 import { BasePool } from './basePool';
 import { SorSwapOptions } from './types';
@@ -56,7 +57,11 @@ export class SOR {
                 continue;
             }
             try {
-                const stateKey = `${prismaPool.dynamicData?.swapFee ?? ''}:${prismaPool.dynamicData?.totalShares ?? ''}:${prismaPool.tokens.map((t) => `${t.balance}:${t.priceRate}`).join(',')}`;
+                const stableAmpKey =
+                    prismaPool.type === 'STABLE'
+                        ? String(computeStableAmp(prismaPool.typeData as StableData, currentTimestamp))
+                        : '';
+                const stateKey = `${prismaPool.dynamicData?.swapFee ?? ''}:${prismaPool.dynamicData?.aggregateSwapFee ?? ''}:${prismaPool.dynamicData?.isInRecoveryMode ?? false}:${prismaPool.dynamicData?.totalShares ?? ''}:${stableAmpKey}:${prismaPool.tokens.map((t) => `${t.balance}:${t.priceRate}`).join(',')}`;
                 const cached = this.prismaPoolCache.get(prismaPool);
                 if (cached && cached.stateKey === stateKey) {
                     basePools.push(cached.pool.copy());
@@ -69,7 +74,7 @@ export class SOR {
                         pool = WeightedPoolV3.fromPrismaPool(prismaPool);
                         break;
                     case 'STABLE':
-                        pool = StablePoolV3.fromPrismaPool(prismaPool);
+                        pool = StablePoolV3.fromPrismaPool(prismaPool, currentTimestamp);
                         break;
                     case 'ECLP':
                         pool = GyroECLPPool.fromPrismaPool(prismaPool);

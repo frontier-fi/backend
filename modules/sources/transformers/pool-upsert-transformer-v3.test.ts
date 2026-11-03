@@ -329,4 +329,114 @@ describe('poolUpsertTransformerV3', () => {
         const empty = poolUpsertTransformerV3(sepoliaPool('weighted', { rateProviders: [] }), Chain.SEPOLIA, 1);
         expect(empty?.poolToken.map((t) => t.priceRateProvider)).toEqual([ZERO, ZERO]);
     });
+
+    it('preserves StableParams amp ramp schedule fields on typeData', () => {
+        const rampingStable = poolUpsertTransformerV3(
+            sepoliaPool('stable', {
+                stableParams: {
+                    __typename: 'StableParams',
+                    amp: '100',
+                    ampIsUpdating: true,
+                    ampStartValue: '100',
+                    ampEndValue: '500',
+                    ampStartTime: '1700000000',
+                    ampEndTime: '1700086400',
+                },
+            }),
+            Chain.SEPOLIA,
+            11940608,
+        );
+
+        expect(rampingStable?.pool.typeData).toEqual({
+            amp: '100',
+            ampIsUpdating: true,
+            ampStartValue: '100',
+            ampEndValue: '500',
+            ampStartTime: '1700000000',
+            ampEndTime: '1700086400',
+        });
+    });
+
+    it('maps subgraph v3 enhancements (PoolToken.rateProvider, ERC4626 underlyingToken + buffer, and aggregate fees)', () => {
+        const waUsdc = '0x8888888888888888888888888888888888888888';
+        const waUsdcRateProvider = '0x7777777777777777777777777777777777777777';
+        const boosted = poolUpsertTransformerV3(
+            pool(PoolType.Stable, {
+                aggregateSwapFee: '0.5',
+                aggregateYieldFee: '0.25',
+                rateProviders: [],
+                tokens: [
+                    {
+                        address: waUsdc,
+                        decimals: 6,
+                        symbol: 'waUSDC',
+                        name: 'Wrapped Aave USDC',
+                        index: 0,
+                        balance: '1000',
+                        paysYieldFees: true,
+                        scalingFactor: '1000000000000',
+                        rateProvider: waUsdcRateProvider,
+                        tokenType: 2,
+                        buffer: {
+                            wrappedBalance: '500',
+                            underlyingBalance: '525',
+                        },
+                        token: {
+                            isErc4626: true,
+                            underlyingToken: {
+                                address: USDC,
+                                decimals: 6,
+                                symbol: 'USDC',
+                                name: 'USD Coin',
+                            },
+                        },
+                        nestedPool: null,
+                    },
+                    {
+                        address: DAI,
+                        decimals: 18,
+                        symbol: 'DAI',
+                        name: 'Dai Stablecoin',
+                        index: 1,
+                        balance: '1000',
+                        paysYieldFees: false,
+                        scalingFactor: '1',
+                        rateProvider: ZERO,
+                        tokenType: 0,
+                        buffer: null,
+                        token: {
+                            isErc4626: false,
+                            underlyingToken: null,
+                        },
+                        nestedPool: null,
+                    },
+                ],
+            }),
+            Chain.SEPOLIA,
+            42,
+        );
+
+        expect(boosted?.poolDynamicData.aggregateSwapFee).toBe('0.5');
+        expect(boosted?.poolDynamicData.aggregateYieldFee).toBe('0.25');
+        expect(boosted?.poolToken[0].priceRateProvider).toBe(waUsdcRateProvider);
+        expect(boosted?.poolToken[1].priceRateProvider).toBe(ZERO);
+
+        const waTokenRow = boosted?.tokens.find((t) => t.address === waUsdc);
+        expect(waTokenRow).toMatchObject({
+            address: waUsdc,
+            underlyingTokenAddress: USDC,
+            bufferBalanceWrapped: '500',
+            bufferBalanceUnderlying: '525',
+        });
+
+        const underlyingRow = boosted?.tokens.find((t) => t.address === USDC);
+        expect(underlyingRow).toMatchObject({
+            address: USDC,
+            decimals: 6,
+            symbol: 'USDC',
+            name: 'USD Coin',
+        });
+
+        expect(boosted?.poolExpandedTokens.map((t) => t.tokenAddress)).toEqual([waUsdc, USDC, DAI]);
+    });
 });

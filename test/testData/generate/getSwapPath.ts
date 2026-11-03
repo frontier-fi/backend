@@ -101,7 +101,7 @@ export function getBatchedPublicClient(rpcUrl: string, chainId: number): PublicC
             rpcUrls: { default: { http: [rpcUrl] } },
             contracts: { multicall3: { address: multicallAddress } },
         },
-        transport: http(rpcUrl, { batch: true }),
+        transport: http(rpcUrl),
         batch: { multicall: true },
     });
     clientCache.set(key, client);

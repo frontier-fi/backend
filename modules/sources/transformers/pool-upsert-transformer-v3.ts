@@ -10,13 +10,16 @@ import _ from 'lodash';
 
 const resolvePriceRateProvider = (
     rateProviders: V3JoinedSubgraphPool['rateProviders'],
-    tokenAddress: string,
+    token: V3JoinedSubgraphPool['tokens'][number],
     index: number,
 ): string => {
+    if (token.rateProvider) {
+        return normalizeAddress(token.rateProvider);
+    }
     if (!rateProviders || rateProviders.length === 0) {
         return zeroAddress;
     }
-    const normalizedToken = normalizeAddress(tokenAddress);
+    const normalizedToken = normalizeAddress(token.address);
     const byToken = rateProviders.find(
         (rp) => rp?.token?.address && normalizeAddress(rp.token.address) === normalizedToken,
     );
@@ -39,15 +42,70 @@ export const poolUpsertTransformerV3 = (
     let type: PrismaPoolType;
     let typeData: StableData | Record<string, unknown> = {};
 
-    // expand the nested tokens
-    const allTokens = _.flattenDeep(
-        poolData.tokens.map((token) => [
-            token,
-            ...(token.nestedPool?.tokens || []).map((nestedToken) => ({
-                ...nestedToken,
-                nestedPoolId: token.nestedPool?.id || null,
-            })),
-        ]),
+    // expand the nested and ERC-4626 underlying tokens
+    const allTokens = _.uniqBy(
+        _.flattenDeep(
+            poolData.tokens.map((token) => [
+                token,
+                ...(token.nestedPool?.tokens || []).map((nestedToken) => ({
+                    ...nestedToken,
+                    nestedPoolId: token.nestedPool?.id || null,
+                })),
+                ...(token.token?.isErc4626 && token.token.underlyingToken
+                    ? [
+                          {
+                              address: token.token.underlyingToken.address,
+                              nestedPoolId: null,
+                          },
+                      ]
+                    : []),
+            ]),
+        ),
+        (token) => normalizeAddress(token.address),
+    );
+
+    const poolTokensWithUnderlying = _.uniqBy(
+        [
+            ...poolData.tokens.flatMap((token) => {
+                const underlying =
+                    token.token?.isErc4626 && token.token.underlyingToken ? token.token.underlyingToken : null;
+                const wrappedEntry = {
+                    address: normalizeAddress(token.address),
+                    decimals: token.decimals,
+                    symbol: token.symbol,
+                    name: token.name,
+                    chain,
+                    ...(underlying ? { underlyingTokenAddress: normalizeAddress(underlying.address) } : {}),
+                    ...(token.buffer
+                        ? {
+                              bufferBalanceWrapped: token.buffer.wrappedBalance,
+                              bufferBalanceUnderlying: token.buffer.underlyingBalance,
+                          }
+                        : {}),
+                };
+                if (!underlying) {
+                    return [wrappedEntry];
+                }
+                return [
+                    wrappedEntry,
+                    {
+                        address: normalizeAddress(underlying.address),
+                        decimals: underlying.decimals,
+                        symbol: underlying.symbol,
+                        name: underlying.name,
+                        chain,
+                    },
+                ];
+            }),
+            {
+                address: normalizeAddress(poolData.id),
+                decimals: 18,
+                symbol: poolData.symbol,
+                name: poolData.name,
+                chain,
+            },
+        ],
+        (t) => t.address,
     );
 
     switch (poolData.factory.type) {
@@ -57,6 +115,7 @@ export const poolUpsertTransformerV3 = (
         case PoolType.Stable:
             type = PrismaPoolType.STABLE;
             typeData = {
+                ..._.omit(poolData.stableParams, '__typename'),
                 amp: poolData.stableParams!.amp,
             } as StableData;
             break;
@@ -90,25 +149,14 @@ export const poolUpsertTransformerV3 = (
             liquidityManagement: poolData.liquidityManagement,
             hook: hookTransformer(poolData, chain),
         },
-        tokens: [
-            ...poolData.tokens.map((token) => ({
-                address: normalizeAddress(token.address),
-                decimals: token.decimals,
-                symbol: token.symbol,
-                name: token.name,
-                chain,
-            })),
-            {
-                address: normalizeAddress(poolData.id),
-                decimals: 18,
-                symbol: poolData.symbol,
-                name: poolData.name,
-                chain,
-            },
-        ],
+        tokens: poolTokensWithUnderlying,
         poolDynamicData: {
             id: normalizeAddress(poolData.id),
             swapFee: String(poolData.swapFee),
+            ...(poolData.aggregateSwapFee !== undefined ? { aggregateSwapFee: String(poolData.aggregateSwapFee) } : {}),
+            ...(poolData.aggregateYieldFee !== undefined
+                ? { aggregateYieldFee: String(poolData.aggregateYieldFee) }
+                : {}),
             totalShares: String(parseEther(poolData.totalShares)),
             totalSharesNum: Number(poolData.totalShares),
             isPaused: poolData.isPaused,
@@ -122,7 +170,7 @@ export const poolUpsertTransformerV3 = (
             address: normalizeAddress(token.address),
             index: token.index,
             nestedPoolId: token.nestedPool ? normalizeAddress(token.nestedPool.id) : null,
-            priceRateProvider: resolvePriceRateProvider(poolData.rateProviders, token.address, i),
+            priceRateProvider: resolvePriceRateProvider(poolData.rateProviders, token, i),
             exemptFromProtocolYieldFee: !token.paysYieldFees,
             scalingFactor: token.scalingFactor,
             balance: token.balance,

@@ -1,0 +1,35 @@
+fragment BufferWrapUnwrap on BufferWrapUnwrap {
+    id
+    type
+    wrappedToken
+    underlyingToken
+    amountWrapped
+    amountUnderlying
+    wrappedBalance
+    underlyingBalance
+    user
+    blockNumber
+    blockTimestamp
+    transactionHash
+    logIndex
+}
+
+query BufferWrapUnwraps(
+    $skip: Int
+    $first: Int
+    $orderBy: BufferWrapUnwrap_orderBy
+    $orderDirection: OrderDirection
+    $where: BufferWrapUnwrap_filter
+    $block: Block_height
+) {
+    bufferWrapUnwraps(
+        skip: $skip
+        first: $first
+        orderBy: $orderBy
+        orderDirection: $orderDirection
+        where: $where
+        block: $block
+    ) {
+        ...BufferWrapUnwrap
+    }
+}
