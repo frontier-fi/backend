@@ -30,6 +30,7 @@ export class PathWithAmount extends PathLocal {
     public readonly swapKind: SwapKind;
     public readonly outputAmount: TokenAmount;
     public readonly inputAmount: TokenAmount;
+    public readonly amounts: TokenAmount[];
     private readonly mutateBalances: boolean;
     private readonly printPath: any = [];
     public readonly swapStepsGreaterThanBufferLimit: number = 0;
@@ -62,16 +63,6 @@ export class PathWithAmount extends PathLocal {
                 amounts[0] = this.swapAmount;
                 for (let i = 0; i < this.pools.length; i++) {
                     const pool = this.pools[i];
-                    const outputAmount = pool.swapGivenIn(
-                        this.tokens[i],
-                        this.tokens[i + 1],
-                        amounts[i],
-                        this.mutateBalances,
-                    );
-                    if (outputAmount.amount === 0n) {
-                        throw new Error('Zero output amount on swapGivenIn hop');
-                    }
-                    amounts[i + 1] = outputAmount;
                     if (pool.poolType === 'Buffer') {
                         if (
                             (pool as BufferPool).swapGivenInGreaterThanBufferLimit(
@@ -89,12 +80,23 @@ export class PathWithAmount extends PathLocal {
                             this.swapStepsExceedingBufferCapacity++;
                         }
                     }
+                    const outputAmount = pool.swapGivenIn(
+                        this.tokens[i],
+                        this.tokens[i + 1],
+                        amounts[i],
+                        this.mutateBalances,
+                    );
+                    if (outputAmount.amount === 0n) {
+                        throw new Error('Zero output amount on swapGivenIn hop');
+                    }
+                    amounts[i + 1] = outputAmount;
                     this.printPath.push({
                         pool: pool.id,
                         input: `${amounts[i].amount.toString()} ${this.tokens[i].symbol}`,
                         output: `${outputAmount.amount.toString()} ${this.tokens[i + 1].symbol}`,
                     });
                 }
+                this.amounts = amounts;
                 this.outputAmount = amounts[amounts.length - 1];
                 this.inputAmount = this.swapAmount;
             } else {
@@ -102,15 +104,6 @@ export class PathWithAmount extends PathLocal {
                 amounts[amounts.length - 1] = this.swapAmount;
                 for (let i = this.pools.length; i >= 1; i--) {
                     const pool = this.pools[i - 1];
-                    const inputAmount = pool.swapGivenOut(
-                        this.tokens[i - 1],
-                        this.tokens[i],
-                        amounts[i],
-                        this.mutateBalances,
-                    );
-                    if (inputAmount.amount === 0n) {
-                        throw new Error('Zero input amount on swapGivenOut hop');
-                    }
                     if (pool.poolType === 'Buffer') {
                         if (
                             (pool as BufferPool).swapGivenOutGreaterThanBufferLimit(
@@ -128,6 +121,15 @@ export class PathWithAmount extends PathLocal {
                             this.swapStepsExceedingBufferCapacity++;
                         }
                     }
+                    const inputAmount = pool.swapGivenOut(
+                        this.tokens[i - 1],
+                        this.tokens[i],
+                        amounts[i],
+                        this.mutateBalances,
+                    );
+                    if (inputAmount.amount === 0n) {
+                        throw new Error('Zero input amount on swapGivenOut hop');
+                    }
                     amounts[i - 1] = inputAmount;
                     this.printPath.push({
                         pool: pool.id,
@@ -136,6 +138,7 @@ export class PathWithAmount extends PathLocal {
                     });
                 }
                 this.printPath = this.printPath.reverse();
+                this.amounts = amounts;
                 this.inputAmount = amounts[0];
                 this.outputAmount = this.swapAmount;
             }

@@ -14,6 +14,8 @@ import {
     SwapsQueryVariables,
     AddRemoveFragment,
     AddRemove_OrderBy,
+    BufferWrapUnwrapFragment,
+    BufferWrapUnwrap_OrderBy,
 } from './generated/types';
 import { Chain, Prisma } from '@prisma/client';
 
@@ -295,6 +297,37 @@ export function getVaultSubgraphClient(url: string, chain: Chain) {
                 } else {
                     where = {
                         id_gt: swaps[swaps.length - 1].id,
+                    };
+                }
+            }
+
+            return events;
+        },
+        async getBufferWrapUnwrapsFromBlock(fromBlockNumber: number): Promise<BufferWrapUnwrapFragment[]> {
+            if (fromBlockNumber === 0) return [];
+
+            const limit = 1000;
+            let hasMore = true;
+            let events: BufferWrapUnwrapFragment[] = [];
+            let where = {
+                id_gt: '0x',
+            };
+
+            while (hasMore) {
+                const { bufferWrapUnwraps } = await sdk.BufferWrapUnwraps({
+                    where: { ...where, blockNumber_gt: `${fromBlockNumber}` },
+                    orderBy: BufferWrapUnwrap_OrderBy.Id,
+                    orderDirection: OrderDirection.Asc,
+                    first: limit,
+                });
+
+                events = [...events, ...bufferWrapUnwraps];
+
+                if (bufferWrapUnwraps.length < limit) {
+                    hasMore = false;
+                } else {
+                    where = {
+                        id_gt: bufferWrapUnwraps[bufferWrapUnwraps.length - 1].id,
                     };
                 }
             }

@@ -6,6 +6,8 @@ import { formatUnits } from 'viem';
 import { SorAbortError } from '../../errors';
 
 const DEFAULT_MAX_PATH_SEGMENTS_PER_TOKEN_PAIR = 4;
+export const DEFAULT_MAX_DEPTH = 8;
+export const DEFAULT_MAX_DEPTH_FALLBACK = 10;
 
 type PathCandidateProps = { ranks: number[]; boundNL: bigint };
 
@@ -110,12 +112,13 @@ export class PathGraph {
 
         // apply defaults, allowing caller override whatever they'd like
         const config: PathGraphTraversalConfig = {
-            maxDepth: 8,
-            maxDepthFallback: 10,
+            maxDepth: DEFAULT_MAX_DEPTH,
+            maxDepthFallback: DEFAULT_MAX_DEPTH_FALLBACK,
             maxQueue: 1_000_000,
             maxTokenPaths: 50,
             maxBuffersInPath: isHyperEvm ? 2 : 5, // limited only on HyperEvm due to gas cost limits on small blocks - virtually unlimited otherwise
             maxCandidatesPerTokenPath: 20,
+            maxCandidatesGlobally: 100,
             minSwapAmountRatio: 0.5, // Default to 50% so we're sure selected paths support splitPath logic
             ...graphTraversalConfig,
         };
@@ -123,9 +126,64 @@ export class PathGraph {
         // Calculate minimum limit threshold based on swap amount and ratio
         const minLimitThreshold = (swapAmount.amount * BigInt(Math.floor(config.minSwapAmountRatio * 100))) / 100n;
 
-        const tokenPaths = this.findAllValidTokenPaths({
+        let paths = this.findAndValidatePathsForConfig({
             tokenIn: tokenIn.address,
             tokenOut: tokenOut.address,
+            swapKind,
+            minLimitThreshold,
+            config,
+            signal,
+        });
+
+        // If shallow paths within config.maxDepth were discovered by BFS (preventing findAllValidTokenPaths
+        // from using config.maxDepthFallback), but all of those shallow paths failed validation,
+        // retry traversal up to config.maxDepthFallback.
+        if (paths.length === 0 && config.maxDepthFallback > config.maxDepth) {
+            paths = this.findAndValidatePathsForConfig({
+                tokenIn: tokenIn.address,
+                tokenOut: tokenOut.address,
+                swapKind,
+                minLimitThreshold,
+                config: {
+                    ...config,
+                    minDepth: config.maxDepth + 1,
+                    maxDepth: config.maxDepthFallback,
+                },
+                signal,
+            });
+        }
+
+        return paths.map((path) => {
+            const pathTokens: Token[] = path.map((segment) => segment.tokenOut);
+            pathTokens.unshift(tokenIn);
+            pathTokens[pathTokens.length - 1] = tokenOut;
+
+            return new PathLocal(
+                pathTokens,
+                path.map((segment) => segment.pool),
+                path.map((segment) => segment.isBuffer),
+            );
+        });
+    }
+
+    private findAndValidatePathsForConfig({
+        tokenIn,
+        tokenOut,
+        swapKind,
+        minLimitThreshold,
+        config,
+        signal,
+    }: {
+        tokenIn: string;
+        tokenOut: string;
+        swapKind: SwapKind;
+        minLimitThreshold: bigint;
+        config: PathGraphTraversalConfig;
+        signal?: AbortSignal;
+    }): PathSegment[][] {
+        const tokenPaths = this.findAllValidTokenPaths({
+            tokenIn,
+            tokenOut,
             config,
             signal,
         });
@@ -136,10 +194,10 @@ export class PathGraph {
         }
 
         // Step 1: Generate all candidate combinations across all token paths
-        const allPathCandidates: Array<{
+        const candidateGroups: Array<{
             tokenPath: string[];
             pathSegmentsPerTokenPair: PathSegment[][];
-            pathCandidateProps: PathCandidateProps;
+            candidates: PathCandidateProps[];
         }> = [];
 
         for (const tokenPath of tokenPaths) {
@@ -163,14 +221,20 @@ export class PathGraph {
                 config.maxCandidatesPerTokenPath,
             );
 
-            for (const pathCandidateProps of pathCandidates) {
-                allPathCandidates.push({
+            if (pathCandidates.length > 0) {
+                candidateGroups.push({
                     tokenPath,
                     pathSegmentsPerTokenPair,
-                    pathCandidateProps,
+                    candidates: pathCandidates,
                 });
             }
         }
+
+        // Apply global beam search cap across all token paths by bottleneck normalized liquidity
+        const allPathCandidates = this.selectTopCandidatesGlobally(
+            candidateGroups,
+            config.maxCandidatesGlobally ?? 100,
+        );
 
         // Check if aborted before validation
         if (signal?.aborted) {
@@ -178,19 +242,7 @@ export class PathGraph {
         }
 
         // Step 2: Expand and validate the selected candidates
-        const paths = this.expandAndValidateCandidates(allPathCandidates, swapKind, minLimitThreshold, config, signal);
-
-        return paths.map((path) => {
-            const pathTokens: Token[] = path.map((segment) => segment.tokenOut);
-            pathTokens.unshift(tokenIn);
-            pathTokens[pathTokens.length - 1] = tokenOut;
-
-            return new PathLocal(
-                pathTokens,
-                path.map((segment) => segment.pool),
-                path.map((segment) => segment.isBuffer),
-            );
-        });
+        return this.expandAndValidateCandidates(allPathCandidates, swapKind, minLimitThreshold, config, signal);
     }
 
     private buildPoolAddressMap(pools: BasePool[]) {
@@ -276,13 +328,18 @@ export class PathGraph {
         tokenPrices?: Map<string, number>;
     }): PathSegment {
         let limitUSD: number | undefined = undefined;
-        if (swapKind !== undefined && tokenPrices) {
+        if (swapKind !== undefined) {
             const limit = pool.getLimitAmountSwap(tokenIn, tokenOut, swapKind);
-            const priceToken = (swapKind as SwapKind) === SwapKind.GivenIn ? tokenIn : tokenOut;
-            const price = tokenPrices.get(priceToken.address.toLowerCase());
-            if (price !== undefined) {
-                const amount = Number(formatUnits(limit, priceToken.decimals));
-                limitUSD = amount * price;
+            if (limit <= 0n) {
+                throw new Error('Zero swap limit');
+            }
+            if (tokenPrices) {
+                const priceToken = (swapKind as SwapKind) === SwapKind.GivenIn ? tokenIn : tokenOut;
+                const price = tokenPrices.get(priceToken.address.toLowerCase());
+                if (price !== undefined) {
+                    const amount = Number(formatUnits(limit, priceToken.decimals));
+                    limitUSD = amount * price;
+                }
             }
         }
 
@@ -325,7 +382,7 @@ export class PathGraph {
         const existingPathSegment = tokenInNode.get(pathSegment.tokenOut.address) || [];
 
         const sorted = [...existingPathSegment, pathSegment].sort((a, b) =>
-            a.normalizedLiquidity > b.normalizedLiquidity ? -1 : 1,
+            a.normalizedLiquidity > b.normalizedLiquidity ? -1 : a.normalizedLiquidity < b.normalizedLiquidity ? 1 : 0,
         );
 
         tokenInNode.set(
@@ -359,7 +416,15 @@ export class PathGraph {
             const neighbors = this.edges.get(node);
             if (!neighbors) continue;
 
-            for (const [neighbor] of neighbors) {
+            // Visit neighbors in descending order of their top edge's normalizedLiquidity
+            // so that high-liquidity corridors are prioritized when maxTokenPaths is reached
+            const sortedNeighbors = [...neighbors.entries()].sort((a, b) => {
+                const liqA = a[1][0]?.normalizedLiquidity ?? 0n;
+                const liqB = b[1][0]?.normalizedLiquidity ?? 0n;
+                return liqA > liqB ? -1 : liqA < liqB ? 1 : 0;
+            });
+
+            for (const [neighbor] of sortedNeighbors) {
                 // small hot-path optimization: check length bounds before cloning array
                 const maxDepth = results.length > 0 ? config.maxDepth : config.maxDepthFallback;
                 if (tokenPath.length + 1 > maxDepth) continue;
@@ -370,7 +435,9 @@ export class PathGraph {
                 const newTokenPath = [...tokenPath, neighbor];
 
                 if (neighbor === tokenOut) {
-                    results.push(newTokenPath);
+                    if (!config.minDepth || newTokenPath.length >= config.minDepth) {
+                        results.push(newTokenPath);
+                    }
                 } else {
                     // push longer path into queue
                     queue.push({ node: neighbor, tokenPath: newTokenPath });
@@ -422,13 +489,48 @@ export class PathGraph {
     }
 
     private getLimitAmountSwapForPath(path: PathSegment[], swapKind: SwapKind): bigint {
-        let limit = path[path.length - 1].pool.getLimitAmountSwap(
-            path[path.length - 1].tokenIn,
-            path[path.length - 1].tokenOut,
-            swapKind,
-        );
+        if (swapKind === SwapKind.GivenIn) {
+            let limit = path[path.length - 1].pool.getLimitAmountSwap(
+                path[path.length - 1].tokenIn,
+                path[path.length - 1].tokenOut,
+                SwapKind.GivenIn,
+            );
 
-        for (let i = path.length - 2; i >= 0; i--) {
+            for (let i = path.length - 2; i >= 0; i--) {
+                const poolLimitExactIn = path[i].pool.getLimitAmountSwap(
+                    path[i].tokenIn,
+                    path[i].tokenOut,
+                    SwapKind.GivenIn,
+                );
+                const poolLimitExactOut = path[i].pool.getLimitAmountSwap(
+                    path[i].tokenIn,
+                    path[i].tokenOut,
+                    SwapKind.GivenOut,
+                );
+
+                if (poolLimitExactOut <= limit) {
+                    limit = poolLimitExactIn;
+                } else {
+                    try {
+                        const pulledLimit = path[i].pool.swapGivenOut(
+                            path[i].tokenIn,
+                            path[i].tokenOut,
+                            TokenAmount.fromRawAmount(path[i].tokenOut, limit),
+                        ).amount;
+
+                        limit = pulledLimit > poolLimitExactIn ? poolLimitExactIn : pulledLimit;
+                    } catch {
+                        limit = (poolLimitExactIn * limit) / poolLimitExactOut;
+                    }
+                }
+            }
+
+            return limit;
+        }
+
+        let limit = path[0].pool.getLimitAmountSwap(path[0].tokenIn, path[0].tokenOut, SwapKind.GivenOut);
+
+        for (let i = 1; i < path.length; i++) {
             const poolLimitExactIn = path[i].pool.getLimitAmountSwap(
                 path[i].tokenIn,
                 path[i].tokenOut,
@@ -440,16 +542,20 @@ export class PathGraph {
                 SwapKind.GivenOut,
             );
 
-            if (poolLimitExactOut <= limit) {
-                limit = poolLimitExactIn;
+            if (poolLimitExactIn <= limit) {
+                limit = poolLimitExactOut;
             } else {
-                const pulledLimit = path[i].pool.swapGivenOut(
-                    path[i].tokenIn,
-                    path[i].tokenOut,
-                    TokenAmount.fromRawAmount(path[i].tokenOut, limit),
-                ).amount;
+                try {
+                    const pushedLimit = path[i].pool.swapGivenIn(
+                        path[i].tokenIn,
+                        path[i].tokenOut,
+                        TokenAmount.fromRawAmount(path[i].tokenIn, limit),
+                    ).amount;
 
-                limit = pulledLimit > poolLimitExactIn ? poolLimitExactIn : pulledLimit;
+                    limit = pushedLimit > poolLimitExactOut ? poolLimitExactOut : pushedLimit;
+                } catch {
+                    limit = (poolLimitExactOut * limit) / poolLimitExactIn;
+                }
             }
         }
 
@@ -483,7 +589,7 @@ export class PathGraph {
 
                     // bottleneck normalizedLiquidity across segments so far
                     const edgeNL = edge.normalizedLiquidity;
-                    const newBoundNL = p.boundNL < edgeNL ? p.boundNL : edgeNL;
+                    const newBoundNL = p.ranks.length === 0 || edgeNL < p.boundNL ? edgeNL : p.boundNL;
 
                     const ranks = p.ranks.length === 0 ? [r] : [...p.ranks, r];
                     next.push({ ranks, boundNL: newBoundNL });
@@ -493,7 +599,7 @@ export class PathGraph {
             if (next.length === 0) return [];
 
             // Keep only the best by bottleneck NL (desc)
-            next.sort((a, b) => (a.boundNL < b.boundNL ? 1 : -1));
+            next.sort((a, b) => (a.boundNL < b.boundNL ? 1 : a.boundNL > b.boundNL ? -1 : 0));
             pathCandidateProps = next.slice(0, beamWidth);
         }
 
@@ -514,25 +620,31 @@ export class PathGraph {
         allCandidates: Array<{
             tokenPath: string[];
             pathSegmentsPerTokenPair: PathSegment[][];
-            candidates: { ranks: number[]; boundNL: bigint }[];
+            candidates: PathCandidateProps[];
         }>,
         beamWidth: number,
     ): Array<{
         tokenPath: string[];
         pathSegmentsPerTokenPair: PathSegment[][];
-        candidate: { ranks: number[]; boundNL: bigint };
+        pathCandidateProps: PathCandidateProps;
     }> {
         // Flatten all candidates with their associated data
         const flattenedCandidates = allCandidates.flatMap(({ tokenPath, pathSegmentsPerTokenPair, candidates }) =>
-            candidates.map((candidate) => ({
+            candidates.map((pathCandidateProps) => ({
                 tokenPath,
                 pathSegmentsPerTokenPair,
-                candidate,
+                pathCandidateProps,
             })),
         );
 
         // Sort by bottleneck normalized liquidity (descending) and take top K
-        flattenedCandidates.sort((a, b) => (a.candidate.boundNL < b.candidate.boundNL ? 1 : -1));
+        flattenedCandidates.sort((a, b) =>
+            a.pathCandidateProps.boundNL < b.pathCandidateProps.boundNL
+                ? 1
+                : a.pathCandidateProps.boundNL > b.pathCandidateProps.boundNL
+                  ? -1
+                  : 0,
+        );
 
         return flattenedCandidates.slice(0, beamWidth);
     }

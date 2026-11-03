@@ -244,6 +244,26 @@ export default [
     },
     {
         inputs: [],
+        name: 'getAmplificationState',
+        outputs: [
+            {
+                components: [
+                    { internalType: 'uint64', name: 'startValue', type: 'uint64' },
+                    { internalType: 'uint64', name: 'endValue', type: 'uint64' },
+                    { internalType: 'uint32', name: 'startTime', type: 'uint32' },
+                    { internalType: 'uint32', name: 'endTime', type: 'uint32' },
+                ],
+                internalType: 'struct AmplificationState',
+                name: 'amplificationState',
+                type: 'tuple',
+            },
+            { internalType: 'uint256', name: 'precision', type: 'uint256' },
+        ],
+        stateMutability: 'view',
+        type: 'function',
+    },
+    {
+        inputs: [],
         name: 'getCurrentLiveBalances',
         outputs: [{ internalType: 'uint256[]', name: 'balancesLiveScaled18', type: 'uint256[]' }],
         stateMutability: 'view',

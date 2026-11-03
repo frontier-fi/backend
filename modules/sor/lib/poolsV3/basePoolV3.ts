@@ -155,8 +155,20 @@ export class BasePoolV3 {
         }
 
         if (mutateBalances) {
-            tIn.add(swapAmount);
-            tOut.sub(amountOut);
+            if (tIn.token.isSameAddress(this.id)) {
+                tIn.sub(swapAmount);
+                tOut.sub(amountOut);
+                this.totalShares -= swapAmount.amount;
+                this.poolState.totalSupply = this.totalShares;
+            } else if (tOut.token.isSameAddress(this.id)) {
+                tIn.add(swapAmount);
+                tOut.add(amountOut);
+                this.totalShares += amountOut.amount;
+                this.poolState.totalSupply = this.totalShares;
+            } else {
+                tIn.add(swapAmount);
+                tOut.sub(amountOut);
+            }
             this.poolState.balancesLiveScaled18 = this.tokens.map((t) => t.scale18);
         }
 
@@ -229,8 +241,20 @@ export class BasePoolV3 {
         }
 
         if (mutateBalances) {
-            tIn.add(amountIn);
-            tOut.sub(swapAmount);
+            if (tIn.token.isSameAddress(this.id)) {
+                tIn.sub(amountIn);
+                tOut.sub(swapAmount);
+                this.totalShares -= amountIn.amount;
+                this.poolState.totalSupply = this.totalShares;
+            } else if (tOut.token.isSameAddress(this.id)) {
+                tIn.add(amountIn);
+                tOut.add(swapAmount);
+                this.totalShares += swapAmount.amount;
+                this.poolState.totalSupply = this.totalShares;
+            } else {
+                tIn.add(amountIn);
+                tOut.sub(swapAmount);
+            }
             this.poolState.balancesLiveScaled18 = this.tokens.map((t) => t.scale18);
         }
 

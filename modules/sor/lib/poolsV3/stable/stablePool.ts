@@ -5,7 +5,7 @@ import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
 import { chainToChainId as chainToIdMap } from '../../../../../config/chain-id-to-chain';
-import { StableData } from '../../../../pool/subgraph-pool';
+import { computeStableAmp, StableData } from '../../../../pool/subgraph-pool';
 import { TokenPairData } from '../../../../sources/contracts/v3/fetch-tokenpair-data';
 
 import { WAD } from '../../utils/math';
@@ -26,7 +26,7 @@ export class StablePoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
 
     private readonly tokenMap: Map<string, StablePoolToken>;
 
-    static fromPrismaPool(pool: PrismaPoolAndHookWithDynamic): StablePoolV3 {
+    static fromPrismaPool(pool: PrismaPoolAndHookWithDynamic, currentTimestamp?: bigint): StablePoolV3 {
         const poolTokens: StablePoolToken[] = [];
 
         if (!pool.dynamicData) throw new Error(`${pool.type} pool has no dynamic data`);
@@ -46,7 +46,7 @@ export class StablePoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
         }
 
         const totalShares = parseEther(pool.dynamicData.totalShares);
-        const amp = parseUnits((pool.typeData as StableData).amp, 3);
+        const amp = computeStableAmp(pool.typeData as StableData, currentTimestamp);
 
         //transform
         const hookState = getHookState(pool);
@@ -57,7 +57,7 @@ export class StablePoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
             pool.chain,
             amp,
             parseEther(pool.dynamicData.swapFee),
-            parseEther(pool.dynamicData.aggregateSwapFee),
+            pool.dynamicData.isInRecoveryMode ? 0n : parseEther(pool.dynamicData.aggregateSwapFee),
             poolTokens,
             totalShares,
             pool.dynamicData.tokenPairsData as TokenPairData[],
