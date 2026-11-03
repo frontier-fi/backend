@@ -30,6 +30,7 @@ export class PathWithAmount extends PathLocal {
     public readonly swapKind: SwapKind;
     public readonly outputAmount: TokenAmount;
     public readonly inputAmount: TokenAmount;
+    public readonly amounts: TokenAmount[];
     private readonly mutateBalances: boolean;
     private readonly printPath: any = [];
     public readonly swapStepsGreaterThanBufferLimit: number = 0;
@@ -95,6 +96,7 @@ export class PathWithAmount extends PathLocal {
                         output: `${outputAmount.amount.toString()} ${this.tokens[i + 1].symbol}`,
                     });
                 }
+                this.amounts = amounts;
                 this.outputAmount = amounts[amounts.length - 1];
                 this.inputAmount = this.swapAmount;
             } else {
@@ -136,6 +138,7 @@ export class PathWithAmount extends PathLocal {
                     });
                 }
                 this.printPath = this.printPath.reverse();
+                this.amounts = amounts;
                 this.inputAmount = amounts[0];
                 this.outputAmount = this.swapAmount;
             }

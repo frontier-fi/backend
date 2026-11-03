@@ -417,7 +417,9 @@ describe('poolUpsertTransformerV3', () => {
         );
 
         expect(boosted?.poolDynamicData.aggregateSwapFee).toBe('0.5');
+        expect(boosted?.poolDynamicData.protocolSwapFee).toBe('0.5');
         expect(boosted?.poolDynamicData.aggregateYieldFee).toBe('0.25');
+        expect(boosted?.poolDynamicData.protocolYieldFee).toBe('0.25');
         expect(boosted?.poolToken[0].priceRateProvider).toBe(waUsdcRateProvider);
         expect(boosted?.poolToken[1].priceRateProvider).toBe(ZERO);
 

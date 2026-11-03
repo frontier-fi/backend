@@ -1564,4 +1564,69 @@ describe('SOR deterministic property & brute-force optimality fuzzing', () => {
             }
         }
     });
+
+    it('clamps multi-hop buffer paths when backward swapGivenOut propagation rounds up by 1+ wei and pairs with lower-ratio partner candidates', () => {
+        const router = new Router();
+        const tokenA = new Token(1, '0x0000000000000000000000000000000000000001', 18, 'A');
+        const tokenMid = new Token(1, '0x0000000000000000000000000000000000000002', 18, 'MID');
+        const tokenB = new Token(1, '0x0000000000000000000000000000000000000003', 18, 'B');
+
+        // Pool 1 (non-buffer): swapGivenOut rounds up by +3 wei relative to swapGivenIn inverse
+        const poolHop1: BasePool = {
+            id: '0x0000000000000000000000000000000000000011',
+            address: '0x0000000000000000000000000000000000000011',
+            poolType: 'Weighted',
+            swapFee: 0n,
+            tokens: [],
+            getNormalizedLiquidity: () => parseEther('1'),
+            getLimitAmountSwap: () => parseEther('1000000'),
+            swapGivenIn: (_tIn: Token, _tOut: Token, amount: TokenAmount) =>
+                TokenAmount.fromRawAmount(tokenMid, (amount.amount * 110n) / 100n),
+            swapGivenOut: (_tIn: Token, _tOut: Token, amount: TokenAmount) =>
+                TokenAmount.fromRawAmount(tokenA, (amount.amount * 100n) / 110n + 3n),
+            copy: function () {
+                return { ...this };
+            },
+        };
+
+        // Buffer step at hop 2 with limit = 44 ETH (so max input to hop 1 is 40 ETH, which is 40% of 100 ETH swap)
+        const bufferHop2 = new BufferPool(
+            '0x0000000000000000000000000000000000000022',
+            '0x0000000000000000000000000000000000000022',
+            1,
+            parseEther('1'),
+            new BasePoolToken(tokenB, 0n, 0),
+            new BasePoolToken(tokenMid, 0n, 1),
+            parseEther('44'),
+            parseEther('44'),
+        );
+
+        // Partner path only succeeds up to 75% (capped by its own buffer at 70 ETH)
+        const partnerBuffer = new BufferPool(
+            '0x0000000000000000000000000000000000000033',
+            '0x0000000000000000000000000000000000000033',
+            1,
+            parseEther('1'),
+            new BasePoolToken(tokenB, 0n, 0),
+            new BasePoolToken(tokenA, 0n, 1),
+            parseEther('70'),
+            parseEther('70'),
+        );
+
+        const cappedMultiHopPath = new PathLocal([tokenA, tokenMid, tokenB], [poolHop1, bufferHop2], [false, true]);
+        const partnerPath = new PathLocal([tokenA, tokenB], [partnerBuffer], [true]);
+
+        const bestPaths = router.getBestPaths(
+            [cappedMultiHopPath, partnerPath],
+            SwapKind.GivenIn,
+            TokenAmount.fromRawAmount(tokenA, parseEther('100')),
+        );
+
+        expect(bestPaths).not.toBeNull();
+        expect(bestPaths).toHaveLength(2);
+        expect(getInputAmount(bestPaths!).amount).toBe(parseEther('100'));
+        for (const p of bestPaths!) {
+            expect(p.swapStepsExceedingBufferCapacity).toBe(0);
+        }
+    });
 });

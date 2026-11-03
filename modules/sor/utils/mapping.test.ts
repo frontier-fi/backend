@@ -110,7 +110,7 @@ describe('SOR mapping utils', () => {
         expect(routes[1].tokenOutAmount).toBe('0.01');
     });
 
-    it('populates non-zero tokenInAmount and tokenOutAmount on route hops when path starts and ends with ERC-4626 buffers', () => {
+    it('populates step-accurate tokenInAmount and tokenOutAmount on route hops when path starts and ends with ERC-4626 buffers', () => {
         const wTokenA = new Token(11155111, '0x00000000000000000000000000000000000000aa', 6, 'wUSDC');
         const wTokenB = new Token(11155111, '0x00000000000000000000000000000000000000bb', 18, 'wWETH');
 
@@ -118,7 +118,8 @@ describe('SOR mapping utils', () => {
             id: wTokenA.address,
             address: wTokenA.address,
             poolType: 'Buffer',
-            swapGivenIn: () => TokenAmount.fromRawAmount(wTokenA, 25_000_000n),
+            // 25 USDC wraps into 20 wUSDC (rate = 1.25)
+            swapGivenIn: () => TokenAmount.fromRawAmount(wTokenA, 20_000_000n),
             swapGivenInGreaterThanBufferLimit: () => false,
             getLimitAmountSwap: () => 1_000_000_000_000n,
         } as any;
@@ -126,12 +127,14 @@ describe('SOR mapping utils', () => {
             id: '0x0000000000000000000000000000000000000099',
             address: '0x0000000000000000000000000000000000000099',
             poolType: 'Stable',
-            swapGivenIn: () => TokenAmount.fromRawAmount(wTokenB, 10_000_000_000_000_000n),
+            // 20 wUSDC swaps into 0.008 wWETH
+            swapGivenIn: () => TokenAmount.fromRawAmount(wTokenB, 8_000_000_000_000_000n),
         } as any;
         const bufferOut = {
             id: wTokenB.address,
             address: wTokenB.address,
             poolType: 'Buffer',
+            // 0.008 wWETH unwraps into 0.01 WETH (rate = 1.25)
             swapGivenIn: () => TokenAmount.fromRawAmount(tokenB, 10_000_000_000_000_000n),
             swapGivenInGreaterThanBufferLimit: () => false,
             getLimitAmountSwap: () => 1_000_000_000_000_000_000_000n,
@@ -147,10 +150,16 @@ describe('SOR mapping utils', () => {
         const routes = mapRoutes([boostedPath]);
 
         expect(routes).toHaveLength(1);
+        expect(routes[0].tokenIn).toBe(tokenA.address);
+        expect(routes[0].tokenOut).toBe(tokenB.address);
+        expect(routes[0].tokenInAmount).toBe('25');
+        expect(routes[0].tokenOutAmount).toBe('0.01');
         expect(routes[0].hops).toHaveLength(1);
         expect(routes[0].hops[0].poolId).toBe(boostedPool.id);
-        expect(routes[0].hops[0].tokenInAmount).toBe('25');
-        expect(routes[0].hops[0].tokenOutAmount).toBe('0.01');
+        expect(routes[0].hops[0].tokenIn).toBe(wTokenA.address);
+        expect(routes[0].hops[0].tokenOut).toBe(wTokenB.address);
+        expect(routes[0].hops[0].tokenInAmount).toBe('20');
+        expect(routes[0].hops[0].tokenOutAmount).toBe('0.008');
     });
 
     it('computes accurate curve priceImpact independent of static swap fees across EXACT_IN, EXACT_OUT, and split routes', async () => {
@@ -223,5 +232,32 @@ describe('SOR mapping utils', () => {
         const resSplit = await mapToSorSwapPaths(splitPaths, 'EXACT_IN', 'SEPOLIA', 3);
         expect(resSplit.priceImpact.error).toBeUndefined();
         expect(resSplit.priceImpact.priceImpact).toBe('0.0050');
+
+        // 5. Small probe outputs (< 1,000 raw units) step up to a larger probe divisor to avoid quantization error,
+        //    and dust swaps that cannot be probed populate priceImpact.error instead of returning '0.0000'
+        const wbtc = new Token(11155111, '0x000000000000000000000000000000000000000c', 8, 'WBTC');
+        const wbtcPool = {
+            id: '0x0000000000000000000000000000000000000104',
+            address: '0x0000000000000000000000000000000000000104',
+            poolType: 'Weighted',
+            // 10 USDC (10_000_000n) -> 10,900 satoshis (at divisor 1000n, integer division truncates 10.9 -> 10n;
+            // at divisor 10n, 1_000_000n -> 1,090n satoshis >= 1,000n floor with zero truncation error)
+            swapGivenIn: (_tIn: Token, _tOut: Token, amount: TokenAmount) =>
+                TokenAmount.fromRawAmount(wbtc, (10_900n * amount.amount) / 10_000_000n),
+        } as any;
+        const smallWbtcPath = new PathWithAmount(
+            [tokenA, wbtc],
+            [wbtcPool],
+            [false],
+            TokenAmount.fromRawAmount(tokenA, 10_000_000n),
+        );
+        const resSmallWbtc = await mapToSorSwapPaths([smallWbtcPath], 'EXACT_IN', 'SEPOLIA', 3);
+        expect(resSmallWbtc.priceImpact.error).toBeUndefined();
+        expect(resSmallWbtc.priceImpact.priceImpact).toBe('0.0000');
+
+        const dustPath = createMockPath(500n, 500n);
+        const resDust = await mapToSorSwapPaths([dustPath], 'EXACT_IN', 'SEPOLIA', 3);
+        expect(resDust.priceImpact.priceImpact).toBeUndefined();
+        expect(resDust.priceImpact.error).toBeDefined();
     });
 });

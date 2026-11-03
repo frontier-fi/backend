@@ -130,7 +130,7 @@ describe('worker route', () => {
 
     it.each([
         ['an unknown job', { name: 'not-a-job', chain: SEPOLIA_ID }],
-        ['an unconfigured chain', { name: 'sync-pools-v3', chain: '1' }],
+        ['an unconfigured chain', { name: 'sync-pools-v3', chain: '999999999' }],
         ['an inherited property as the job', { name: 'constructor', chain: SEPOLIA_ID }],
         ['an inherited property as the chain', { name: 'sync-pools-v3', chain: 'toString' }],
         ['a message without fields', {}],

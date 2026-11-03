@@ -20,6 +20,7 @@ export type PoolPairMap = {
 };
 
 export interface PathGraphTraversalConfig {
+    minDepth?: number;
     maxDepth: number;
     maxDepthFallback: number;
     maxQueue: number;

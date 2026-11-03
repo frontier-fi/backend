@@ -60,8 +60,22 @@ export class SOR {
                 const stableAmpKey =
                     prismaPool.type === 'STABLE'
                         ? String(computeStableAmp(prismaPool.typeData as StableData, currentTimestamp))
-                        : '';
-                const stateKey = `${prismaPool.dynamicData?.swapFee ?? ''}:${prismaPool.dynamicData?.aggregateSwapFee ?? ''}:${prismaPool.dynamicData?.isInRecoveryMode ?? false}:${prismaPool.dynamicData?.totalShares ?? ''}:${stableAmpKey}:${prismaPool.tokens.map((t) => `${t.balance}:${t.priceRate}`).join(',')}`;
+                        : JSON.stringify(prismaPool.typeData ?? '');
+                const tokenPairsKey = Array.isArray(prismaPool.dynamicData?.tokenPairsData)
+                    ? (
+                          prismaPool.dynamicData.tokenPairsData as Array<{
+                              tokenA?: string;
+                              tokenB?: string;
+                              normalizedLiquidity?: string;
+                          }>
+                      )
+                          .map((tp) => `${tp.tokenA ?? ''}:${tp.tokenB ?? ''}:${tp.normalizedLiquidity ?? ''}`)
+                          .join(',')
+                    : '';
+                const lm = prismaPool.liquidityManagement;
+                const lmKey = `${lm.disableUnbalancedLiquidity}:${lm.enableAddLiquidityCustom}:${lm.enableDonation}:${lm.enableRemoveLiquidityCustom}`;
+                const hookKey = prismaPool.hook ? JSON.stringify(prismaPool.hook) : '';
+                const stateKey = `${prismaPool.dynamicData?.swapFee ?? ''}:${prismaPool.dynamicData?.aggregateSwapFee ?? ''}:${prismaPool.dynamicData?.isInRecoveryMode ?? false}:${prismaPool.dynamicData?.totalShares ?? ''}:${stableAmpKey}:${tokenPairsKey}:${lmKey}:${hookKey}:${prismaPool.tokens.map((t) => `${t.balance}:${t.priceRate}:${t.weight ?? ''}`).join(',')}`;
                 const cached = this.prismaPoolCache.get(prismaPool);
                 if (cached && cached.stateKey === stateKey) {
                     basePools.push(cached.pool.copy());
@@ -158,6 +172,7 @@ export class SOR {
                 tokenPrices,
                 {
                     ...swapOptions?.graphTraversalConfig,
+                    minDepth: maxDepth + 1,
                     maxDepth: maxDepthFallback,
                     maxDepthFallback,
                 },

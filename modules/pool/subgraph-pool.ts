@@ -10,11 +10,11 @@ export type StableParams = Params<'stableParams'>;
 export type WeightedParams = Params<'weightedParams'>;
 
 export type StableRampFields = {
-    ampIsUpdating?: boolean;
-    ampStartValue?: string;
-    ampEndValue?: string;
-    ampStartTime?: string;
-    ampEndTime?: string;
+    ampIsUpdating?: boolean | null;
+    ampStartValue?: string | null;
+    ampEndValue?: string | null;
+    ampStartTime?: string | null;
+    ampEndTime?: string | null;
 };
 
 export type StableData = StableParams & StableRampFields & { bptPriceRate: string };
@@ -32,10 +32,11 @@ export function computeStableAmp(
     const fallbackAmp = parseUnits(String(stableData.amp), 3);
 
     if (
-        stableData.ampStartValue === undefined ||
-        stableData.ampEndValue === undefined ||
-        stableData.ampStartTime === undefined ||
-        stableData.ampEndTime === undefined
+        stableData.ampIsUpdating === false ||
+        stableData.ampStartValue == null ||
+        stableData.ampEndValue == null ||
+        stableData.ampStartTime == null ||
+        stableData.ampEndTime == null
     ) {
         return fallbackAmp;
     }
@@ -51,9 +52,6 @@ export function computeStableAmp(
     const endValue = parseUnits(String(stableData.ampEndValue), 3);
     const now = currentTimestamp ?? BigInt(Math.floor(Date.now() / 1000));
 
-    if (stableData.ampIsUpdating === false && now < endTime) {
-        return fallbackAmp;
-    }
     if (now >= endTime) {
         return endValue;
     }

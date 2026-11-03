@@ -379,7 +379,8 @@ describe('BatchRouter (pure viem, zero @balancer/sdk Swap) Differential Verifica
                 '0.003',
             );
 
-            // 2. Deep low-fee Boosted pool whose entry ERC-4626 buffer caps out at 200 USDC (20% of 1,000 swap)
+            // 2. Deep low-fee Boosted pool whose ERC-4626 buffers cap out at 600 units (60% of 1,000 swap:
+            // passes PathGraph's 50% minSwapAmountRatio, then clamped by Router.getBufferConstrainedMaxSwapAmount)
             const boostedPool = buildWeightedPrismaPool(
                 '0x0000000000000000000000000000000000009003',
                 wTokenIn,
@@ -397,7 +398,7 @@ describe('BatchRouter (pure viem, zero @balancer/sdk Swap) Differential Verifica
                     underlyingToken: { address: tokenIn.address as Address, decimals: 6, balance: 0n },
                     poolType: 'Buffer',
                     unwrapRate: parseEther('1'),
-                    maxDeposit: 200n * 10n ** 6n,
+                    maxDeposit: 600n * 10n ** 6n,
                     maxWithdraw: 500_000n * 10n ** 6n,
                 },
                 {
@@ -409,7 +410,7 @@ describe('BatchRouter (pure viem, zero @balancer/sdk Swap) Differential Verifica
                     poolType: 'Buffer',
                     unwrapRate: parseEther('1'),
                     maxDeposit: 500_000n * 10n ** 18n,
-                    maxWithdraw: 500_000n * 10n ** 18n,
+                    maxWithdraw: 600n * 10n ** 18n,
                 },
             ];
 
@@ -440,6 +441,41 @@ describe('BatchRouter (pure viem, zero @balancer/sdk Swap) Differential Verifica
 
             expect(batchRouterResult.pathAmounts).toEqual(expectedLegAmounts);
             expect(batchRouterResult.totalAmounts).toEqual([expectedTotal]);
+
+            // Verify buffer-clamped split where the clamped Boosted path (max 200 USDC) + directPool60 (remainder) is selected
+            const clampedPrismaPools = [directPool60, boostedPool];
+            const clampedSorPaths = await SOR.getPathsWithPools(
+                tokenIn,
+                tokenOut,
+                swapKind,
+                rawSwapAmount,
+                clampedPrismaPools,
+                bufferPools,
+                3,
+                new Map(),
+            );
+            expect(clampedSorPaths).not.toBeNull();
+            expect(clampedSorPaths!.length).toBe(2);
+            expect(clampedSorPaths!.some((p) => p.isBuffer.includes(true))).toBe(true);
+
+            const clampedSwapPathInput = fromSorPathsToSwapPathInput(swapKind, clampedSorPaths!);
+            const clampedCalldata = encodeBatchRouterQueryCalldata(swapKind, clampedSwapPathInput.paths);
+            const clampedBatchRouterResult = simulateBatchRouterCalldataOnVault(
+                clampedCalldata,
+                clampedPrismaPools,
+                bufferPools,
+                chainId,
+            );
+            const clampedExpectedLegAmounts = clampedSorPaths!.map((p) =>
+                swapKind === SwapKind.GivenIn ? p.outputAmount.amount : p.inputAmount.amount,
+            );
+            const clampedExpectedTotal =
+                swapKind === SwapKind.GivenIn
+                    ? getOutputAmount(clampedSorPaths!).amount
+                    : getInputAmount(clampedSorPaths!).amount;
+
+            expect(clampedBatchRouterResult.pathAmounts).toEqual(clampedExpectedLegAmounts);
+            expect(clampedBatchRouterResult.totalAmounts).toEqual([clampedExpectedTotal]);
         },
     );
 

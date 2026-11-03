@@ -82,7 +82,7 @@ export function PoolController(tracer?: any) {
             const lastSyncedBlock = await getLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3);
 
             let poolsToSync: V3JoinedSubgraphPool[] = [];
-            if (syncNewPoolsOnly && lastSyncedBlock > 0) {
+            if (syncNewPoolsOnly && lastSyncedBlock > 1) {
                 poolsToSync = pools.filter((pool) => !dbIds.includes(pool.id));
             } else {
                 poolsToSync = pools;
@@ -99,25 +99,26 @@ export function PoolController(tracer?: any) {
                 chain,
             );
 
-            // Skip the 7-call ERC4626 RPC probe for tokens already classified by the vault subgraph (token.isErc4626)
-            const subgraphClassifiedAddresses = new Set<string>();
+            // Skip the 7-call ERC4626 RPC probe only for tokens already classified as non-ERC4626 by the vault subgraph;
+            // tokens with isErc4626: true (or unclassified) still run syncErc4626Tokens to verify the 7-method interface.
+            const nonErc4626Addresses = new Set<string>();
             for (const pool of poolsToSync) {
-                subgraphClassifiedAddresses.add(pool.id.toLowerCase());
+                nonErc4626Addresses.add(pool.id.toLowerCase());
                 for (const pt of pool.tokens) {
-                    if (pt.token?.isErc4626 !== undefined) {
-                        subgraphClassifiedAddresses.add(pt.address.toLowerCase());
-                        if (pt.token.underlyingToken?.address) {
-                            subgraphClassifiedAddresses.add(pt.token.underlyingToken.address.toLowerCase());
-                        }
+                    if (pt.token?.isErc4626 === false) {
+                        nonErc4626Addresses.add(pt.address.toLowerCase());
+                    }
+                    if (pt.token?.underlyingToken?.address) {
+                        nonErc4626Addresses.add(pt.token.underlyingToken.address.toLowerCase());
                     }
                 }
             }
-            const unclassifiedTokens = inserts
+            const candidateErc4626Tokens = inserts
                 .flatMap(({ tokens }) => tokens)
-                .filter((t) => !subgraphClassifiedAddresses.has(t.address.toLowerCase()));
+                .filter((t) => !nonErc4626Addresses.has(t.address.toLowerCase()));
 
-            if (unclassifiedTokens.length > 0) {
-                await syncErc4626Tokens(getViemClient(chain), chain, unclassifiedTokens);
+            if (candidateErc4626Tokens.length > 0) {
+                await syncErc4626Tokens(getViemClient(chain), chain, candidateErc4626Tokens);
             }
 
             await syncRateProviderReviews();
@@ -154,7 +155,11 @@ export function PoolController(tracer?: any) {
 
             const fromBlock = await getLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3);
             const rpcLatestBlock = await viemClient.getBlockNumber().then(Number);
-            const sgLastSyncedBlock = await subgraphClient.lastSyncedBlock();
+            const [vaultLastSyncedBlock, poolsLastSyncedBlock] = await Promise.all([
+                subgraphClient.lastSyncedBlock(),
+                poolsSubgraphClient.lastSyncedBlock(),
+            ]);
+            const sgLastSyncedBlock = Math.min(vaultLastSyncedBlock, poolsLastSyncedBlock);
 
             // Guard against subgraph lag
             let useSubgraph = true;
@@ -172,11 +177,58 @@ export function PoolController(tracer?: any) {
             // const fromBlock = 11940608n;
 
             let changedIds: string[] = [];
+            let hasBufferUpdates = false;
             if (useSubgraph) {
-                changedIds = await subgraphClient.getChangedPools(fromBlock);
-                const poolsChangedIds = await poolsSubgraphClient.getChangedPools(fromBlock);
-                changedIds = Array.from(new Set([...changedIds, ...poolsChangedIds])).map((id) => id.toLowerCase());
+                const [vaultChangedIds, poolsChangedIds, bufferEvents] = await Promise.all([
+                    subgraphClient.getChangedPools(fromBlock),
+                    poolsSubgraphClient.getChangedPools(fromBlock),
+                    subgraphClient.getBufferWrapUnwrapsFromBlock(fromBlock),
+                ]);
+                changedIds = Array.from(new Set([...vaultChangedIds, ...poolsChangedIds])).map((id) =>
+                    id.toLowerCase(),
+                );
+
+                if (bufferEvents.length > 0) {
+                    const latestByToken = new Map<
+                        string,
+                        { blockNumber: number; logIndex: number; wrappedBalance: string; underlyingBalance: string }
+                    >();
+                    for (const event of bufferEvents) {
+                        const tokenAddress = event.wrappedToken.toLowerCase();
+                        const blockNumber = Number(event.blockNumber);
+                        const logIndex = Number(event.logIndex);
+                        const existing = latestByToken.get(tokenAddress);
+                        if (
+                            !existing ||
+                            blockNumber > existing.blockNumber ||
+                            (blockNumber === existing.blockNumber && logIndex > existing.logIndex)
+                        ) {
+                            latestByToken.set(tokenAddress, {
+                                blockNumber,
+                                logIndex,
+                                wrappedBalance: event.wrappedBalance,
+                                underlyingBalance: event.underlyingBalance,
+                            });
+                        }
+                    }
+                    await Promise.all(
+                        Array.from(latestByToken.entries()).map(([address, { wrappedBalance, underlyingBalance }]) =>
+                            prisma.prismaToken.updateMany({
+                                where: { address, chain },
+                                data: {
+                                    bufferBalanceWrapped: wrappedBalance,
+                                    bufferBalanceUnderlying: underlyingBalance,
+                                },
+                            }),
+                        ),
+                    );
+                    hasBufferUpdates = true;
+                }
             } else {
+                // Don't scan RPC logs from genesis when POOLS_V3 hasn't been synced yet
+                if (fromBlock <= 1) {
+                    return [];
+                }
                 const rpcMaxBlockRange = config[chain].rpcMaxBlockRange;
                 const range = Number(latestBlock) - fromBlock;
                 const numBatches = Math.ceil(range / rpcMaxBlockRange);
@@ -210,6 +262,9 @@ export function PoolController(tracer?: any) {
             }
 
             if (changedIds.length === 0) {
+                if (hasBufferUpdates) {
+                    await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);
+                }
                 return [];
             }
 

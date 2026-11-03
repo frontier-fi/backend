@@ -51,7 +51,9 @@ export const poolUpsertTransformerV3 = (
                     ...nestedToken,
                     nestedPoolId: token.nestedPool?.id || null,
                 })),
-                ...(token.token?.isErc4626 && token.token.underlyingToken
+                ...(token.token?.isErc4626 &&
+                token.token.underlyingToken?.address &&
+                normalizeAddress(token.token.underlyingToken.address) !== zeroAddress
                     ? [
                           {
                               address: token.token.underlyingToken.address,
@@ -68,7 +70,11 @@ export const poolUpsertTransformerV3 = (
         [
             ...poolData.tokens.flatMap((token) => {
                 const underlying =
-                    token.token?.isErc4626 && token.token.underlyingToken ? token.token.underlyingToken : null;
+                    token.token?.isErc4626 &&
+                    token.token.underlyingToken?.address &&
+                    normalizeAddress(token.token.underlyingToken.address) !== zeroAddress
+                        ? token.token.underlyingToken
+                        : null;
                 const wrappedEntry = {
                     address: normalizeAddress(token.address),
                     decimals: token.decimals,
@@ -153,9 +159,17 @@ export const poolUpsertTransformerV3 = (
         poolDynamicData: {
             id: normalizeAddress(poolData.id),
             swapFee: String(poolData.swapFee),
-            ...(poolData.aggregateSwapFee !== undefined ? { aggregateSwapFee: String(poolData.aggregateSwapFee) } : {}),
-            ...(poolData.aggregateYieldFee !== undefined
-                ? { aggregateYieldFee: String(poolData.aggregateYieldFee) }
+            ...(poolData.aggregateSwapFee != null
+                ? {
+                      aggregateSwapFee: String(poolData.aggregateSwapFee),
+                      protocolSwapFee: String(poolData.aggregateSwapFee),
+                  }
+                : {}),
+            ...(poolData.aggregateYieldFee != null
+                ? {
+                      aggregateYieldFee: String(poolData.aggregateYieldFee),
+                      protocolYieldFee: String(poolData.aggregateYieldFee),
+                  }
                 : {}),
             totalShares: String(parseEther(poolData.totalShares)),
             totalSharesNum: Number(poolData.totalShares),

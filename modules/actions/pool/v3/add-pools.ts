@@ -83,6 +83,12 @@ export const addPools = async (
                         where: { poolId_chain: { poolId: pool.id, chain: pool.chain } },
                         create: {
                             ...poolDynamicData,
+                            ...(poolDynamicData.aggregateSwapFee != null
+                                ? { protocolSwapFee: poolDynamicData.aggregateSwapFee }
+                                : {}),
+                            ...(poolDynamicData.aggregateYieldFee != null
+                                ? { protocolYieldFee: poolDynamicData.aggregateYieldFee }
+                                : {}),
                             id: pool.id,
                             pool: {
                                 connect: {
@@ -93,7 +99,15 @@ export const addPools = async (
                                 },
                             },
                         },
-                        update: poolDynamicData,
+                        update: {
+                            ...poolDynamicData,
+                            ...(poolDynamicData.aggregateSwapFee != null
+                                ? { protocolSwapFee: poolDynamicData.aggregateSwapFee }
+                                : {}),
+                            ...(poolDynamicData.aggregateYieldFee != null
+                                ? { protocolYieldFee: poolDynamicData.aggregateYieldFee }
+                                : {}),
+                        },
                     }),
                 ]) ||
                     []),
@@ -105,7 +119,12 @@ export const addPools = async (
                                 ...token,
                                 chain,
                             },
-                            update: token.address === pool.id || token.underlyingTokenAddress ? token : {},
+                            update:
+                                token.address === pool.id
+                                    ? token
+                                    : token.underlyingTokenAddress
+                                      ? { underlyingTokenAddress: token.underlyingTokenAddress }
+                                      : {},
                         }),
                     )) ||
                     []),

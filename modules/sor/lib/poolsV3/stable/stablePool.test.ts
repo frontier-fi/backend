@@ -215,7 +215,7 @@ describe('SOR V3 Stable Pool Tests', () => {
         };
         expect(StablePoolV3.fromPrismaPool(downwardPool, 2000n).amp).toBe(400_000n);
 
-        // Manually stopped mid-ramp (ampIsUpdating = false, amp = 250)
+        // Manually stopped mid-ramp (ampIsUpdating = false, amp = 250) stays at 250 both before and after ampEndTime
         const stoppedPool: PrismaPoolAndHookWithDynamic = {
             ...stablePrismaPool,
             typeData: {
@@ -228,6 +228,22 @@ describe('SOR V3 Stable Pool Tests', () => {
             },
         };
         expect(StablePoolV3.fromPrismaPool(stoppedPool, 2000n).amp).toBe(250_000n);
+        expect(StablePoolV3.fromPrismaPool(stoppedPool, 5000n).amp).toBe(250_000n);
+        expect(StablePoolV3.fromPrismaPool(stoppedPool, 9000n).amp).toBe(250_000n);
+
+        // Null ramp fields in Prisma JSON fall back to amp without throwing
+        const nullFieldsPool: PrismaPoolAndHookWithDynamic = {
+            ...stablePrismaPool,
+            typeData: {
+                amp: '300',
+                ampIsUpdating: null as any,
+                ampStartValue: null as any,
+                ampEndValue: null as any,
+                ampStartTime: null as any,
+                ampEndTime: null as any,
+            },
+        };
+        expect(StablePoolV3.fromPrismaPool(nullFieldsPool, 2000n).amp).toBe(300_000n);
 
         // Fractional BigDecimal ampStartValue (e.g. 150.5 -> 150_500n after mid-ramp restart in subgraphs#13)
         const fractionalRampPool: PrismaPoolAndHookWithDynamic = {

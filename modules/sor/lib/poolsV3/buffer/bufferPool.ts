@@ -120,8 +120,9 @@ export class BufferPool implements BasePoolMethodsV3 {
                 );
                 const bufferWrapLimit = mainAsUnderlying; // in terms of underlying
                 const lendingProtocolWrapLimit = this.maxDeposit;
-                const wrapRequiredToRebalance =
+                const rawWrapRequiredToRebalance =
                     (mainAsUnderlying + underlyingTokenAmount.amount) / 2n - underlyingTokenAmount.amount; // in terms of underlying
+                const wrapRequiredToRebalance = rawWrapRequiredToRebalance > 0n ? rawWrapRequiredToRebalance : 0n;
                 const wrapLimit =
                     wrapRequiredToRebalance > lendingProtocolWrapLimit
                         ? bufferWrapLimit
@@ -135,8 +136,9 @@ export class BufferPool implements BasePoolMethodsV3 {
                 const bufferUnwrapLimit = underlyingAsMain; // in terms of main
                 const maxWithdrawAsMain = this.toMainDecimals(MathSol.divDownFixed(this.maxWithdraw, this.rate));
                 const lendingProtocolUnwrapLimit = maxWithdrawAsMain; // in terms of main
-                const unwrapRequiredToRebalance =
+                const rawUnwrapRequiredToRebalance =
                     (underlyingAsMain + mainTokenAmount.amount) / 2n - mainTokenAmount.amount; // in terms of main
+                const unwrapRequiredToRebalance = rawUnwrapRequiredToRebalance > 0n ? rawUnwrapRequiredToRebalance : 0n;
                 const unwrapLimit =
                     unwrapRequiredToRebalance > lendingProtocolUnwrapLimit
                         ? bufferUnwrapLimit
@@ -153,8 +155,9 @@ export class BufferPool implements BasePoolMethodsV3 {
                 const bufferWrapLimit = mainTokenAmount.amount; // in terms of main
                 const maxDepositAsMain = this.toMainDecimals(MathSol.divDownFixed(this.maxDeposit, this.rate));
                 const lendingProtocolWrapLimit = maxDepositAsMain; // in terms of main
-                const wrapRequiredToRebalance =
+                const rawWrapRequiredToRebalance =
                     mainTokenAmount.amount - (underlyingAsMain + mainTokenAmount.amount) / 2n; // in terms of main
+                const wrapRequiredToRebalance = rawWrapRequiredToRebalance > 0n ? rawWrapRequiredToRebalance : 0n;
                 const wrapLimit =
                     wrapRequiredToRebalance > lendingProtocolWrapLimit
                         ? bufferWrapLimit
@@ -167,8 +170,9 @@ export class BufferPool implements BasePoolMethodsV3 {
                 );
                 const bufferUnwrapLimit = underlyingTokenAmount.amount; // in terms of underlying
                 const lendingProtocolUnwrapLimit = this.maxWithdraw;
-                const unwrapRequiredToRebalance =
+                const rawUnwrapRequiredToRebalance =
                     underlyingTokenAmount.amount - (underlyingTokenAmount.amount + mainAsUnderlying) / 2n; // in terms of underlying
+                const unwrapRequiredToRebalance = rawUnwrapRequiredToRebalance > 0n ? rawUnwrapRequiredToRebalance : 0n;
                 const unwrapLimit =
                     unwrapRequiredToRebalance > lendingProtocolUnwrapLimit
                         ? bufferUnwrapLimit
@@ -253,30 +257,70 @@ export class BufferPool implements BasePoolMethodsV3 {
         if (!isUnwrap) {
             // wrap: inputAmount is underlying, outputAmount is main
             const mainAsUnderlying = this.toUnderlyingDecimals(MathSol.mulDownFixed(mainTokenAmount.amount, this.rate));
-            const wrapRequiredToRebalance =
+            const rawWrapRequiredToRebalance =
                 (mainAsUnderlying + underlyingTokenAmount.amount) / 2n - underlyingTokenAmount.amount;
+            const wrapRequiredToRebalance = rawWrapRequiredToRebalance > 0n ? rawWrapRequiredToRebalance : 0n;
 
             if (wrapRequiredToRebalance > this.maxDeposit) {
                 mainTokenAmount.amount =
                     mainTokenAmount.amount > outputAmount.amount ? mainTokenAmount.amount - outputAmount.amount : 0n;
-                underlyingTokenAmount.amount += inputAmount.amount;
+                underlyingTokenAmount.amount = 0n;
+                this.maxDeposit = 0n;
             } else {
-                this.maxDeposit = this.maxDeposit > inputAmount.amount ? this.maxDeposit - inputAmount.amount : 0n;
+                const availableLending = this.maxDeposit - wrapRequiredToRebalance;
+                if (inputAmount.amount <= availableLending) {
+                    this.maxDeposit -= inputAmount.amount;
+                } else {
+                    const excessUnderlying = inputAmount.amount - availableLending;
+                    const excessMain = this.toMainDecimals(MathSol.divDownFixed(excessUnderlying, this.rate));
+                    this.maxDeposit = 0n;
+                    mainTokenAmount.amount =
+                        mainTokenAmount.amount > excessMain ? mainTokenAmount.amount - excessMain : 0n;
+                    underlyingTokenAmount.amount =
+                        mainTokenAmount.amount > 0n
+                            ? this.toUnderlyingDecimals(MathSol.mulDownFixed(mainTokenAmount.amount, this.rate))
+                            : 0n;
+                }
             }
         } else {
             // unwrap: inputAmount is main, outputAmount is underlying
             const underlyingAsMain = this.toMainDecimals(MathSol.divDownFixed(underlyingTokenAmount.amount, this.rate));
             const maxWithdrawAsMain = this.toMainDecimals(MathSol.divDownFixed(this.maxWithdraw, this.rate));
-            const unwrapRequiredToRebalance = (underlyingAsMain + mainTokenAmount.amount) / 2n - mainTokenAmount.amount;
+            const rawUnwrapRequiredToRebalance =
+                (underlyingAsMain + mainTokenAmount.amount) / 2n - mainTokenAmount.amount;
+            const unwrapRequiredToRebalance = rawUnwrapRequiredToRebalance > 0n ? rawUnwrapRequiredToRebalance : 0n;
 
             if (unwrapRequiredToRebalance > maxWithdrawAsMain) {
                 underlyingTokenAmount.amount =
                     underlyingTokenAmount.amount > outputAmount.amount
                         ? underlyingTokenAmount.amount - outputAmount.amount
                         : 0n;
-                mainTokenAmount.amount += inputAmount.amount;
+                mainTokenAmount.amount = 0n;
+                this.maxWithdraw = 0n;
             } else {
-                this.maxWithdraw = this.maxWithdraw > outputAmount.amount ? this.maxWithdraw - outputAmount.amount : 0n;
+                const mainAsUnderlying = this.toUnderlyingDecimals(
+                    MathSol.mulDownFixed(mainTokenAmount.amount, this.rate),
+                );
+                const rawUnwrapRequiredUnderlying =
+                    underlyingTokenAmount.amount - (underlyingTokenAmount.amount + mainAsUnderlying) / 2n;
+                const unwrapRequiredUnderlying =
+                    rawUnwrapRequiredUnderlying > 0n ? rawUnwrapRequiredUnderlying : 0n;
+                const availableLending =
+                    this.maxWithdraw > unwrapRequiredUnderlying ? this.maxWithdraw - unwrapRequiredUnderlying : 0n;
+                if (outputAmount.amount <= availableLending) {
+                    this.maxWithdraw -= outputAmount.amount;
+                } else {
+                    const excessUnderlying = outputAmount.amount - availableLending;
+                    this.maxWithdraw = 0n;
+                    underlyingTokenAmount.amount =
+                        underlyingTokenAmount.amount > excessUnderlying
+                            ? underlyingTokenAmount.amount - excessUnderlying
+                            : 0n;
+                    mainTokenAmount.amount =
+                        underlyingTokenAmount.amount > 0n
+                            ? this.toMainDecimals(MathSol.divDownFixed(underlyingTokenAmount.amount, this.rate))
+                            : 0n;
+                }
             }
         }
     }

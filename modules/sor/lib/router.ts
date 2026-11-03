@@ -151,14 +151,16 @@ export class Router {
         const quotePaths100 = quotePathsByRatio[3];
 
         const splitPaths: PathWithAmount[][] = [];
-        const splitCandidatePairs: Array<[PathLocal, PathLocal]> = [];
-        const recordSplitPair = (pathA: PathLocal, pathB: PathLocal) => {
-            const keyAB = `${pathA.pools.map((p) => p.id).join('>')}||${pathB.pools.map((p) => p.id).join('>')}`;
-            const exists = splitCandidatePairs.some(
-                ([a, b]) => `${a.pools.map((p) => p.id).join('>')}||${b.pools.map((p) => p.id).join('>')}` === keyAB,
-            );
-            if (!exists) {
-                splitCandidatePairs.push([pathA, pathB]);
+        const splitCandidatePairs: Array<{ pathUp: PathLocal; pathDown: PathLocal; maxAmountUp?: bigint }> = [];
+        const getPairKey = (pathA: PathLocal, pathB: PathLocal) =>
+            `${pathA.pools.map((p) => p.id).join('>')}||${pathB.pools.map((p) => p.id).join('>')}`;
+        const hasSplitPair = (pathA: PathLocal, pathB: PathLocal) => {
+            const keyAB = getPairKey(pathA, pathB);
+            return splitCandidatePairs.some(({ pathUp, pathDown }) => getPairKey(pathUp, pathDown) === keyAB);
+        };
+        const recordSplitPair = (pathUp: PathLocal, pathDown: PathLocal, maxAmountUp?: bigint) => {
+            if (!hasSplitPair(pathUp, pathDown)) {
+                splitCandidatePairs.push({ pathUp, pathDown, maxAmountUp });
             }
         };
 
@@ -194,6 +196,10 @@ export class Router {
                 for (const path75 of quotePaths75) {
                     if (!this.canSplitPaths(path25, path75)) {
                         continue;
+                    }
+                    if (hasSplitPair(path25, path75)) {
+                        paired = true;
+                        break;
                     }
                     try {
                         splitPaths.push(this.splitPaths(swapAmount, path25, path75)); // 25/75
@@ -234,8 +240,15 @@ export class Router {
 
         // Buffer-cap split clamping: when a path with BufferPool steps exceeds buffer capacity at a coarse grid checkpoint,
         // clamp its allocation to its exact buffer limit and route the remainder through the best compatible partner path.
-        const partnerCandidates =
-            quotePaths100.length > 0 ? quotePaths100 : quotePaths75.length > 0 ? quotePaths75 : quotePaths50;
+        const seenPartnerKeys = new Set<string>();
+        const partnerCandidates: PathWithAmount[] = [];
+        for (const candidate of [...quotePaths100, ...quotePaths75, ...quotePaths50, ...quotePaths25]) {
+            const key = candidate.pools.map((p) => p.id).join('>');
+            if (!seenPartnerKeys.has(key)) {
+                seenPartnerKeys.add(key);
+                partnerCandidates.push(candidate);
+            }
+        }
         if (capacityExceededPaths.size > 0 && partnerCandidates.length > 0) {
             for (const cappedPath of capacityExceededPaths) {
                 const clampedRaw = this.getBufferConstrainedMaxSwapAmount(cappedPath, swapKind, swapAmount.amount);
@@ -249,7 +262,7 @@ export class Router {
                     }
                     try {
                         splitPaths.push(this.splitPathsAtAmount(swapAmount, cappedPath, partner, clampedAmount));
-                        recordSplitPair(cappedPath, partner);
+                        recordSplitPair(cappedPath, partner, clampedRaw);
                         break;
                     } catch {
                         continue;
@@ -261,9 +274,12 @@ export class Router {
         // Local split refinement: evaluate finer split ratios using the unmutated PathLocal pairs
         if (splitCandidatePairs.length > 0) {
             const refinementRatios = [0.1, 0.15, 0.2, 0.3, 0.35, 0.4, 0.6, 0.65, 0.7, 0.8, 0.85, 0.9];
-            for (const [pathUpLocal, pathDownLocal] of splitCandidatePairs) {
+            for (const { pathUp: pathUpLocal, pathDown: pathDownLocal, maxAmountUp } of splitCandidatePairs) {
                 for (const ratio of refinementRatios) {
                     const refinedAmountUp = swapAmount.mulDownFixed(parseEther(String(ratio)));
+                    if (maxAmountUp !== undefined && refinedAmountUp.amount >= maxAmountUp) {
+                        continue;
+                    }
                     try {
                         splitPaths.push(
                             this.splitPathsAtAmount(swapAmount, pathUpLocal, pathDownLocal, refinedAmountUp),
@@ -381,7 +397,42 @@ export class Router {
         if (bestLimit === null || bestLimit <= 0n || bestLimit >= maxSwapAmount) {
             return null;
         }
-        return bestLimit;
+
+        // Verify that forward (GivenIn) / backward (GivenOut) path evaluation at bestLimit does not
+        // overshoot any buffer step limit due to multi-hop swapGivenOut/swapGivenIn rounding.
+        const swapToken = swapKind === SwapKind.GivenIn ? path.tokens[0] : path.tokens[path.tokens.length - 1];
+        let candidateLimit = bestLimit;
+        for (let attempt = 0; attempt < 4 && candidateLimit > 0n; attempt++) {
+            try {
+                const probe = new PathWithAmount(
+                    path.tokens,
+                    path.pools,
+                    path.isBuffer,
+                    TokenAmount.fromRawAmount(swapToken, candidateLimit),
+                );
+                if (probe.swapStepsExceedingBufferCapacity === 0) {
+                    return candidateLimit;
+                }
+                let nextLimit = candidateLimit - 1n;
+                for (let k = 0; k < path.pools.length; k++) {
+                    if (!path.isBuffer[k]) continue;
+                    const stepLimit = path.pools[k].getLimitAmountSwap(path.tokens[k], path.tokens[k + 1], swapKind);
+                    const stepActual =
+                        swapKind === SwapKind.GivenIn ? probe.amounts[k].amount : probe.amounts[k + 1].amount;
+                    if (stepActual > stepLimit && stepActual > 0n) {
+                        const scaled = (candidateLimit * stepLimit) / stepActual;
+                        const adjusted = scaled < candidateLimit ? scaled : candidateLimit - 1n;
+                        if (adjusted < nextLimit) {
+                            nextLimit = adjusted;
+                        }
+                    }
+                }
+                candidateLimit = nextLimit;
+            } catch {
+                return null;
+            }
+        }
+        return null;
     }
 
     private canSplitPaths(pathA: PathLocal, pathB: PathLocal): boolean {

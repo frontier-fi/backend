@@ -112,4 +112,22 @@ describe('BufferPool', () => {
 
         expect(() => pool.getPoolTokens(stranger, pool.tokens[0].token)).toThrow(/does not contain/);
     });
+
+    test('decrements remaining GivenOut and GivenIn capacity when mutateBalances=true consumes both maxDeposit and internal buffer balance', () => {
+        const pool = buffer({
+            mainToken: { address: MAIN, decimals: 18, balance: 100n * WAD },
+            underlyingToken: { address: UNDERLYING, decimals: 18, balance: 100n * WAD },
+            maxDeposit: 400n * WAD,
+            maxWithdraw: 400n * WAD,
+        });
+        const main = pool.tokens[0].token;
+        const underlying = pool.tokens[1].token;
+
+        // GivenOut wrap limit = 100 (buffer) + 400 (maxDeposit) = 500 WAD
+        expect(pool.getLimitAmountSwap(underlying, main, SwapKind.GivenOut)).toBe(500n * WAD);
+
+        // Mutating with a 450 WAD wrap consumes all 400 WAD of maxDeposit plus 50 WAD of internal buffer balance, leaving 50 WAD
+        pool.swapGivenOut(underlying, main, TokenAmount.fromRawAmount(main, 450n * WAD), true);
+        expect(pool.getLimitAmountSwap(underlying, main, SwapKind.GivenOut)).toBe(50n * WAD);
+    });
 });

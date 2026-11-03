@@ -68,6 +68,7 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
         }
 
         const minRawFloor = path.isBuffer.some(Boolean) ? 10_000n : 100n;
+        const minCalculatedFloor = 1_000n;
         let pathBenchmark: bigint | null = null;
 
         for (const divisor of [1000n, 100n, 10n]) {
@@ -85,7 +86,7 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
                 );
                 const probeCalculated =
                     swapKind === SwapKind.GivenIn ? probePath.outputAmount.amount : probePath.inputAmount.amount;
-                if (probeCalculated > 0n) {
+                if (probeCalculated >= minCalculatedFloor) {
                     pathBenchmark = (probeCalculated * fullSwapRaw) / probeRaw;
                     break;
                 }
@@ -95,7 +96,7 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
         }
 
         if (pathBenchmark === null) {
-            pathBenchmark = swapKind === SwapKind.GivenIn ? path.outputAmount.amount : path.inputAmount.amount;
+            throw new Error('Unable to compute price impact benchmark for path');
         }
         totalBenchmark += pathBenchmark;
     }

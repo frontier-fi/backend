@@ -1195,6 +1195,53 @@ describe('PathGraph search algorithms', () => {
             expect(paths[0].pools.map((p) => p.id)).toEqual(['deep1', 'deep2', 'deep3', 'deep4']);
         });
 
+        test('maxDepthFallback discovers deeper paths even when >= maxTokenPaths shallow paths exist and fail validation', () => {
+            const g = new PathGraph();
+            const hop1 = new Token(1, '0xhop1_50', 18, 'HOP1');
+            const hop2 = new Token(1, '0xhop2_50', 18, 'HOP2');
+            const hop3 = new Token(1, '0xhop3_50', 18, 'HOP3');
+
+            // Create 5 shallow 2-hop paths (length = 3 <= maxDepth 3) when maxTokenPaths = 3,
+            // all of which fail validation due to a second-hop limit below minLimitThreshold (500n)
+            const shallowPools = Array.from({ length: 5 }, (_, i) => {
+                const mid = new Token(1, `0xshallowmid_${i}`, 18, `SM${i}`);
+                return [
+                    createMockPool(`s1_${i}`, [tokenA, mid], { getLimitAmountSwap: () => 10_000n }),
+                    createMockPool(`s2_${i}`, [mid, tokenD], { getLimitAmountSwap: () => 100n }),
+                ];
+            }).flat();
+
+            const deep1 = createMockPool('deep1_50', [tokenA, hop1], { getLimitAmountSwap: () => 10_000n });
+            const deep2 = createMockPool('deep2_50', [hop1, hop2], { getLimitAmountSwap: () => 10_000n });
+            const deep3 = createMockPool('deep3_50', [hop2, hop3], { getLimitAmountSwap: () => 10_000n });
+            const deep4 = createMockPool('deep4_50', [hop3, tokenD], { getLimitAmountSwap: () => 10_000n });
+
+            g.buildGraph({
+                pools: [...shallowPools, deep1, deep2, deep3, deep4],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: {
+                    ...baseConfig,
+                    maxTokenPaths: 3,
+                    maxDepth: 3,
+                    maxDepthFallback: 5,
+                    minSwapAmountRatio: 0.5,
+                },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools.map((p) => p.id)).toEqual(['deep1_50', 'deep2_50', 'deep3_50', 'deep4_50']);
+        });
+
         test('default maxDepth (8) discovers multi-hop Regular + Boosted (5 tokens) and Boosted + Boosted (7 tokens) routes alongside a direct pool', () => {
             const g = new PathGraph();
             const wA = new Token(1, '0xwa', 18, 'wA');

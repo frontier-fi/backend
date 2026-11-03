@@ -23,7 +23,7 @@ export const stableContractCalls = (id: string): ViemMulticallCall[] => [
         abi: stableV3,
         functionName: 'getAmplificationParameter',
         parser: (result: AmplificationParameters) => ({
-            amp: String(result[0] / result[2]),
+            amp: formatAmpValue(result[0], result[2]),
             ampIsUpdating: result[1],
         }),
     },

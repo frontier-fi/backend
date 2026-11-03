@@ -150,13 +150,13 @@ function mapBatchSwap(path: PathWithAmount, share: number): GqlSorSwapRoute {
     const stepIndicesToMap =
         nonBufferStepIndices.length > 0 ? nonBufferStepIndices : path.pools.map((_, index) => index);
 
-    const hops = stepIndicesToMap.map((stepIndex, hopIdx) => {
+    const hops = stepIndicesToMap.map((stepIndex) => {
         const pool = path.pools[stepIndex];
         return {
             tokenIn: `${path.tokens[stepIndex].address}`,
             tokenOut: `${path.tokens[stepIndex + 1].address}`,
-            tokenInAmount: hopIdx === 0 ? tokenInAmount : '0',
-            tokenOutAmount: hopIdx === stepIndicesToMap.length - 1 ? tokenOutAmount : '0',
+            tokenInAmount: formatUnits(path.amounts[stepIndex].amount, path.tokens[stepIndex].decimals),
+            tokenOutAmount: formatUnits(path.amounts[stepIndex + 1].amount, path.tokens[stepIndex + 1].decimals),
             poolId: pool.id,
             pool: aGqlPoolMinimal({
                 symbol: '',

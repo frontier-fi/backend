@@ -144,7 +144,11 @@ export class PathGraph {
                 tokenOut: tokenOut.address,
                 swapKind,
                 minLimitThreshold,
-                config: { ...config, maxDepth: config.maxDepthFallback },
+                config: {
+                    ...config,
+                    minDepth: config.maxDepth + 1,
+                    maxDepth: config.maxDepthFallback,
+                },
                 signal,
             });
         }
@@ -431,7 +435,9 @@ export class PathGraph {
                 const newTokenPath = [...tokenPath, neighbor];
 
                 if (neighbor === tokenOut) {
-                    results.push(newTokenPath);
+                    if (!config.minDepth || newTokenPath.length >= config.minDepth) {
+                        results.push(newTokenPath);
+                    }
                 } else {
                     // push longer path into queue
                     queue.push({ node: neighbor, tokenPath: newTokenPath });
