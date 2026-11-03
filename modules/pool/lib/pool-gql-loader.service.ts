@@ -19,7 +19,7 @@ import {
 import { prisma } from '../../../prisma/prisma-client';
 import { Chain, Prisma, PrismaUserWalletBalance } from '@prisma/client';
 import { fixedNumber } from '../../view-helpers/fixed-number';
-import { EclpData, StableData } from '../subgraph-pool';
+import { EclpData, resolveStableAmp, StableData } from '../subgraph-pool';
 import { ZERO_ADDRESS } from '@balancer/sdk';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { GraphQLError } from 'graphql';
@@ -567,6 +567,7 @@ export class PoolGqlLoaderService {
                     __typename: 'GqlPoolStable',
                     ...poolWithoutTypeData,
                     ...(typeData as StableData),
+                    amp: resolveStableAmp(typeData as StableData),
                     ...mappedData,
                 };
             case 'ECLP': {

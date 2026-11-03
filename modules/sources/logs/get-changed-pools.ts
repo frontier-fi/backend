@@ -10,6 +10,8 @@ const events = VaultV3.filter(
             'SwapFeePercentageChanged',
             'PoolPausedStateChanged',
             'PoolRecoveryModeStateChanged',
+            'AggregateSwapFeePercentageChanged',
+            'AggregateYieldFeePercentageChanged',
         ].includes(i.name),
 );
 

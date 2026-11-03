@@ -981,5 +981,386 @@ describe('PathGraph search algorithms', () => {
 
             expect(paths.length).toBeLessThanOrEqual(5);
         });
+
+        test('selectTopCandidatesPerTokenPath computes non-zero bottleneck boundNL and ranks most liquid combinations first', () => {
+            const g = new PathGraph();
+
+            const pABHigh = createMockPool('pABHigh', [tokenA, tokenB], { getNormalizedLiquidity: () => 1000n });
+            const pABLow = createMockPool('pABLow', [tokenA, tokenB], { getNormalizedLiquidity: () => 100n });
+            const pBCHigh = createMockPool('pBCHigh', [tokenB, tokenC], { getNormalizedLiquidity: () => 900n });
+            const pBCLow = createMockPool('pBCLow', [tokenB, tokenC], { getNormalizedLiquidity: () => 50n });
+
+            g.buildGraph({
+                pools: [pABHigh, pABLow, pBCHigh, pBCLow],
+                enableAddRemoveLiquidityPaths: false,
+                maxPathSegmentsPerTokenPair: 2,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const edgesAB = (g as any).edges.get(tokenA.address).get(tokenB.address);
+            const edgesBC = (g as any).edges.get(tokenB.address).get(tokenC.address);
+
+            const top1 = (g as any).selectTopCandidatesPerTokenPath([edgesAB, edgesBC], 1);
+
+            expect(top1).toHaveLength(1);
+            // Best combination is [0, 0] (pABHigh=1000n + pBCHigh=900n -> bottleneck 900n), NOT [1, 1] (boundNL=0n)
+            expect(top1[0].ranks).toEqual([0, 0]);
+            expect(top1[0].boundNL).toBe(900n);
+        });
+
+        test('buildGraph does not allow zero-limit dead pools to evict live pools when tokenPrices is missing', () => {
+            const g = new PathGraph();
+
+            // A dead/paused pool or depleted buffer with stale high normalizedLiquidity (2000n) but 0n swap limit
+            const deadHighNLPool = createMockPool('deadHighNL', [tokenA, tokenB], {
+                getNormalizedLiquidity: () => 2000n,
+                getLimitAmountSwap: () => 0n,
+            });
+            // A live pool with lower normalizedLiquidity (500n) and healthy swap limit (10000n)
+            const livePool = createMockPool('livePool', [tokenA, tokenB], {
+                getNormalizedLiquidity: () => 500n,
+                getLimitAmountSwap: () => 10_000n,
+            });
+
+            // Even when tokenPrices is empty (e.g. unpriced Sepolia test tokens -> minLimitThresholdUSD = 0),
+            // deadHighNLPool (limit = 0n) must not evict livePool when maxPathSegmentsPerTokenPair = 1
+            g.buildGraph({
+                pools: [deadHighNLPool, livePool],
+                enableAddRemoveLiquidityPaths: false,
+                maxPathSegmentsPerTokenPair: 1,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenB,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: { ...baseConfig },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools[0].id).toBe('livePool');
+        });
+
+        test('getCandidatePaths does not discard a valid multi-hop path when upstream swapGivenOut throws near the downstream pool limit boundary', () => {
+            const g = new PathGraph();
+
+            // Hop 1 (A -> B): supports up to 10,000 ExactIn and 9,900 ExactOut,
+            // but its math throws a convergence error when queried via swapGivenOut above 9,500 (near its 9,900 asymptote)
+            const poolAB = createMockPool('poolAB', [tokenA, tokenB], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: (_tIn: Token, _tOut: Token, kind: SwapKind) =>
+                    kind === SwapKind.GivenIn ? 10_000n * 10n ** 18n : 9_900n * 10n ** 18n,
+                swapGivenOut: (tIn: Token, _tOut: Token, amountOut: TokenAmount) => {
+                    if (amountOut.amount > 9_500n * 10n ** 18n) {
+                        throw new Error('Newton-Raphson failed to converge near asymptotic pool limit');
+                    }
+                    return TokenAmount.fromRawAmount(tIn, amountOut.amount);
+                },
+            });
+
+            // Hop 2 (B -> C): has a GivenIn limit of 9,800 (which is < poolAB's 9,900 ExactOut limit,
+            // causing getLimitAmountSwapForPath to call poolAB.swapGivenOut(9,800) and trigger the boundary throw)
+            const poolBC = createMockPool('poolBC', [tokenB, tokenC], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: () => 9_800n * 10n ** 18n,
+            });
+
+            g.buildGraph({
+                pools: [poolAB, poolBC],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            // User only wants to swap 100 tokenA (minLimitThreshold = 50 tokenA), well within both pools' safe capacity
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenC,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 100n * 10n ** 18n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: { ...baseConfig },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools.map((p) => p.id)).toEqual(['poolAB', 'poolBC']);
+        });
+
+        test('getCandidatePaths computes multi-hop SwapKind.GivenOut path limits in tokenOut units rather than tokenIn units (6-dec tokenIn -> 18-dec tokenOut)', () => {
+            const g = new PathGraph();
+            const usdc6 = new Token(1, '0xusdc', 6, 'USDC');
+            const weth18 = new Token(1, '0xweth', 18, 'WETH');
+            const dai18 = new Token(1, '0xdai', 18, 'DAI');
+
+            // Hop 1 (USDC 6-dec -> WETH 18-dec): max 30,000 USDC in (3e10 raw), max 10 WETH out (10e18 raw)
+            const poolUsdcWeth = createMockPool('poolUsdcWeth', [usdc6, weth18], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: (_tIn: Token, _tOut: Token, kind: SwapKind) =>
+                    kind === SwapKind.GivenIn ? 30_000n * 10n ** 6n : 10n * 10n ** 18n,
+            });
+
+            // Hop 2 (WETH 18-dec -> DAI 18-dec): max 50 WETH in (50e18 raw), max 100,000 DAI out (100,000e18 raw),
+            // and 1 WETH in swaps to 2,000 DAI out (so 10 WETH from Hop 1 produces 20,000 DAI max output)
+            const poolWethDai = createMockPool('poolWethDai', [weth18, dai18], {
+                getNormalizedLiquidity: () => 1000n,
+                getLimitAmountSwap: (_tIn: Token, _tOut: Token, kind: SwapKind) =>
+                    kind === SwapKind.GivenIn ? 50n * 10n ** 18n : 100_000n * 10n ** 18n,
+                swapGivenIn: (_tIn: Token, tOut: Token, amountIn: TokenAmount) =>
+                    TokenAmount.fromRawAmount(tOut, amountIn.amount * 2_000n),
+            });
+
+            g.buildGraph({
+                pools: [poolUsdcWeth, poolWethDai],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenOut,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            // 1. A GivenOut swap for 1,000 DAI (minLimitThreshold = 500e18 DAI) is well within the 20,000 DAI path limit
+            const validPaths = g.getCandidatePaths({
+                tokenIn: usdc6,
+                tokenOut: dai18,
+                swapAmount: TokenAmount.fromRawAmount(dai18, 1_000n * 10n ** 18n),
+                swapKind: SwapKind.GivenOut,
+                graphTraversalConfig: { ...baseConfig, minSwapAmountRatio: 0.5 },
+            });
+
+            expect(validPaths).toHaveLength(1);
+            expect(validPaths[0].pools.map((p) => p.id)).toEqual(['poolUsdcWeth', 'poolWethDai']);
+
+            // 2. A GivenOut swap for 50,000 DAI (minLimitThreshold = 25,000e18 DAI) exceeds the 20,000 DAI bottleneck from Hop 1
+            const excessivePaths = g.getCandidatePaths({
+                tokenIn: usdc6,
+                tokenOut: dai18,
+                swapAmount: TokenAmount.fromRawAmount(dai18, 50_000n * 10n ** 18n),
+                swapKind: SwapKind.GivenOut,
+                graphTraversalConfig: { ...baseConfig, minSwapAmountRatio: 0.5 },
+            });
+
+            expect(excessivePaths).toHaveLength(0);
+        });
+
+        test('getCandidatePaths falls back to maxDepthFallback when all paths within maxDepth fail validation', () => {
+            const g = new PathGraph();
+            const hop1 = new Token(1, '0xhop1', 18, 'HOP1');
+            const hop2 = new Token(1, '0xhop2', 18, 'HOP2');
+            const hop3 = new Token(1, '0xhop3', 18, 'HOP3');
+
+            // Shallow 2-hop path (A -> B -> D, tokenPath length = 3 <= maxDepth 3):
+            // Exists in the graph so findAllValidTokenPaths sees results.length > 0,
+            // but its second hop has a tiny limit (100n < minLimitThreshold 500n) so isValidPath rejects it!
+            const shallowPool1 = createMockPool('shallow1', [tokenA, tokenB], {
+                getLimitAmountSwap: () => 10_000n,
+            });
+            const shallowPool2Bottleneck = createMockPool('shallow2', [tokenB, tokenD], {
+                getLimitAmountSwap: () => 100n,
+            });
+
+            // Deeper 4-hop path (A -> hop1 -> hop2 -> hop3 -> D, tokenPath length = 5 > maxDepth 3, <= maxDepthFallback 5):
+            // Has ample capacity (10,000n >= 500n) on every hop.
+            const deep1 = createMockPool('deep1', [tokenA, hop1], { getLimitAmountSwap: () => 10_000n });
+            const deep2 = createMockPool('deep2', [hop1, hop2], { getLimitAmountSwap: () => 10_000n });
+            const deep3 = createMockPool('deep3', [hop2, hop3], { getLimitAmountSwap: () => 10_000n });
+            const deep4 = createMockPool('deep4', [hop3, tokenD], { getLimitAmountSwap: () => 10_000n });
+
+            g.buildGraph({
+                pools: [shallowPool1, shallowPool2Bottleneck, deep1, deep2, deep3, deep4],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: {
+                    ...baseConfig,
+                    maxDepth: 3,
+                    maxDepthFallback: 5,
+                    minSwapAmountRatio: 0.5, // minLimitThreshold = 500n
+                },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools.map((p) => p.id)).toEqual(['deep1', 'deep2', 'deep3', 'deep4']);
+        });
+
+        test('maxDepthFallback discovers deeper paths even when >= maxTokenPaths shallow paths exist and fail validation', () => {
+            const g = new PathGraph();
+            const hop1 = new Token(1, '0xhop1_50', 18, 'HOP1');
+            const hop2 = new Token(1, '0xhop2_50', 18, 'HOP2');
+            const hop3 = new Token(1, '0xhop3_50', 18, 'HOP3');
+
+            // Create 5 shallow 2-hop paths (length = 3 <= maxDepth 3) when maxTokenPaths = 3,
+            // all of which fail validation due to a second-hop limit below minLimitThreshold (500n)
+            const shallowPools = Array.from({ length: 5 }, (_, i) => {
+                const mid = new Token(1, `0xshallowmid_${i}`, 18, `SM${i}`);
+                return [
+                    createMockPool(`s1_${i}`, [tokenA, mid], { getLimitAmountSwap: () => 10_000n }),
+                    createMockPool(`s2_${i}`, [mid, tokenD], { getLimitAmountSwap: () => 100n }),
+                ];
+            }).flat();
+
+            const deep1 = createMockPool('deep1_50', [tokenA, hop1], { getLimitAmountSwap: () => 10_000n });
+            const deep2 = createMockPool('deep2_50', [hop1, hop2], { getLimitAmountSwap: () => 10_000n });
+            const deep3 = createMockPool('deep3_50', [hop2, hop3], { getLimitAmountSwap: () => 10_000n });
+            const deep4 = createMockPool('deep4_50', [hop3, tokenD], { getLimitAmountSwap: () => 10_000n });
+
+            g.buildGraph({
+                pools: [...shallowPools, deep1, deep2, deep3, deep4],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: {
+                    ...baseConfig,
+                    maxTokenPaths: 3,
+                    maxDepth: 3,
+                    maxDepthFallback: 5,
+                    minSwapAmountRatio: 0.5,
+                },
+            });
+
+            expect(paths).toHaveLength(1);
+            expect(paths[0].pools.map((p) => p.id)).toEqual(['deep1_50', 'deep2_50', 'deep3_50', 'deep4_50']);
+        });
+
+        test('default maxDepth (8) discovers multi-hop Regular + Boosted (5 tokens) and Boosted + Boosted (7 tokens) routes alongside a direct pool', () => {
+            const g = new PathGraph();
+            const wA = new Token(1, '0xwa', 18, 'wA');
+            const wB1 = new Token(1, '0xwb1', 18, 'wB1');
+            const wB2 = new Token(1, '0xwb2', 18, 'wB2');
+            const wD = new Token(1, '0xwd', 18, 'wD');
+
+            // 1. Direct shallow pool (A -> D, 2 tokens)
+            const directPool = createMockPool('directAD', [tokenA, tokenD]);
+
+            // 2. 7-token (6-hop) Boosted -> Boosted route: A -> [bufA] -> wA -> [boosted1] -> wB1 -> [bufB1] -> B -> [bufB2] -> wB2 -> [boosted2] -> wD -> [bufD] -> D
+            const bufA = createMockPool('bufA', [tokenA, wA], { poolType: 'Buffer' });
+            const boosted1 = createMockPool('boosted1', [wA, wB1]);
+            const bufB1 = createMockPool('bufB1', [wB1, tokenB], { poolType: 'Buffer' });
+            const bufB2 = createMockPool('bufB2', [tokenB, wB2], { poolType: 'Buffer' });
+            const boosted2 = createMockPool('boosted2', [wB2, wD]);
+            const bufD = createMockPool('bufD', [wD, tokenD], { poolType: 'Buffer' });
+
+            g.buildGraph({
+                pools: [directPool, bufA, boosted1, bufB1, bufB2, boosted2, bufD],
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            // Using PathGraph's default traversal config (no maxDepth override)
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+            });
+
+            const poolIdLists = paths.map((p) => p.pools.map((pool) => pool.id));
+            expect(poolIdLists).toContainEqual(['directAD']);
+            expect(poolIdLists).toContainEqual(['bufA', 'boosted1', 'bufB1', 'bufB2', 'boosted2', 'bufD']);
+        });
+
+        test('findAllValidTokenPaths expands neighbors in descending normalizedLiquidity order when maxTokenPaths caps BFS', () => {
+            const g = new PathGraph();
+            const hub = new Token(1, '0xhub', 18);
+            const target = new Token(1, '0xtarget', 18);
+            const spokes = Array.from({ length: 6 }, (_, i) => new Token(1, `0xspoke${i}`, 18));
+
+            // Insert spokes in ascending liquidity order (spoke0 = 100n ... spoke5 = 600n)
+            const pools = spokes.flatMap((spoke, i) => {
+                const liq = BigInt((i + 1) * 100);
+                return [
+                    createMockPool(`hub_${i}`, [hub, spoke], { getNormalizedLiquidity: () => liq }),
+                    createMockPool(`spoke_${i}`, [spoke, target], { getNormalizedLiquidity: () => liq }),
+                ];
+            });
+
+            g.buildGraph({
+                pools,
+                enableAddRemoveLiquidityPaths: false,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const tokenPaths = g['findAllValidTokenPaths']({
+                tokenIn: hub.address,
+                tokenOut: target.address,
+                config: { ...baseConfig, maxTokenPaths: 3 },
+            });
+
+            // Must prioritize the 3 highest-liquidity spokes (spoke5, spoke4, spoke3) rather than insertion order (spoke0, spoke1, spoke2)
+            expect(tokenPaths).toEqual([
+                [hub.address, spokes[5].address, target.address],
+                [hub.address, spokes[4].address, target.address],
+                [hub.address, spokes[3].address, target.address],
+            ]);
+        });
+
+        test('getCandidatePaths applies selectTopCandidatesGlobally (maxCandidatesGlobally) across all token paths by bottleneck liquidity', () => {
+            const g = new PathGraph();
+            const midLow = new Token(1, '0xmidlow', 18);
+            const midHigh = new Token(1, '0xmidhigh', 18);
+
+            // Token path 1 (A -> midLow -> D): bottleneck liquidity = 200n
+            const pLow1 = createMockPool('pLow1', [tokenA, midLow], { getNormalizedLiquidity: () => 900n });
+            const pLow2 = createMockPool('pLow2', [midLow, tokenD], { getNormalizedLiquidity: () => 200n });
+
+            // Token path 2 (A -> midHigh -> D): 2 candidates with bottleneck liquidity 850n and 750n
+            const pHigh1a = createMockPool('pHigh1a', [tokenA, midHigh], { getNormalizedLiquidity: () => 850n });
+            const pHigh1b = createMockPool('pHigh1b', [tokenA, midHigh], { getNormalizedLiquidity: () => 750n });
+            const pHigh2 = createMockPool('pHigh2', [midHigh, tokenD], { getNormalizedLiquidity: () => 950n });
+
+            g.buildGraph({
+                pools: [pLow1, pLow2, pHigh1a, pHigh1b, pHigh2],
+                enableAddRemoveLiquidityPaths: false,
+                maxPathSegmentsPerTokenPair: 4,
+                swapKind: SwapKind.GivenIn,
+                tokenPrices: new Map<string, number>(),
+                minLimitThresholdUSD: 0,
+            });
+
+            const paths = g.getCandidatePaths({
+                tokenIn: tokenA,
+                tokenOut: tokenD,
+                swapAmount: TokenAmount.fromRawAmount(tokenA, 1_000n),
+                swapKind: SwapKind.GivenIn,
+                graphTraversalConfig: {
+                    ...baseConfig,
+                    maxCandidatesPerTokenPath: 5,
+                    maxCandidatesGlobally: 2,
+                    minSwapAmountRatio: 0,
+                },
+            });
+
+            // Global beam search must keep only the top 2 candidates by bottleneck NL (850n and 750n on midHigh),
+            // pruning the 200n bottleneck candidate on midLow even though pLow1 had 900n first-hop liquidity!
+            expect(paths).toHaveLength(2);
+            expect(paths.map((p) => p.pools.map((pool) => pool.id))).toEqual([
+                ['pHigh1a', 'pHigh2'],
+                ['pHigh1b', 'pHigh2'],
+            ]);
+        });
     });
 });

@@ -17,10 +17,7 @@ import {
 } from './utils';
 import { PathWithAmount } from './lib/path';
 import { getInputAmount, getOutputAmount } from './lib/utils';
-import { PathGraphTraversalConfig } from './lib/pathGraph/pathGraphTypes';
 import { Chain } from '@prisma/client';
-
-const DEFAULT_MAX_DEPTH = 4;
 
 export class SorService {
     async getSorSwapPaths(args: QuerySorGetSwapPathsArgs, signal?: AbortSignal): Promise<GqlSorGetSwapPaths> {
@@ -114,9 +111,7 @@ export class SorService {
                 throw new SorAbortError();
             }
 
-            // retry with different max depth if no paths are found
-            let swapOptions = this.buildSwapOptions(DEFAULT_MAX_DEPTH);
-            let paths = await SOR.getPathsWithPools(
+            const paths = await SOR.getPathsWithPools(
                 tokenIn,
                 tokenOut,
                 swapKind,
@@ -125,7 +120,7 @@ export class SorService {
                 bufferPools,
                 input.protocolVersion,
                 tokenPrices,
-                swapOptions,
+                undefined,
                 input.signal,
             );
 
@@ -148,17 +143,6 @@ export class SorService {
             this.logSwapPathError(err, input);
             return { paths: null, protocolVersion: input.protocolVersion, returnAmount: '0' };
         }
-    }
-
-    private buildSwapOptions(maxDepth: number): {
-        graphTraversalConfig: Partial<PathGraphTraversalConfig>;
-    } {
-        return {
-            graphTraversalConfig: {
-                maxDepth,
-                maxDepthFallback: maxDepth + 1,
-            },
-        };
     }
 
     private logSwapPathError(err: any, input: GetSwapPathsInput): void {

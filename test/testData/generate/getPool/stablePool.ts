@@ -1,5 +1,6 @@
-import { type PublicClient, createPublicClient, http, type Address, parseAbi, type Chain } from 'viem';
-import { CHAINS, AddressProvider, vaultExtensionAbi_V3 } from '@balancer/sdk';
+import { type PublicClient, type Address, parseAbi } from 'viem';
+import VaultV3Abi from '../../../../modules/sources/contracts/abis/VaultV3';
+import { getBatchedPublicClient, resolveMulticall3Address, resolveVaultAddress } from '../getSwapPath';
 
 import { TransformBigintToString } from '../../types';
 import { vaultExplorerAbi } from '../abi/vaultExplorer';
@@ -21,28 +22,27 @@ type StableImmutable = {
 export class StablePool {
     client: PublicClient;
     vault: Address;
+    multicallAddress: Address;
 
     constructor(
         public rpcUrl: string,
         public chainId: number,
     ) {
-        this.client = createPublicClient({
-            transport: http(this.rpcUrl),
-            chain: CHAINS[this.chainId] as Chain,
-        });
-        this.vault = AddressProvider.Vault(this.chainId);
+        this.client = getBatchedPublicClient(this.rpcUrl, this.chainId);
+        this.vault = resolveVaultAddress(this.chainId);
+        this.multicallAddress = resolveMulticall3Address(this.chainId);
     }
 
     async fetchImmutableData(address: Address, blockNumber: bigint): Promise<TransformBigintToString<StableImmutable>> {
         const poolTokensCall = {
             address: this.vault,
-            abi: vaultExtensionAbi_V3,
+            abi: VaultV3Abi,
             functionName: 'getPoolTokenInfo',
             args: [address],
         } as const;
         const tokenRatesCall = {
             address: this.vault,
-            abi: vaultExtensionAbi_V3,
+            abi: VaultV3Abi,
             functionName: 'getPoolTokenRates',
             args: [address],
         } as const;
@@ -50,6 +50,7 @@ export class StablePool {
             contracts: [poolTokensCall, tokenRatesCall],
             allowFailure: false,
             blockNumber,
+            multicallAddress: this.multicallAddress,
         });
         return {
             tokens: multicallResult[0][0].map((token) => token),
@@ -66,13 +67,13 @@ export class StablePool {
         } as const;
         const liveBalancesCall = {
             address: this.vault,
-            abi: vaultExtensionAbi_V3,
+            abi: VaultV3Abi,
             functionName: 'getCurrentLiveBalances',
             args: [address],
         } as const;
         const tokenRatesCall = {
             address: this.vault,
-            abi: vaultExtensionAbi_V3,
+            abi: VaultV3Abi,
             functionName: 'getPoolTokenRates',
             args: [address],
         } as const;
@@ -94,6 +95,7 @@ export class StablePool {
             contracts: [totalSupplyCall, liveBalancesCall, tokenRatesCall, amplificationParameterCall, poolConfigCall],
             allowFailure: false,
             blockNumber,
+            multicallAddress: this.multicallAddress,
         });
         return {
             swapFee: multicallResult[4].staticSwapFeePercentage.toString(),

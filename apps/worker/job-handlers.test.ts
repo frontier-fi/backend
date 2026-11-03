@@ -26,8 +26,9 @@ async function serve(
         acquireLock: noopLock,
         ...options,
     });
-    const server = await new Promise<Server>((resolve) => {
+    const server = await new Promise<Server>((resolve, reject) => {
         const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
+        listening.once('error', reject);
     });
     return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/`, routes };
 }
@@ -70,7 +71,7 @@ describe('jobHandlers', () => {
 
 describe('worker route', () => {
     const handlers: Record<string, JobHandler> = {};
-    let server: Server;
+    let server: Server | undefined;
     let url: string;
 
     beforeAll(async () => {
@@ -78,7 +79,9 @@ describe('worker route', () => {
     });
 
     afterAll(async () => {
-        await new Promise((resolve) => server.close(resolve));
+        if (server?.listening) {
+            await new Promise((resolve) => server!.close(resolve));
+        }
     });
 
     beforeEach(() => {
@@ -117,7 +120,7 @@ describe('worker route', () => {
         const job = blockingJob(handlers, 'sync-pools-v3');
 
         const first = post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
-        await job.started;
+        await Promise.race([job.started, first]);
         const second = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
         job.finish();
 
@@ -127,7 +130,7 @@ describe('worker route', () => {
 
     it.each([
         ['an unknown job', { name: 'not-a-job', chain: SEPOLIA_ID }],
-        ['an unconfigured chain', { name: 'sync-pools-v3', chain: '1' }],
+        ['an unconfigured chain', { name: 'sync-pools-v3', chain: '999999999' }],
         ['an inherited property as the job', { name: 'constructor', chain: SEPOLIA_ID }],
         ['an inherited property as the chain', { name: 'sync-pools-v3', chain: 'toString' }],
         ['a message without fields', {}],
@@ -154,14 +157,16 @@ describe('worker drain', () => {
     });
 
     afterEach(async () => {
-        server.closeAllConnections();
-        await new Promise((resolve) => server.close(resolve));
+        if (server?.listening) {
+            server.closeAllConnections();
+            await new Promise((resolve) => server.close(resolve));
+        }
     });
 
     it('lets running jobs finish and refuses new ones meanwhile', async () => {
         const job = blockingJob(handlers, 'sync-hook-data');
         const running = post(url, { name: 'sync-hook-data', chain: SEPOLIA_ID });
-        await job.started;
+        await Promise.race([job.started, running]);
 
         const drained = routes.drain(5_000);
         const refused = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
@@ -175,7 +180,7 @@ describe('worker drain', () => {
     it('stops waiting at the deadline and names the jobs still running', async () => {
         const job = blockingJob(handlers, 'sync-hook-data');
         const running = post(url, { name: 'sync-hook-data', chain: SEPOLIA_ID });
-        await job.started;
+        await Promise.race([job.started, running]);
 
         expect(await routes.drain(50)).toEqual([`sync-hook-data-${SEPOLIA_ID}`]);
 

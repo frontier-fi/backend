@@ -15,7 +15,7 @@ import { PathWithAmount } from '../lib/path';
 import { Chain } from '@prisma/client';
 import { addressesMatch, replaceZeroAddressWithEth } from '../../web3/addresses';
 import { GqlSorSwap } from '../../../apps/api/gql/generated-schema';
-import { getInputAmount, getOutputAmount } from '../lib/utils/helpers';
+import { calculatePriceImpact, getInputAmount, getOutputAmount } from '../lib/utils/helpers';
 import { GetSwapPathsInput } from '../types';
 import { getTokenAmountHuman } from './helpers';
 import config from '../../../config';
@@ -61,11 +61,17 @@ export async function mapToSorSwapPaths(
     let inputAmount = getInputAmount(paths);
     let outputAmount = getOutputAmount(paths);
 
-    // TODO: remove this once we fully deprecate queryBatchSwap, callDataInput and priceImpact
+    // TODO: remove this once we fully deprecate queryBatchSwap and callDataInput
     const callData: GqlSorCallData | undefined = undefined;
-    const priceImpact = undefined;
-    const priceImpactError =
-        'Price impact could not be calculated for this path. The swap path is still valid and can be executed.';
+    let priceImpact: string | undefined;
+    let priceImpactError: string | undefined;
+    try {
+        priceImpact = calculatePriceImpact(paths, swapKind);
+    } catch {
+        priceImpact = undefined;
+        priceImpactError =
+            'Price impact could not be calculated for this path. The swap path is still valid and can be executed.';
+    }
 
     const sorPaths: GqlSorPath[] = paths.map((path) => ({
         protocolVersion,
@@ -138,25 +144,27 @@ function mapBatchSwap(path: PathWithAmount, share: number): GqlSorSwapRoute {
     const tokenInAmount = formatUnits(path.inputAmount.amount, path.tokens[0].decimals);
     const tokenOutAmount = formatUnits(path.outputAmount.amount, path.tokens[path.tokens.length - 1].decimals);
 
-    const hops = [];
-    let i = 0;
-    for (const pool of path.pools) {
-        if (pool.poolType !== 'Buffer') {
-            hops.push({
-                tokenIn: `${path.tokens[i].address}`,
-                tokenOut: `${path.tokens[i + 1].address}`,
-                tokenInAmount: i === 0 ? tokenInAmount : '0',
-                tokenOutAmount: i === path.pools.length - 1 ? tokenOutAmount : '0',
-                poolId: pool.id,
-                pool: aGqlPoolMinimal({
-                    symbol: '',
-                    address: pool.address,
-                    poolTokens: [],
-                }),
-            });
-        }
-        i++;
-    }
+    const nonBufferStepIndices = path.pools
+        .map((pool, index) => (pool.poolType !== 'Buffer' ? index : -1))
+        .filter((index) => index !== -1);
+    const stepIndicesToMap =
+        nonBufferStepIndices.length > 0 ? nonBufferStepIndices : path.pools.map((_, index) => index);
+
+    const hops = stepIndicesToMap.map((stepIndex) => {
+        const pool = path.pools[stepIndex];
+        return {
+            tokenIn: `${path.tokens[stepIndex].address}`,
+            tokenOut: `${path.tokens[stepIndex + 1].address}`,
+            tokenInAmount: formatUnits(path.amounts[stepIndex].amount, path.tokens[stepIndex].decimals),
+            tokenOutAmount: formatUnits(path.amounts[stepIndex + 1].amount, path.tokens[stepIndex + 1].decimals),
+            poolId: pool.id,
+            pool: aGqlPoolMinimal({
+                symbol: '',
+                address: pool.address,
+                poolTokens: [],
+            }),
+        };
+    });
 
     return {
         tokenIn,
