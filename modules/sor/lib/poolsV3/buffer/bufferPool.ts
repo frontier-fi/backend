@@ -303,8 +303,7 @@ export class BufferPool implements BasePoolMethodsV3 {
                 );
                 const rawUnwrapRequiredUnderlying =
                     underlyingTokenAmount.amount - (underlyingTokenAmount.amount + mainAsUnderlying) / 2n;
-                const unwrapRequiredUnderlying =
-                    rawUnwrapRequiredUnderlying > 0n ? rawUnwrapRequiredUnderlying : 0n;
+                const unwrapRequiredUnderlying = rawUnwrapRequiredUnderlying > 0n ? rawUnwrapRequiredUnderlying : 0n;
                 const availableLending =
                     this.maxWithdraw > unwrapRequiredUnderlying ? this.maxWithdraw - unwrapRequiredUnderlying : 0n;
                 if (outputAmount.amount <= availableLending) {
