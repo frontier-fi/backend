@@ -97,11 +97,18 @@ export class PoolAggregatorLoader {
                       AND: args.where.tokensIn.map((token) => ({
                           allTokens: {
                               some: {
-                                  token: {
-                                      address: {
-                                          equals: token.toLowerCase(),
-                                      },
-                                  },
+                                  token: /^0x[0-9a-fA-F]{40}$/.test(token)
+                                      ? {
+                                            address: {
+                                                equals: token.toLowerCase(),
+                                            },
+                                        }
+                                      : {
+                                            symbol: {
+                                                contains: token,
+                                                mode: 'insensitive' as const,
+                                            },
+                                        },
                               },
                           },
                       })),

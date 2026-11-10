@@ -248,4 +248,51 @@ describe('PoolGqlLoaderService', () => {
         expect(def?.priceRateProviderData?.address).toBe('0x0000000000000000000000000000000000000020');
         expect(def?.rateProviderData?.warnings).toEqual([]);
     });
+
+    it('filters tokensIn by address with equals and by token symbol with case-insensitive contains', async () => {
+        const findManySpy = vi.spyOn(prisma.prismaPool, 'findMany').mockResolvedValue([]);
+
+        await loader.getPools({
+            where: {
+                chainIn: [Chain.SEPOLIA],
+                tokensIn: ['0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8', 'USDC'],
+            },
+        });
+
+        expect(findManySpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    AND: [
+                        {
+                            OR: [
+                                {
+                                    allTokens: {
+                                        some: {
+                                            token: {
+                                                address: {
+                                                    equals: '0x94a9d9ac8a22534e3faca9f4e7f2e2cf85d5e4c8',
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                                {
+                                    allTokens: {
+                                        some: {
+                                            token: {
+                                                symbol: {
+                                                    contains: 'USDC',
+                                                    mode: 'insensitive',
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            }),
+        );
+    });
 });

@@ -199,16 +199,33 @@ export class PoolGqlLoaderService {
             const orderDirection = args.orderDirection === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
 
             const searchQuery = sanitiseTextSearch(args.textSearch);
+            const likePattern = `%${searchQuery}%`;
             const limit = Math.min(100, parseInt(`${args.first}`) || 20);
             const offset = parseInt(`${args.skip}`) || 0;
             const filters = searchFilters(args);
 
-            // Use parameterized SQL for the search vector condition
+            // Use parameterized SQL for the search vector + case-insensitive substring match
             const query = Prisma.sql`
                 SELECT p.id, p.chain
                 FROM "PrismaPool" p
                 LEFT JOIN "PrismaPoolDynamicData" d ON (p.id = d."poolId" AND p.chain = d.chain)
-                WHERE p.search_vector @@ websearch_to_tsquery('simple', ${searchQuery})
+                WHERE (
+                    p.search_vector @@ websearch_to_tsquery('simple', ${searchQuery})
+                    OR p.name ILIKE ${likePattern}
+                    OR p.symbol ILIKE ${likePattern}
+                    OR EXISTS (
+                        SELECT 1
+                        FROM "PrismaPoolExpandedTokens" pet
+                        JOIN "PrismaToken" t ON pet."tokenAddress" = t.address AND pet.chain = t.chain
+                        WHERE pet."poolId" = p.id
+                          AND pet.chain = p.chain
+                          AND (
+                              t.symbol ILIKE ${likePattern}
+                              OR t.name ILIKE ${likePattern}
+                              OR t.address ILIKE ${likePattern}
+                          )
+                    )
+                )
                   AND d."totalSharesNum" > 0.000000000001
                   AND NOT ('BLACK_LISTED' = ANY(p.categories))
                   AND ${filters}
@@ -297,13 +314,30 @@ export class PoolGqlLoaderService {
     public async getPoolsCount(args: QueryPoolGetPoolsArgs): Promise<number> {
         if (args.textSearch && args.textSearch.trim().length > 0) {
             const searchQuery = sanitiseTextSearch(args.textSearch);
+            const likePattern = `%${searchQuery}%`;
             const filters = searchFilters(args);
 
             const query = Prisma.sql`
                 SELECT count(*) as count
                 FROM "PrismaPool" p
                 LEFT JOIN "PrismaPoolDynamicData" d ON (p.id = d."poolId" AND p.chain = d.chain)
-                WHERE p.search_vector @@ websearch_to_tsquery('simple', ${searchQuery})
+                WHERE (
+                    p.search_vector @@ websearch_to_tsquery('simple', ${searchQuery})
+                    OR p.name ILIKE ${likePattern}
+                    OR p.symbol ILIKE ${likePattern}
+                    OR EXISTS (
+                        SELECT 1
+                        FROM "PrismaPoolExpandedTokens" pet
+                        JOIN "PrismaToken" t ON pet."tokenAddress" = t.address AND pet.chain = t.chain
+                        WHERE pet."poolId" = p.id
+                          AND pet.chain = p.chain
+                          AND (
+                              t.symbol ILIKE ${likePattern}
+                              OR t.name ILIKE ${likePattern}
+                              OR t.address ILIKE ${likePattern}
+                          )
+                    )
+                )
                   AND d."totalSharesNum" > 0.000000000001
                   AND NOT ('BLACK_LISTED' = ANY(p.categories))
                   AND ${filters}
@@ -377,34 +411,59 @@ export class PoolGqlLoaderService {
             textSearch = { contains: args.textSearch, mode: 'insensitive' as const };
         }
 
-        const allTokensFilter: { allTokens: { some: { token: { address: { equals: string } } } } }[] = [];
-        const allTokensFilterNot = [];
+        const allTokensFilter: Prisma.PrismaPoolWhereInput[] = [];
+        const allTokensFilterNot: Prisma.PrismaPoolWhereInput[] = [];
         where?.tokensIn?.forEach((token) => {
             allTokensFilter.push({
                 allTokens: {
                     some: {
-                        token: {
-                            address: {
-                                equals: token.toLowerCase(),
-                            },
-                        },
+                        token: isToken(token)
+                            ? {
+                                  address: {
+                                      equals: token.toLowerCase(),
+                                  },
+                              }
+                            : {
+                                  symbol: {
+                                      contains: token,
+                                      mode: 'insensitive' as const,
+                                  },
+                              },
                     },
                 },
             });
         });
 
         if (where?.tokensNotIn) {
-            allTokensFilterNot.push({
-                allTokens: {
-                    every: {
-                        token: {
-                            address: {
-                                notIn: where.tokensNotIn.map((t) => t.toLowerCase()) || undefined,
+            const addressesNotIn = where.tokensNotIn.filter((t) => isToken(t)).map((t) => t.toLowerCase());
+            const symbolsNotIn = where.tokensNotIn.filter((t) => !isToken(t));
+            if (addressesNotIn.length > 0) {
+                allTokensFilterNot.push({
+                    allTokens: {
+                        every: {
+                            token: {
+                                address: {
+                                    notIn: addressesNotIn,
+                                },
                             },
                         },
                     },
-                },
-            });
+                });
+            }
+            for (const sym of symbolsNotIn) {
+                allTokensFilterNot.push({
+                    allTokens: {
+                        none: {
+                            token: {
+                                symbol: {
+                                    contains: sym,
+                                    mode: 'insensitive' as const,
+                                },
+                            },
+                        },
+                    },
+                });
+            }
         }
 
         const userArgs: Prisma.PrismaPoolWhereInput = userAddress
@@ -426,7 +485,7 @@ export class PoolGqlLoaderService {
 
         const tokenFilters: Prisma.PrismaPoolWhereInput[] = [];
         if (allTokensFilter.length > 0) tokenFilters.push({ OR: allTokensFilter });
-        if (allTokensFilterNot.length > 0) tokenFilters.push({ OR: allTokensFilterNot });
+        if (allTokensFilterNot.length > 0) tokenFilters.push({ AND: allTokensFilterNot });
 
         const requestedCategories = [
             ...(where?.categoryIn && !where?.tagIn ? where.categoryIn.map((s) => s.toUpperCase()) : []),
@@ -520,11 +579,7 @@ export class PoolGqlLoaderService {
                         allTokens: {
                             some: {
                                 token: {
-                                    OR: [
-                                        { symbol: textSearch },
-                                        { address: filterArgs.allTokens?.some?.token?.address },
-                                        { address: textSearch },
-                                    ],
+                                    OR: [{ symbol: textSearch }, { name: textSearch }, { address: textSearch }],
                                 },
                             },
                         },
