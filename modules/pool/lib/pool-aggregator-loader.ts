@@ -117,7 +117,6 @@ export class PoolAggregatorLoader {
         };
 
         // Get all the tokens for the chain - most likely scenario is client is fetching the chain information
-        console.time('dbTokens');
         const [dbTokens, dbTypes, erc4626ReviewData, rateProviderData] = await Promise.all([
             prisma.prismaToken.findMany({
                 where: {
@@ -160,9 +159,7 @@ export class PoolAggregatorLoader {
                 { ...token, types: typesMap[`${token.chain}-${token.address}`] },
             ]),
         );
-        console.timeEnd('dbTokens');
 
-        console.time('dbPools');
         const pools = await prisma.prismaPool
             .findMany({
                 ...baseQuery,
@@ -234,7 +231,6 @@ export class PoolAggregatorLoader {
         //         };
         //     })
         //     .filter((pool): pool is NonNullable<typeof pool> => pool !== null);
-        console.timeEnd('dbPools');
 
         // Get review data
         const erc4626ReviewDataMap = Object.fromEntries(
@@ -246,7 +242,6 @@ export class PoolAggregatorLoader {
             rateProviderData.map((data) => [`${data.chain}-${data.rateProviderAddress}`, data]),
         );
 
-        console.time('poolsMapping');
         const gqlPools = pools.map((pool) =>
             this.mapPoolToAggregatorPool(pool, tokensMap, erc4626ReviewDataMap, rateproviderDataMap),
         );
@@ -273,7 +268,6 @@ export class PoolAggregatorLoader {
 
             filteredPools.push(mappedPool);
         }
-        console.timeEnd('poolsMapping');
 
         return filteredPools;
     }
