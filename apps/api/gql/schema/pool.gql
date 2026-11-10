@@ -825,6 +825,8 @@ enum GqlPoolFilterCategory {
     POINTS_RENZO
     POINTS_KELP
     SUPERFEST
+    BOOSTED
+    BOOSTED_AAVE
 }
 
 input GqlPoolFilter {

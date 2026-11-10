@@ -295,4 +295,48 @@ describe('PoolGqlLoaderService', () => {
             }),
         );
     });
+
+    it('keeps BOOSTED and BOOSTED_AAVE in categories while filtering out unknown dynamic tags', () => {
+        const poolMock: any = {
+            id: '0xpool1',
+            address: '0xpool1',
+            chain: Chain.SEPOLIA,
+            protocolVersion: 3,
+            type: 'STABLE',
+            typeData: { amp: '100' },
+            categories: ['BOOSTED', 'BOOSTED_AAVE', 'INCENTIVIZED', 'CUSTOM_UNLISTED_TAG'],
+            hook: null,
+            liquidityManagement: null,
+            tokens: [],
+            allTokens: [],
+            aprItems: [],
+            dynamicData: {
+                poolId: '0xpool1',
+                totalLiquidity: 1000,
+                totalLiquidity24hAgo: 1000,
+                totalShares: '100',
+                totalShares24hAgo: '100',
+                fees24h: 0,
+                volume24h: 0,
+                surplus24h: 0,
+                fees48h: 0,
+                volume48h: 0,
+                surplus48h: 0,
+                yieldCapture24h: 0,
+                yieldCapture48h: 0,
+                lifetimeVolume: 0,
+                lifetimeSwapFees: 0,
+                holdersCount: 1,
+                swapsCount: 1,
+                protocolFees24h: 0,
+                protocolFees48h: 0,
+                protocolYieldCapture24h: 0,
+                protocolYieldCapture48h: 0,
+            },
+        };
+
+        const minimal = loader.mapToMinimalGqlPool(poolMock);
+        expect(minimal.categories).toEqual(['BOOSTED', 'BOOSTED_AAVE', 'INCENTIVIZED']);
+        expect(minimal.tags).toEqual(['BOOSTED', 'BOOSTED_AAVE', 'INCENTIVIZED', 'CUSTOM_UNLISTED_TAG']);
+    });
 });
