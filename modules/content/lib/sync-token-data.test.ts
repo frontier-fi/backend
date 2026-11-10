@@ -131,7 +131,7 @@ describe('syncTokenContentData', () => {
     });
 
     it('falls back to nativeAssetId for configured WETH when tokenlist omits coingeckoId', async () => {
-        const configuredSepoliaWeth = '0xfff9976782d46cc05630d1f6ebab18b2324d6b14';
+        const configuredSepoliaWeth = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
         vi.stubGlobal(
             'fetch',
             vi.fn(async (url: string) => {
@@ -144,7 +144,7 @@ describe('syncTokenContentData', () => {
                             tokens: [
                                 {
                                     chainId: 11155111,
-                                    address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
+                                    address: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9',
                                     name: 'Wrapped Ether',
                                     symbol: 'WETH',
                                     decimals: 18,
