@@ -829,6 +829,20 @@ const sanitiseTextSearch = (textSearch: string) => sanitizeInput(textSearch).toL
 
 const searchFilters = (args: QueryPoolGetPoolsArgs): Prisma.Sql => {
     const conditions: Prisma.Sql[] = [Prisma.sql`1=1`];
+    const tokenCondition = (token: string): Prisma.Sql => Prisma.sql`EXISTS (
+        SELECT 1 FROM "PrismaPoolExpandedTokens" pet
+        JOIN "PrismaToken" t ON pet."tokenAddress" = t.address AND pet.chain = t.chain
+        WHERE pet."poolId" = p.id AND pet.chain = p.chain
+        AND ${
+            isToken(token) ? Prisma.sql`t.address = ${token.toLowerCase()}` : Prisma.sql`t.symbol ILIKE ${`%${token}%`}`
+        }
+    )`;
+    if (args.where?.tokensIn?.length) {
+        conditions.push(Prisma.sql`(${Prisma.join(args.where.tokensIn.map(tokenCondition), ' OR ')})`);
+    }
+    for (const token of args.where?.tokensNotIn ?? []) {
+        conditions.push(Prisma.sql`NOT ${tokenCondition(token)}`);
+    }
 
     if (args.where?.chainIn && args.where.chainIn.length > 0) {
         conditions.push(Prisma.sql`p.chain::text = ANY(${args.where.chainIn.map(sanitizeInput)})`);

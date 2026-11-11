@@ -9,6 +9,30 @@ import { tokenService } from '../../token/token.service';
 describe('PoolGqlLoaderService', () => {
     const loader = new PoolGqlLoaderService();
 
+    it('applies address and symbol token restrictions inside both paginated search and count SQL', async () => {
+        const address = '0x00000000000000000000000000000000000000aa';
+        const query = vi
+            .spyOn(prisma, '$queryRaw')
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{ count: 0n }]);
+        const args = {
+            textSearch: 'usd',
+            first: 10,
+            where: { tokensIn: [address, 'DAI'], tokensNotIn: ['BAD', address] },
+        };
+        await loader.getPools(structuredClone(args));
+        expect(await loader.getPoolsCount(structuredClone(args))).toBe(0);
+        for (const [statement] of query.mock.calls) {
+            const sql = statement as unknown as { strings: string[]; values: unknown[] };
+            const text = sql.strings.join('?');
+            expect(sql.values).toEqual(expect.arrayContaining([address, '%DAI%', '%BAD%']));
+            expect(text).toContain('NOT EXISTS');
+            expect(text).toContain('t.address =');
+            expect(text).toContain(' OR EXISTS');
+            if (text.includes('LIMIT')) expect(text.indexOf('NOT EXISTS')).toBeLessThan(text.indexOf('LIMIT'));
+        }
+    });
+
     afterEach(() => {
         vi.restoreAllMocks();
     });
