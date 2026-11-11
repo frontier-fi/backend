@@ -1,7 +1,7 @@
 import { Hex } from 'viem';
 
 import { MAX_UINT256, PoolType, SwapKind, Token, TokenAmount } from '@balancer/sdk';
-import { AddKind, RemoveKind, Vault, HookState, PoolState } from '@balancer-labs/balancer-maths';
+import { AddKind, RemoveKind, Vault, HookState, PoolState } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { TokenPairData } from '../../../sources/contracts/v3/fetch-tokenpair-data';
@@ -53,8 +53,7 @@ export class BasePoolV3 {
         this.hookState = hookState;
         this.liquidityManagement = liquidityManagement;
 
-        const vaultParams = config[chain]?.vaultParams;
-        this.vault = new Vault(vaultParams ? ({ ...vaultParams } as any) : undefined);
+        this.vault = new Vault(config[chain]?.vaultParams);
     }
 
     public getLimitAmountSwap(tokenIn: Token, tokenOut: Token, swapKind: SwapKind): bigint {

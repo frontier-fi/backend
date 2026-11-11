@@ -1,6 +1,6 @@
 import { Address, Hex } from 'viem';
 import { MAX_UINT256, SwapKind, Token, TokenAmount } from '@balancer/sdk';
-import { BufferState, Vault } from '@balancer-labs/balancer-maths';
+import { BufferState, DEFAULT_MINIMUM_WRAP_AMOUNT, Vault } from '@frontier-fi/maths';
 
 import config from '../../../../../config';
 import { chainIdToChain } from '../../../../../config/chain-id-to-chain';
@@ -9,7 +9,7 @@ import { BasePoolToken } from '../../utils/basePoolToken';
 import { BufferPoolData } from '../../../utils/data';
 import { MathSol } from '../../utils';
 
-export const DEFAULT_MINIMUM_WRAP_AMOUNT = 10_000n;
+export { DEFAULT_MINIMUM_WRAP_AMOUNT };
 
 function resolveVaultParams(chainId: number) {
     const chain = chainIdToChain[String(chainId)];
@@ -95,7 +95,7 @@ export class BufferPool implements BasePoolMethodsV3 {
         this.vault = new Vault({
             ...(vaultParams ?? {}),
             minWrapAmount: this.minWrapAmount,
-        } as any);
+        });
         this.poolState = this.getPoolState();
     }
 
@@ -177,10 +177,6 @@ export class BufferPool implements BasePoolMethodsV3 {
             return TokenAmount.fromRawAmount(tOut.token, 0n);
         }
 
-        if (!skipMinWrapCheck && swapAmount.amount < this.minWrapAmount) {
-            throw new Error('wrapAmountTooSmall');
-        }
-
         const isUnwrap = tIn.token.isSameAddress(this.tokens[0].token.address);
         const calculatedAmount = skipMinWrapCheck
             ? isUnwrap
@@ -201,10 +197,6 @@ export class BufferPool implements BasePoolMethodsV3 {
         const scaledAmount = isUnwrap
             ? this.toUnderlyingDecimals(calculatedAmount) // main→underlying
             : this.toMainDecimals(calculatedAmount); // underlying→main
-
-        if (!skipMinWrapCheck && scaledAmount < this.minWrapAmount) {
-            throw new Error('wrapAmountTooSmall');
-        }
 
         const outputAmount = TokenAmount.fromRawAmount(tOut.token, scaledAmount);
 
@@ -227,10 +219,6 @@ export class BufferPool implements BasePoolMethodsV3 {
             return TokenAmount.fromRawAmount(tIn.token, 0n);
         }
 
-        if (!skipMinWrapCheck && swapAmount.amount < this.minWrapAmount) {
-            throw new Error('wrapAmountTooSmall');
-        }
-
         const isUnwrap = tIn.token.isSameAddress(this.tokens[0].token.address);
         const calculatedAmount = skipMinWrapCheck
             ? isUnwrap
@@ -251,10 +239,6 @@ export class BufferPool implements BasePoolMethodsV3 {
         const scaledAmount = isUnwrap
             ? this.toMainDecimals(calculatedAmount) // underlyingDec→mainDec
             : this.toUnderlyingDecimals(calculatedAmount); // mainDec→underlyingDec
-
-        if (!skipMinWrapCheck && scaledAmount < this.minWrapAmount) {
-            throw new Error('wrapAmountTooSmall');
-        }
 
         const inputAmount = TokenAmount.fromRawAmount(tIn.token, scaledAmount);
 
@@ -302,7 +286,7 @@ export class BufferPool implements BasePoolMethodsV3 {
             rate: this.rate,
             mainDecimals: this.tokens[0].token.decimals,
             underlyingDecimals: this.tokens[1].token.decimals,
-        } as BufferState;
+        };
     }
 
     // Helper methods

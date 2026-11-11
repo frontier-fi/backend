@@ -2,7 +2,7 @@ import { BigintIsh, SwapKind, Token, TokenAmount, WAD } from '@balancer/sdk';
 import { formatUnits } from 'viem';
 import { PathWithAmount } from '../path';
 
-import { HookState } from '@balancer-labs/balancer-maths';
+import { HookState } from '@frontier-fi/maths';
 import { LiquidityManagement } from '../../types';
 
 import { PrismaPoolAndHookWithDynamic, HookData } from '../../../../prisma/prisma-types';
