@@ -15,6 +15,9 @@
  * https://github.com/frontier-fi/deployments/blob/main/src/constants.ts
  * Every address written into the config is EIP-55 checksummed.
  *
+ * Immutable Vault parameters (`minTradeAmount`, `minWrapAmount`) are read once
+ * from the active Vault's on-chain getters (`getMinimumTradeAmount`, `getMinimumWrapAmount`).
+ *
  * Subgraph URLs, hooks, and fees stay as written. The config file has to exist already.
  *
  * Usage: bun scripts/sync-network-config.ts [network...]
@@ -22,7 +25,12 @@
 
 import { readFileSync, writeFileSync } from 'fs';
 import path from 'path';
-import { getAddress, isAddress } from 'viem';
+import { Address, createPublicClient, getAddress, http, isAddress, parseAbi } from 'viem';
+
+const VAULT_PARAMS_ABI = parseAbi([
+    'function getMinimumTradeAmount() view returns (uint256)',
+    'function getMinimumWrapAmount() view returns (uint256)',
+]);
 
 const LOOKUP_URL = 'https://raw.githubusercontent.com/frontier-fi/deployments/main/addresses/_lookup.json';
 const CONSTANTS_URL = 'https://raw.githubusercontent.com/frontier-fi/deployments/main/src/constants.ts';
@@ -103,6 +111,48 @@ function chainIdFromConfig(source: string, file: string): number {
     return Number(match[1]);
 }
 
+function rpcUrlFromConfig(source: string, file: string): string {
+    const drpcKey = process.env.DRPC_API_KEY;
+    const drpcMatch = source.match(/`https:\/\/lb\.drpc\.live\/([^/`]+)\/\$\{env\.DRPC_API_KEY\}`/);
+    if (drpcKey && drpcMatch) {
+        return `https://lb.drpc.live/${drpcMatch[1]}/${drpcKey}`;
+    }
+    const rpcSection = source.match(/rpcUrl:\s*([\s\S]*?),\n\s*rpcMaxBlockRange:/);
+    const literalMatch = (rpcSection ? rpcSection[1] : source).match(/['"](https?:\/\/[^'"]+)['"]/);
+    if (!literalMatch) throw new Error(`${file} has no static fallback rpcUrl`);
+    return literalMatch[1];
+}
+
+async function fetchVaultParams(
+    rpcUrl: string,
+    vaultAddress: Address,
+    vaultAdminAddress?: Address,
+): Promise<{ minTradeAmount: bigint; minWrapAmount: bigint }> {
+    const client = createPublicClient({ transport: http(rpcUrl) });
+    const targets = vaultAdminAddress ? [vaultAddress, vaultAdminAddress] : [vaultAddress];
+    let lastError: unknown;
+    for (const target of targets) {
+        try {
+            const [minTradeAmount, minWrapAmount] = await Promise.all([
+                client.readContract({
+                    address: target,
+                    abi: VAULT_PARAMS_ABI,
+                    functionName: 'getMinimumTradeAmount',
+                }),
+                client.readContract({
+                    address: target,
+                    abi: VAULT_PARAMS_ABI,
+                    functionName: 'getMinimumWrapAmount',
+                }),
+            ]);
+            return { minTradeAmount, minWrapAmount };
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 function addressRecord(source: string, exportName: string): Record<string, string> | undefined {
     const match = source.match(new RegExp(`export const ${exportName}\\b[\\s\\S]*?=\\s*\\{([\\s\\S]*?)\\n\\};`));
     if (!match) return undefined;
@@ -159,6 +209,29 @@ function upsertContracts(source: string, contracts: Record<string, string>): str
     return source.replace(anchor[0], `${block}\n${anchor[0]}`);
 }
 
+function vaultParamsBlock(vaultParams: { minTradeAmount: bigint; minWrapAmount: bigint }): string {
+    return [
+        '    // Immutable Vault parameters read from on-chain VaultAdmin getters.',
+        '    vaultParams: {',
+        `        minTradeAmount: ${vaultParams.minTradeAmount}n,`,
+        `        minWrapAmount: ${vaultParams.minWrapAmount}n,`,
+        '    },',
+    ].join('\n');
+}
+
+function upsertVaultParams(source: string, vaultParams: { minTradeAmount: bigint; minWrapAmount: bigint }): string {
+    const block = vaultParamsBlock(vaultParams);
+    const withComment = /^    \/\/ Immutable Vault parameters.*\n    vaultParams: \{[\s\S]*?\n    \},/m;
+    if (withComment.test(source)) return source.replace(withComment, block);
+
+    const bare = /^    vaultParams: \{[\s\S]*?\n    \},/m;
+    if (bare.test(source)) return source.replace(bare, block);
+
+    const anchor = source.match(/^    hooks: \{/m);
+    if (!anchor) throw new Error('Cannot place vaultParams: hooks block is missing');
+    return source.replace(anchor[0], `${block}\n${anchor[0]}`);
+}
+
 function setMulticall3(source: string, address: string): string {
     const pattern = /^(\s*multicall3:\s*')[^']+(')/m;
     if (!pattern.test(source)) throw new Error('multicall3 is missing');
@@ -179,6 +252,7 @@ function syncFile(
     file: string,
     slug: string,
     contracts: Record<string, string>,
+    vaultParams: { minTradeAmount: bigint; minWrapAmount: bigint },
     multicall3: string,
     constantsSource: string,
 ): void {
@@ -200,6 +274,7 @@ function syncFile(
     }
 
     source = upsertContracts(source, contracts);
+    source = upsertVaultParams(source, vaultParams);
     source = setMulticall3(source, multicall3);
     writeFileSync(file, source);
 }
@@ -232,8 +307,18 @@ async function main(): Promise<void> {
 
         const contracts = activeContracts(network);
         if (!contracts.Vault || !contracts.Router) throw new Error(`${slug} lookup is missing Vault or Router`);
-        syncFile(file, slug, contracts, multicall3, constantsSource);
-        console.log(`${slug}: wrote ${Object.keys(contracts).length} contracts, multicall3 ${multicall3}`);
+
+        const rpcUrl = rpcUrlFromConfig(source, file);
+        const vaultParams = await fetchVaultParams(
+            rpcUrl,
+            contracts.Vault as Address,
+            contracts.VaultAdmin as Address | undefined,
+        );
+
+        syncFile(file, slug, contracts, vaultParams, multicall3, constantsSource);
+        console.log(
+            `${slug}: wrote ${Object.keys(contracts).length} contracts, vaultParams (minTrade=${vaultParams.minTradeAmount}, minWrap=${vaultParams.minWrapAmount}), multicall3 ${multicall3}`,
+        );
     }
 }
 

@@ -109,7 +109,7 @@ export class SOR {
 
         if (protocolVersion === 3) {
             for (const bufferPool of bufferPools) {
-                const stateKey = `${bufferPool.unwrapRate}:${bufferPool.mainToken.balance}:${bufferPool.underlyingToken.balance}:${bufferPool.maxDeposit}:${bufferPool.maxWithdraw}`;
+                const stateKey = `${bufferPool.unwrapRate}:${bufferPool.mainToken.balance}:${bufferPool.underlyingToken.balance}:${bufferPool.maxDeposit}:${bufferPool.maxWithdraw}:${bufferPool.minWrapAmount ?? ''}`;
                 const cached = this.bufferPoolCache.get(bufferPool);
                 if (cached && cached.stateKey === stateKey) {
                     basePools.push(cached.pool.copy());
@@ -140,25 +140,26 @@ export class SOR {
             signal,
         );
 
-        if (candidatePaths.length === 0) return null;
+        let bestPaths: PathWithAmount[] | null = null;
+        if (candidatePaths.length > 0) {
+            // Check for abort before getBestPaths
+            if (signal?.aborted) {
+                throw new SorAbortError();
+            }
 
-        // Check for abort before getBestPaths
-        if (signal?.aborted) {
-            throw new SorAbortError();
+            bestPaths = router.getBestPaths(
+                candidatePaths,
+                swapKind,
+                checkedSwapAmount,
+                swapOptions?.minSplitBenefitBps,
+            );
         }
-
-        let bestPaths = router.getBestPaths(
-            candidatePaths,
-            swapKind,
-            checkedSwapAmount,
-            swapOptions?.minSplitBenefitBps,
-        );
 
         // Retry traversal with maxDepthFallback on the already-built graph if shallow paths were found by BFS
         // but all failed end-to-end quoting in getBestPaths
         const maxDepth = swapOptions?.graphTraversalConfig?.maxDepth ?? DEFAULT_MAX_DEPTH;
         const maxDepthFallback = swapOptions?.graphTraversalConfig?.maxDepthFallback ?? DEFAULT_MAX_DEPTH_FALLBACK;
-        if (!bestPaths && maxDepthFallback > maxDepth) {
+        if (!bestPaths && candidatePaths.length > 0 && maxDepthFallback > maxDepth) {
             if (signal?.aborted) {
                 throw new SorAbortError();
             }
@@ -185,6 +186,42 @@ export class SOR {
                 }
                 bestPaths = router.getBestPaths(
                     fallbackCandidates,
+                    swapKind,
+                    checkedSwapAmount,
+                    swapOptions?.minSplitBenefitBps,
+                );
+            }
+        }
+
+        // If no route succeeded at the default 10% single-path threshold (e.g. a primary buffer path capped at 96%
+        // needs a <10% capacity partner detour), retry with minSwapAmountRatio: 0 so small partner paths are included.
+        if (!bestPaths && swapOptions?.graphTraversalConfig?.minSwapAmountRatio === undefined) {
+            if (signal?.aborted) {
+                throw new SorAbortError();
+            }
+            const lowRatioCandidates = router.getCandidatePaths(
+                tokenIn,
+                tokenOut,
+                basePools,
+                checkedSwapAmount,
+                swapKind,
+                protocolVersion === 3,
+                tokenPrices,
+                {
+                    ...swapOptions?.graphTraversalConfig,
+                    maxDepth: maxDepthFallback,
+                    maxDepthFallback,
+                    minSwapAmountRatio: 0,
+                },
+                signal,
+                true,
+            );
+            if (lowRatioCandidates.length > 0) {
+                if (signal?.aborted) {
+                    throw new SorAbortError();
+                }
+                bestPaths = router.getBestPaths(
+                    lowRatioCandidates,
                     swapKind,
                     checkedSwapAmount,
                     swapOptions?.minSplitBenefitBps,

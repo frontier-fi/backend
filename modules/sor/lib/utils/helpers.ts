@@ -67,7 +67,13 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
             throw new Error('Swap amount must be positive');
         }
 
-        const minRawFloor = path.isBuffer.some(Boolean) ? 10_000n : 100n;
+        if (path.pools.every((pool) => pool.poolType === 'Buffer')) {
+            // Pure ERC4626 buffer paths convert linearly at unwrapRate with zero fee and zero curve impact.
+            totalBenchmark += swapKind === SwapKind.GivenIn ? path.outputAmount.amount : path.inputAmount.amount;
+            continue;
+        }
+
+        const minRawFloor = 1_000n;
         const minCalculatedFloor = 1_000n;
         let pathBenchmark: bigint | null = null;
 
@@ -83,6 +89,7 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
                     path.isBuffer,
                     TokenAmount.fromRawAmount(path.swapAmount.token, probeRaw),
                     false,
+                    true,
                 );
                 const probeCalculated =
                     swapKind === SwapKind.GivenIn ? probePath.outputAmount.amount : probePath.inputAmount.amount;

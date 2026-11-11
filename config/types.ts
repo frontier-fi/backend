@@ -41,6 +41,11 @@ export interface NetworkData {
     };
     // Active contract addresses from frontier-fi/deployments. Mock contracts are omitted.
     contracts: Record<string, string>;
+    // Immutable Vault parameters read from on-chain VaultAdmin getters.
+    vaultParams?: {
+        minTradeAmount: bigint;
+        minWrapAmount: bigint;
+    };
     hooks?: Record<string, GqlHookType>;
     multicall: string;
     multicall3: string;

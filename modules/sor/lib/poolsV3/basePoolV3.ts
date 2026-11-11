@@ -5,6 +5,7 @@ import { AddKind, RemoveKind, Vault, HookState, PoolState } from '@balancer-labs
 import { Chain } from '@prisma/client';
 
 import { TokenPairData } from '../../../sources/contracts/v3/fetch-tokenpair-data';
+import config from '../../../../config';
 
 import { LiquidityManagement } from '../../types';
 import { BasePoolToken } from '../utils';
@@ -52,7 +53,8 @@ export class BasePoolV3 {
         this.hookState = hookState;
         this.liquidityManagement = liquidityManagement;
 
-        this.vault = new Vault();
+        const vaultParams = config[chain]?.vaultParams;
+        this.vault = new Vault(vaultParams ? ({ ...vaultParams } as any) : undefined);
     }
 
     public getLimitAmountSwap(tokenIn: Token, tokenOut: Token, swapKind: SwapKind): bigint {

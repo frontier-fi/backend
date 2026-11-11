@@ -51,6 +51,11 @@ export default <NetworkData>{
         WeightedLPOracleFactory: '0x5f3B2aEDF750372C784e2b5ab8A52Dc46273972d',
         WeightedPoolFactory: '0xC55Ea8a9de28CEDd9Eb1384CecD0D0437B71aB9a',
     },
+    // Immutable Vault parameters read from on-chain VaultAdmin getters.
+    vaultParams: {
+        minTradeAmount: 1000000n,
+        minWrapAmount: 10000n,
+    },
     hooks: {},
     // Multicall3 from https://github.com/mds1/multicall deployments.json.
     multicall: '0x25Eef291876194AeFAd0D60Dff89e268b90754Bb',

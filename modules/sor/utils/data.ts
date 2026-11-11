@@ -4,6 +4,7 @@ import { Chain, PrismaPoolType, PrismaToken } from '@prisma/client';
 
 import { prisma } from '../../../prisma/prisma-client';
 import { PrismaPoolAndHookWithDynamic, HookData } from '../../../prisma/prisma-types';
+import config from '../../../config';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { poolsToIgnore } from './constants';
 import { tokenService } from '../../token/token.service';
@@ -20,6 +21,7 @@ export type BufferPoolData = {
     unwrapRate: bigint;
     maxDeposit: bigint;
     maxWithdraw: bigint;
+    minWrapAmount?: bigint;
 };
 
 export type SORDbPool = PrismaPoolAndHookWithDynamic;
@@ -210,6 +212,7 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
                         unwrapRate: parseEther(poolToken.token.unwrapRate), // the way we store rates already takes into account main/underlying decimals differences
                         maxWithdraw: parseUnits(poolToken.token.maxWithdraw, underlyingToken.decimals),
                         maxDeposit: parseUnits(poolToken.token.maxDeposit, underlyingToken.decimals),
+                        minWrapAmount: config[chain]?.vaultParams?.minWrapAmount,
                     });
                 }
             }
