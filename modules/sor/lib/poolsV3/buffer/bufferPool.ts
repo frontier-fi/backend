@@ -1,13 +1,13 @@
 import { Address, Hex } from 'viem';
 import { MAX_UINT256, SwapKind, Token, TokenAmount } from '@balancer/sdk';
-import { BufferState, DEFAULT_MINIMUM_WRAP_AMOUNT, Vault } from '@frontier-fi/maths';
+import { BufferState, DEFAULT_MINIMUM_WRAP_AMOUNT } from '@frontier-fi/maths';
 
 import config from '../../../../../config';
 import { chainIdToChain } from '../../../../../config/chain-id-to-chain';
 import { BasePoolMethodsV3 } from '../basePoolMethodsV3';
 import { BasePoolToken } from '../../utils/basePoolToken';
 import { BufferPoolData } from '../../../utils/data';
-import { MathSol } from '../../utils';
+import { MathSol, WAD } from '../../utils';
 
 export { DEFAULT_MINIMUM_WRAP_AMOUNT };
 
@@ -29,10 +29,8 @@ export class BufferPool implements BasePoolMethodsV3 {
     public maxWithdraw: bigint;
 
     private readonly tokenMap: Map<string, BasePoolToken>;
-    private readonly decimalDiff: number; // mainDecimals - underlyingDecimals
-
-    private vault: Vault;
-    private poolState: BufferState;
+    private readonly rateNumerator: bigint;
+    private readonly rateDenominator: bigint;
 
     /**
      * Instantiates a buffer pool from buffer pool data built from erc4626 tokens
@@ -87,36 +85,30 @@ export class BufferPool implements BasePoolMethodsV3 {
         this.maxWithdraw = maxWithdraw;
         this.tokens = [mainToken, underlyingToken];
         this.tokenMap = new Map(this.tokens.map((token) => [token.token.address, token]));
-        this.decimalDiff = mainToken.token.decimals - underlyingToken.token.decimals;
+        const decimalDiff = mainToken.token.decimals - underlyingToken.token.decimals;
+        this.rateNumerator = rate * 10n ** BigInt(Math.max(-decimalDiff, 0));
+        this.rateDenominator = WAD * 10n ** BigInt(Math.max(decimalDiff, 0));
 
         const vaultParams = resolveVaultParams(chainId);
         this.minWrapAmount = minWrapAmount ?? vaultParams?.minWrapAmount ?? DEFAULT_MINIMUM_WRAP_AMOUNT;
-
-        this.vault = new Vault({
-            ...(vaultParams ?? {}),
-            minWrapAmount: this.minWrapAmount,
-        });
-        this.poolState = this.getPoolState();
     }
 
-    /**
-     * Scales an amount from main token decimals to underlying token decimals.
-     * Used after rate multiplication (mulDownFixed) which preserves the input's decimal scale.
-     */
-    private toUnderlyingDecimals(amount: bigint): bigint {
-        if (this.decimalDiff > 0) return amount / 10n ** BigInt(this.decimalDiff);
-        if (this.decimalDiff < 0) return amount * 10n ** BigInt(-this.decimalDiff);
-        return amount;
+    private toUnderlying(amount: bigint, roundUp = false): bigint {
+        const numerator = amount * this.rateNumerator;
+        return roundUp ? MathSol.divUp(numerator, this.rateDenominator) : numerator / this.rateDenominator;
     }
 
-    /**
-     * Scales an amount from underlying token decimals to main token decimals.
-     * Used after rate division (divDownFixed) which preserves the input's decimal scale.
-     */
-    private toMainDecimals(amount: bigint): bigint {
-        if (this.decimalDiff > 0) return amount * 10n ** BigInt(this.decimalDiff);
-        if (this.decimalDiff < 0) return amount / 10n ** BigInt(-this.decimalDiff);
-        return amount;
+    private toMain(amount: bigint, roundUp = false): bigint {
+        const numerator = amount * this.rateDenominator;
+        return roundUp ? MathSol.divUp(numerator, this.rateNumerator) : numerator / this.rateNumerator;
+    }
+
+    private getUnderlyingImbalance(): bigint {
+        return (this.tokens[1].amount - this.toUnderlying(this.tokens[0].amount, true)) / 2n;
+    }
+
+    private getMainImbalance(): bigint {
+        return (this.tokens[0].amount - this.toMain(this.tokens[1].amount, true)) / 2n;
     }
 
     public getNormalizedLiquidity(tokenIn: Token, tokenOut: Token): bigint {
@@ -128,41 +120,29 @@ export class BufferPool implements BasePoolMethodsV3 {
 
         const mainTokenAmount = this.tokens[0];
         const underlyingTokenAmount = this.tokens[1];
+        const isWrap = underlyingTokenAmount.token.isSameAddress(tIn.token.address);
 
+        let bufferLimit: bigint;
+        let externalLimit: bigint;
         if (swapKind === SwapKind.GivenIn) {
-            if (underlyingTokenAmount.token.isSameAddress(tIn.token.address)) {
-                // wrap - respective to amount in (underlying):
-                // In Balancer v3 Vault, a buffer step either fulfills 100% from the internal Vault buffer
-                // (`mainAsUnderlying`, without calling ERC4626) or bypasses the buffer and deposits directly
-                // into the external ERC4626 vault (`maxDeposit`).
-                const bufferWrapLimit = this.toUnderlyingDecimals(
-                    MathSol.mulDownFixed(mainTokenAmount.amount, this.rate),
-                );
-                const externalWrapLimit = this.maxDeposit;
-                return bufferWrapLimit > externalWrapLimit ? bufferWrapLimit : externalWrapLimit;
+            if (isWrap) {
+                bufferLimit = this.toUnderlying(mainTokenAmount.amount + 1n, true) - 1n;
+                externalLimit = this.maxDeposit > 0n ? this.maxDeposit - this.getUnderlyingImbalance() : 0n;
             } else {
-                // unwrap - respective to amount in (main):
-                // Either fulfilled 100% from internal underlying buffer balance (`underlyingAsMain`) or redeemed
-                // directly from the external ERC4626 vault (`maxWithdrawAsMain`).
-                const bufferUnwrapLimit = this.toMainDecimals(
-                    MathSol.divDownFixed(underlyingTokenAmount.amount, this.rate),
-                );
-                const externalUnwrapLimit = this.toMainDecimals(MathSol.divDownFixed(this.maxWithdraw, this.rate));
-                return bufferUnwrapLimit > externalUnwrapLimit ? bufferUnwrapLimit : externalUnwrapLimit;
+                bufferLimit = this.toMain(underlyingTokenAmount.amount + 1n, true) - 1n;
+                externalLimit = this.maxWithdraw > 0n ? this.toMain(this.maxWithdraw) - this.getMainImbalance() : 0n;
             }
         } else {
-            if (underlyingTokenAmount.token.isSameAddress(tIn.token.address)) {
-                // wrap - respective to amount out (main)
-                const bufferWrapLimit = mainTokenAmount.amount;
-                const externalWrapLimit = this.toMainDecimals(MathSol.divDownFixed(this.maxDeposit, this.rate));
-                return bufferWrapLimit > externalWrapLimit ? bufferWrapLimit : externalWrapLimit;
+            if (isWrap) {
+                bufferLimit = mainTokenAmount.amount;
+                externalLimit = this.maxDeposit > 0n ? this.toMain(this.maxDeposit) + this.getMainImbalance() : 0n;
             } else {
-                // unwrap - respective to amount out (underlying)
-                const bufferUnwrapLimit = underlyingTokenAmount.amount;
-                const externalUnwrapLimit = this.maxWithdraw;
-                return bufferUnwrapLimit > externalUnwrapLimit ? bufferUnwrapLimit : externalUnwrapLimit;
+                bufferLimit = underlyingTokenAmount.amount;
+                externalLimit = this.maxWithdraw > 0n ? this.maxWithdraw + this.getUnderlyingImbalance() : 0n;
             }
         }
+
+        return MathSol.min(MathSol.max(bufferLimit, externalLimit), MAX_UINT256);
     }
 
     public swapGivenIn(
@@ -178,30 +158,14 @@ export class BufferPool implements BasePoolMethodsV3 {
         }
 
         const isUnwrap = tIn.token.isSameAddress(this.tokens[0].token.address);
-        const calculatedAmount = skipMinWrapCheck
-            ? isUnwrap
-                ? MathSol.mulDownFixed(swapAmount.amount, this.rate)
-                : MathSol.divDownFixed(swapAmount.amount, this.rate)
-            : this.vault.swap(
-                  {
-                      amountRaw: swapAmount.amount,
-                      tokenIn: tIn.token.address,
-                      tokenOut: tOut.token.address,
-                      swapKind: SwapKind.GivenIn,
-                  },
-                  this.poolState,
-              );
-
-        // Vault rate math preserves input decimal scale, so we need to scale the result
-        // to the output token's decimals
-        const scaledAmount = isUnwrap
-            ? this.toUnderlyingDecimals(calculatedAmount) // main→underlying
-            : this.toMainDecimals(calculatedAmount); // underlying→main
-
-        const outputAmount = TokenAmount.fromRawAmount(tOut.token, scaledAmount);
+        const calculatedAmount = isUnwrap ? this.toUnderlying(swapAmount.amount) : this.toMain(swapAmount.amount);
+        if (!skipMinWrapCheck && (swapAmount.amount < this.minWrapAmount || calculatedAmount < this.minWrapAmount)) {
+            throw new Error('wrapAmountTooSmall');
+        }
+        const outputAmount = TokenAmount.fromRawAmount(tOut.token, calculatedAmount);
 
         if (mutateBalances) {
-            this.mutateBufferState(isUnwrap, swapAmount, outputAmount);
+            this.mutateBufferState(isUnwrap, SwapKind.GivenIn, swapAmount, outputAmount);
         }
 
         return outputAmount;
@@ -220,60 +184,79 @@ export class BufferPool implements BasePoolMethodsV3 {
         }
 
         const isUnwrap = tIn.token.isSameAddress(this.tokens[0].token.address);
-        const calculatedAmount = skipMinWrapCheck
-            ? isUnwrap
-                ? MathSol.divUpFixed(swapAmount.amount, this.rate)
-                : MathSol.mulUpFixed(swapAmount.amount, this.rate)
-            : this.vault.swap(
-                  {
-                      amountRaw: swapAmount.amount,
-                      tokenIn: tIn.token.address,
-                      tokenOut: tOut.token.address,
-                      swapKind: SwapKind.GivenOut,
-                  },
-                  this.poolState,
-              );
-
-        // Vault rate math preserves input (amountOut) decimal scale, so we need to
-        // scale the result to the input token's decimals
-        const scaledAmount = isUnwrap
-            ? this.toMainDecimals(calculatedAmount) // underlyingDec→mainDec
-            : this.toUnderlyingDecimals(calculatedAmount); // mainDec→underlyingDec
-
-        const inputAmount = TokenAmount.fromRawAmount(tIn.token, scaledAmount);
+        const calculatedAmount = isUnwrap
+            ? this.toMain(swapAmount.amount, true)
+            : this.toUnderlying(swapAmount.amount, true);
+        if (!skipMinWrapCheck && (swapAmount.amount < this.minWrapAmount || calculatedAmount < this.minWrapAmount)) {
+            throw new Error('wrapAmountTooSmall');
+        }
+        const inputAmount = TokenAmount.fromRawAmount(tIn.token, calculatedAmount);
 
         if (mutateBalances) {
-            this.mutateBufferState(isUnwrap, inputAmount, swapAmount);
+            this.mutateBufferState(isUnwrap, SwapKind.GivenOut, inputAmount, swapAmount);
         }
 
         return inputAmount;
     }
 
-    private mutateBufferState(isUnwrap: boolean, inputAmount: TokenAmount, outputAmount: TokenAmount): void {
+    private mutateBufferState(
+        isUnwrap: boolean,
+        swapKind: SwapKind,
+        inputAmount: TokenAmount,
+        outputAmount: TokenAmount,
+    ): void {
         const mainTokenAmount = this.tokens[0];
         const underlyingTokenAmount = this.tokens[1];
-        const mainAsUnderlying = this.toUnderlyingDecimals(MathSol.mulDownFixed(mainTokenAmount.amount, this.rate));
 
         if (!isUnwrap) {
             // wrap: inputAmount is underlying, outputAmount is main
-            if (outputAmount.amount <= mainTokenAmount.amount && inputAmount.amount <= mainAsUnderlying) {
+            if (outputAmount.amount <= mainTokenAmount.amount) {
                 // Fulfilled 100% from internal Vault buffer without calling ERC4626
                 mainTokenAmount.amount -= outputAmount.amount;
                 underlyingTokenAmount.amount += inputAmount.amount;
             } else {
-                // Bypassed internal buffer and deposited directly into external ERC4626
-                this.maxDeposit = this.maxDeposit > inputAmount.amount ? this.maxDeposit - inputAmount.amount : 0n;
+                let deposit: bigint;
+                let minted: bigint;
+                if (swapKind === SwapKind.GivenIn) {
+                    deposit = inputAmount.amount + this.getUnderlyingImbalance();
+                    minted = this.toMain(deposit);
+                } else {
+                    minted = outputAmount.amount - this.getMainImbalance();
+                    deposit = this.toUnderlying(minted, true);
+                }
+                if (deposit < 0n || deposit > this.maxDeposit) {
+                    throw new Error('Buffer deposit capacity exceeded');
+                }
+                if (this.maxDeposit < MAX_UINT256) {
+                    this.maxDeposit -= deposit;
+                }
+                underlyingTokenAmount.amount += inputAmount.amount - deposit;
+                mainTokenAmount.amount += minted - outputAmount.amount;
             }
         } else {
             // unwrap: inputAmount is main, outputAmount is underlying
-            const underlyingAsMain = this.toMainDecimals(MathSol.divDownFixed(underlyingTokenAmount.amount, this.rate));
-            if (outputAmount.amount <= underlyingTokenAmount.amount && inputAmount.amount <= underlyingAsMain) {
+            if (outputAmount.amount <= underlyingTokenAmount.amount) {
                 // Fulfilled 100% from internal Vault buffer without calling ERC4626
                 underlyingTokenAmount.amount -= outputAmount.amount;
                 mainTokenAmount.amount += inputAmount.amount;
             } else {
-                // Bypassed internal buffer and redeemed directly from external ERC4626
-                this.maxWithdraw = this.maxWithdraw > outputAmount.amount ? this.maxWithdraw - outputAmount.amount : 0n;
+                let withdrawal: bigint;
+                let burned: bigint;
+                if (swapKind === SwapKind.GivenIn) {
+                    burned = inputAmount.amount + this.getMainImbalance();
+                    withdrawal = this.toUnderlying(burned);
+                } else {
+                    withdrawal = outputAmount.amount - this.getUnderlyingImbalance();
+                    burned = this.toMain(withdrawal, true);
+                }
+                if (withdrawal < 0n || withdrawal > this.maxWithdraw) {
+                    throw new Error('Buffer withdrawal capacity exceeded');
+                }
+                if (this.maxWithdraw < MAX_UINT256) {
+                    this.maxWithdraw -= withdrawal;
+                }
+                underlyingTokenAmount.amount += withdrawal - outputAmount.amount;
+                mainTokenAmount.amount += inputAmount.amount - burned;
             }
         }
     }
@@ -318,20 +301,9 @@ export class BufferPool implements BasePoolMethodsV3 {
 
     public swapGivenInGreaterThanBufferLimit(tokenIn: Token, tokenOut: Token, swapAmount: TokenAmount): boolean {
         const { tIn, tOut } = this.getPoolTokens(tokenIn, tokenOut);
-        const mainTokenAmount = this.tokens[0];
-        const underlyingTokenAmount = this.tokens[1];
-
-        if (tIn.token.isSameAddress(underlyingTokenAmount.token.address)) {
-            // wrap: swapAmount is in underlying decimals, so convert limit to underlying decimals
-            const bufferWrapLimit = this.toUnderlyingDecimals(MathSol.mulDownFixed(mainTokenAmount.amount, this.rate));
-            return swapAmount.amount > bufferWrapLimit;
-        } else {
-            // unwrap: swapAmount is in main decimals, so convert limit to main decimals
-            const bufferUnwrapLimit = this.toMainDecimals(
-                MathSol.divDownFixed(underlyingTokenAmount.amount, this.rate),
-            );
-            return swapAmount.amount > bufferUnwrapLimit;
-        }
+        const isUnwrap = tIn.token.isSameAddress(this.tokens[0].token.address);
+        const outputAmount = isUnwrap ? this.toUnderlying(swapAmount.amount) : this.toMain(swapAmount.amount);
+        return outputAmount > tOut.amount;
     }
 
     public swapGivenOutGreaterThanBufferLimit(tokenIn: Token, tokenOut: Token, swapAmount: TokenAmount): boolean {

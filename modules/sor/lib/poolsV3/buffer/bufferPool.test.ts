@@ -24,6 +24,311 @@ function buffer(overrides: Partial<BufferPoolData> = {}): BufferPool {
 }
 
 describe('BufferPool', () => {
+    test.each([
+        [10_000n, 10_001n],
+        [10_001n, 10_000n],
+    ])('preserves odd balances when rebalancing %s wrapped and %s underlying', (mainBalance, underlyingBalance) => {
+        for (const kind of [SwapKind.GivenIn, SwapKind.GivenOut]) {
+            for (const isUnwrap of [false, true]) {
+                const pool = buffer({
+                    mainToken: { address: MAIN, decimals: 18, balance: mainBalance },
+                    underlyingToken: { address: UNDERLYING, decimals: 18, balance: underlyingBalance },
+                    maxDeposit: 20_000n,
+                    maxWithdraw: 20_000n,
+                });
+                const input = pool.tokens[isUnwrap ? 0 : 1].token;
+                const output = pool.tokens[isUnwrap ? 1 : 0].token;
+                expect(pool.getLimitAmountSwap(input, output, kind)).toBe(20_000n);
+                if (kind === SwapKind.GivenIn) {
+                    pool.swapGivenIn(input, output, TokenAmount.fromRawAmount(input, 20_000n), true);
+                } else {
+                    pool.swapGivenOut(input, output, TokenAmount.fromRawAmount(output, 20_000n), true);
+                }
+                expect(pool.tokens.map((token) => token.amount)).toEqual([mainBalance, underlyingBalance]);
+                expect(isUnwrap ? pool.maxWithdraw : pool.maxDeposit).toBe(0n);
+            }
+        }
+    });
+
+    test.each([
+        {
+            kind: SwapKind.GivenIn,
+            isUnwrap: false,
+            amount: 30_000n,
+            limit: 54_997n,
+            balances: [7_501n, 15_002n],
+            remaining: 24_997n,
+        },
+        {
+            kind: SwapKind.GivenOut,
+            isUnwrap: false,
+            amount: 15_000n,
+            limit: 27_498n,
+            balances: [7_502n, 15_001n],
+            remaining: 24_996n,
+        },
+        {
+            kind: SwapKind.GivenIn,
+            isUnwrap: true,
+            amount: 15_000n,
+            limit: 22_502n,
+            balances: [7_502n, 15_001n],
+            remaining: 15_004n,
+        },
+        {
+            kind: SwapKind.GivenOut,
+            isUnwrap: true,
+            amount: 30_000n,
+            limit: 45_003n,
+            balances: [7_501n, 15_002n],
+            remaining: 15_003n,
+        },
+    ])(
+        'uses the correct ERC4626 operation for kind=$kind, unwrap=$isUnwrap',
+        ({ kind, isUnwrap, amount, limit, balances, remaining }) => {
+            const pool = buffer({
+                unwrapRate: 2n * WAD,
+                mainToken: { address: MAIN, decimals: 18, balance: 10_000n },
+                underlyingToken: { address: UNDERLYING, decimals: 18, balance: 10_005n },
+                maxDeposit: 50_000n,
+                maxWithdraw: 50_000n,
+            });
+            const input = pool.tokens[isUnwrap ? 0 : 1].token;
+            const output = pool.tokens[isUnwrap ? 1 : 0].token;
+            expect(pool.getLimitAmountSwap(input, output, kind)).toBe(limit);
+            const atLimit = pool.copy();
+            const overLimit = pool.copy();
+            const execute = (target: BufferPool, raw: bigint) =>
+                kind === SwapKind.GivenIn
+                    ? target.swapGivenIn(input, output, TokenAmount.fromRawAmount(input, raw), true)
+                    : target.swapGivenOut(input, output, TokenAmount.fromRawAmount(output, raw), true);
+            execute(atLimit, limit);
+            expect(isUnwrap ? atLimit.maxWithdraw : atLimit.maxDeposit).toBe(0n);
+            expect(() => execute(overLimit, limit + 1n)).toThrow('capacity exceeded');
+            expect(overLimit.tokens.map((token) => token.amount)).toEqual([10_000n, 10_005n]);
+            expect(overLimit.maxDeposit).toBe(50_000n);
+            expect(overLimit.maxWithdraw).toBe(50_000n);
+            if (kind === SwapKind.GivenIn) {
+                pool.swapGivenIn(input, output, TokenAmount.fromRawAmount(input, amount), true);
+            } else {
+                pool.swapGivenOut(input, output, TokenAmount.fromRawAmount(output, amount), true);
+            }
+            expect(pool.tokens.map((token) => token.amount)).toEqual(balances);
+            expect(isUnwrap ? pool.maxWithdraw : pool.maxDeposit).toBe(remaining);
+        },
+    );
+
+    test.each([false, true])(
+        'uses output inventory to decide whether a rounded swap is internal (unwrap=%s)',
+        (isUnwrap) => {
+            const pool = buffer({
+                unwrapRate: isUnwrap ? WAD / 2n : 2n * WAD,
+                mainToken: { address: MAIN, decimals: 18, balance: 10_000n },
+                underlyingToken: { address: UNDERLYING, decimals: 18, balance: 10_000n },
+                maxDeposit: 0n,
+                maxWithdraw: 0n,
+            });
+            const input = pool.tokens[isUnwrap ? 0 : 1].token;
+            const output = pool.tokens[isUnwrap ? 1 : 0].token;
+            const amount = TokenAmount.fromRawAmount(input, 20_001n);
+            expect(pool.getLimitAmountSwap(input, output, SwapKind.GivenIn)).toBe(amount.amount);
+            expect(pool.swapGivenInGreaterThanBufferLimit(input, output, amount)).toBe(false);
+            expect(pool.swapGivenIn(input, output, amount, true).amount).toBe(10_000n);
+            expect(pool.tokens[isUnwrap ? 1 : 0].amount).toBe(0n);
+            expect(pool.tokens[isUnwrap ? 0 : 1].amount).toBe(30_001n);
+            expect(pool.maxDeposit).toBe(0n);
+            expect(pool.maxWithdraw).toBe(0n);
+        },
+    );
+
+    test.each([
+        {
+            mainDecimals: 18,
+            underlyingDecimals: 6,
+            rate: 3n * WAD,
+            assets: 10_000n,
+            sharesDown: 3_333_333_333_333_333n,
+            sharesUp: 3_333_333_333_333_334n,
+        },
+        {
+            mainDecimals: 6,
+            underlyingDecimals: 18,
+            rate: WAD / 3n,
+            assets: 1_000_000_000_000_000_000n,
+            sharesDown: 3_000_000n,
+            sharesUp: 3_000_001n,
+        },
+    ])(
+        'rounds only after converting to raw units ($mainDecimals/$underlyingDecimals)',
+        ({ mainDecimals, underlyingDecimals, rate, assets, sharesDown, sharesUp }) => {
+            const pool = buffer({
+                unwrapRate: rate,
+                mainToken: { address: MAIN, decimals: mainDecimals, balance: 0n },
+                underlyingToken: { address: UNDERLYING, decimals: underlyingDecimals, balance: 0n },
+            });
+            const main = pool.tokens[0].token;
+            const underlying = pool.tokens[1].token;
+            expect(pool.swapGivenIn(underlying, main, TokenAmount.fromRawAmount(underlying, assets)).amount).toBe(
+                sharesDown,
+            );
+            expect(pool.swapGivenOut(main, underlying, TokenAmount.fromRawAmount(underlying, assets)).amount).toBe(
+                sharesUp,
+            );
+        },
+    );
+
+    test('rounds previewMint and previewWithdraw up when calculating the imbalances', () => {
+        const mint = buffer({
+            unwrapRate: (3n * WAD) / 2n,
+            mainToken: { address: MAIN, decimals: 18, balance: 10_001n },
+            underlyingToken: { address: UNDERLYING, decimals: 18, balance: 15_003n },
+            maxDeposit: 30_000n,
+        });
+        const withdraw = buffer({
+            unwrapRate: 2n * WAD,
+            mainToken: { address: MAIN, decimals: 18, balance: 10_001n },
+            underlyingToken: { address: UNDERLYING, decimals: 18, balance: 20_005n },
+            maxWithdraw: 40_000n,
+        });
+        expect(mint.getLimitAmountSwap(mint.tokens[1].token, mint.tokens[0].token, SwapKind.GivenIn)).toBe(30_000n);
+        mint.swapGivenIn(
+            mint.tokens[1].token,
+            mint.tokens[0].token,
+            TokenAmount.fromRawAmount(mint.tokens[1].token, 30_000n),
+            true,
+        );
+        expect(mint.tokens.map((token) => token.amount)).toEqual([10_001n, 15_003n]);
+        expect(withdraw.getLimitAmountSwap(withdraw.tokens[0].token, withdraw.tokens[1].token, SwapKind.GivenIn)).toBe(
+            20_001n,
+        );
+        withdraw.swapGivenIn(
+            withdraw.tokens[0].token,
+            withdraw.tokens[1].token,
+            TokenAmount.fromRawAmount(withdraw.tokens[0].token, 20_001n),
+            true,
+        );
+        expect(withdraw.tokens.map((token) => token.amount)).toEqual([10_002n, 20_003n]);
+    });
+
+    test.each([18, 6])(
+        'rounds underlying output down and underlying input up with %s wrapped decimals',
+        (mainDecimals) => {
+            const pool = buffer({
+                unwrapRate: mainDecimals === 18 ? 3n * WAD : WAD / 3n,
+                mainToken: { address: MAIN, decimals: mainDecimals, balance: 0n },
+                underlyingToken: { address: UNDERLYING, decimals: mainDecimals === 18 ? 6 : 18, balance: 0n },
+            });
+            const main = pool.tokens[0].token;
+            const underlying = pool.tokens[1].token;
+            const shares = mainDecimals === 18 ? 3_333_333_333_333_334n : 3_000_001n;
+            const assetsDown = mainDecimals === 18 ? 10_000n : 1_000_000_333_333_333_332n;
+            expect(pool.swapGivenIn(main, underlying, TokenAmount.fromRawAmount(main, shares)).amount).toBe(assetsDown);
+            expect(pool.swapGivenOut(underlying, main, TokenAmount.fromRawAmount(main, shares)).amount).toBe(
+                assetsDown + 1n,
+            );
+        },
+    );
+
+    test.each([SwapKind.GivenIn, SwapKind.GivenOut])(
+        'preserves unlimited capacity across repeated swaps (%s)',
+        (kind) => {
+            for (const isUnwrap of [false, true]) {
+                const pool = buffer({ maxDeposit: maxUint256, maxWithdraw: maxUint256 });
+                const input = pool.tokens[isUnwrap ? 0 : 1].token;
+                const output = pool.tokens[isUnwrap ? 1 : 0].token;
+                for (let i = 0; i < 3; i++) {
+                    expect(pool.getLimitAmountSwap(input, output, kind)).toBe(maxUint256);
+                    if (kind === SwapKind.GivenIn) {
+                        pool.swapGivenIn(input, output, TokenAmount.fromRawAmount(input, 100n * WAD), true);
+                    } else {
+                        pool.swapGivenOut(input, output, TokenAmount.fromRawAmount(output, 100n * WAD), true);
+                    }
+                    expect(pool.maxDeposit).toBe(maxUint256);
+                    expect(pool.maxWithdraw).toBe(maxUint256);
+                    expect(pool.tokens.map((token) => token.amount)).toEqual([10n * WAD, 10n * WAD]);
+                }
+            }
+        },
+    );
+
+    test.each([
+        [18, 18],
+        [18, 6],
+        [6, 18],
+    ])('keeps limits executable after sequential swaps with %s/%s decimals', (mainDecimals, underlyingDecimals) => {
+        const mainUnit = 10n ** BigInt(mainDecimals);
+        const underlyingUnit = 10n ** BigInt(underlyingDecimals);
+        for (const rate of [WAD / 3n, (3n * WAD) / 2n, 3n * WAD]) {
+            for (const capacity of [0n, 100n * underlyingUnit]) {
+                const pool = buffer({
+                    unwrapRate: rate,
+                    mainToken: { address: MAIN, decimals: mainDecimals, balance: 10n * mainUnit + 1n },
+                    underlyingToken: {
+                        address: UNDERLYING,
+                        decimals: underlyingDecimals,
+                        balance: 15n * underlyingUnit + 1n,
+                    },
+                    maxDeposit: capacity,
+                    maxWithdraw: capacity,
+                    minWrapAmount: 0n,
+                });
+                for (const kind of [SwapKind.GivenIn, SwapKind.GivenOut, SwapKind.GivenIn]) {
+                    for (const isUnwrap of [false, true]) {
+                        const input = pool.tokens[isUnwrap ? 0 : 1].token;
+                        const output = pool.tokens[isUnwrap ? 1 : 0].token;
+                        const limit = pool.getLimitAmountSwap(input, output, kind);
+                        expect(limit).toBeGreaterThanOrEqual(0n);
+                        expect(limit).toBeLessThanOrEqual(maxUint256);
+                        const depositBefore = pool.maxDeposit;
+                        const withdrawBefore = pool.maxWithdraw;
+                        if (kind === SwapKind.GivenIn) {
+                            pool.swapGivenIn(input, output, TokenAmount.fromRawAmount(input, limit), true);
+                        } else {
+                            pool.swapGivenOut(input, output, TokenAmount.fromRawAmount(output, limit), true);
+                        }
+                        for (const token of pool.tokens) expect(token.amount).toBeGreaterThanOrEqual(0n);
+                        expect(pool.maxDeposit).toBeGreaterThanOrEqual(0n);
+                        expect(pool.maxWithdraw).toBeGreaterThanOrEqual(0n);
+                        expect(pool.maxDeposit).toBeLessThanOrEqual(depositBefore);
+                        expect(pool.maxWithdraw).toBeLessThanOrEqual(withdrawBefore);
+                    }
+                }
+            }
+        }
+    });
+
+    test.each([SwapKind.GivenIn, SwapKind.GivenOut])(
+        'accounts for signed rebalancing in both directions (%s)',
+        (kind) => {
+            const wrap = buffer({
+                mainToken: { address: MAIN, decimals: 18, balance: 100n * WAD },
+                underlyingToken: { address: UNDERLYING, decimals: 18, balance: 1000n * WAD },
+                maxDeposit: 400n * WAD,
+            });
+            expect(wrap.getLimitAmountSwap(wrap.tokens[1].token, wrap.tokens[0].token, kind)).toBe(100n * WAD);
+            const unwrap = buffer({
+                mainToken: { address: MAIN, decimals: 18, balance: 1000n * WAD },
+                underlyingToken: { address: UNDERLYING, decimals: 18, balance: 100n * WAD },
+                maxWithdraw: 400n * WAD,
+            });
+            expect(unwrap.getLimitAmountSwap(unwrap.tokens[0].token, unwrap.tokens[1].token, kind)).toBe(100n * WAD);
+            wrap.maxDeposit = 1000n * WAD;
+            unwrap.maxWithdraw = 1000n * WAD;
+            for (const [pool, inputIndex, outputIndex] of [
+                [wrap, 1, 0],
+                [unwrap, 0, 1],
+            ] as const) {
+                const input = pool.tokens[inputIndex].token;
+                const output = pool.tokens[outputIndex].token;
+                const amount = TokenAmount.fromRawAmount(kind === SwapKind.GivenIn ? input : output, 200n * WAD);
+                if (kind === SwapKind.GivenIn) pool.swapGivenIn(input, output, amount, true);
+                else pool.swapGivenOut(input, output, amount, true);
+                expect(pool.tokens.map((token) => token.amount)).toEqual([550n * WAD, 550n * WAD]);
+            }
+            expect(wrap.maxDeposit).toBe(350n * WAD);
+            expect(unwrap.maxWithdraw).toBe(350n * WAD);
+        },
+    );
     test('wraps and unwraps 1:1 when the rate is 1 and decimals match', () => {
         const pool = buffer();
         const main = pool.tokens[0].token;
@@ -87,8 +392,6 @@ describe('BufferPool', () => {
             pausedVault.getLimitAmountSwap(pausedVault.tokens[0].token, pausedVault.tokens[1].token, SwapKind.GivenIn),
         ).toBe(10n * WAD);
 
-        // Imbalanced buffer (like Sepolia stataEthWBTC: 0.1666 wrapped, 0.0334 underlying, maxWithdraw = 0.4929)
-        // bypasses the buffer and redeems up to the full 0.4929 maxWithdraw without rebalancing
         const imbalanced = buffer({
             maxWithdraw: 49_290_655n,
             mainToken: { address: MAIN, decimals: 8, balance: 16_657_946n },
@@ -96,10 +399,10 @@ describe('BufferPool', () => {
         });
         expect(
             imbalanced.getLimitAmountSwap(imbalanced.tokens[0].token, imbalanced.tokens[1].token, SwapKind.GivenIn),
-        ).toBe(49_290_655n);
+        ).toBe(42_631_398n);
         expect(
             imbalanced.getLimitAmountSwap(imbalanced.tokens[0].token, imbalanced.tokens[1].token, SwapKind.GivenOut),
-        ).toBe(49_290_655n);
+        ).toBe(42_631_398n);
     });
 
     test('reports when a swap is larger than the buffer inventory', () => {
@@ -156,14 +459,12 @@ describe('BufferPool', () => {
         expect(pool.maxDeposit).toBe(50n * WAD);
         expect(pool.getLimitAmountSwap(underlying, main, SwapKind.GivenOut)).toBe(100n * WAD);
 
-        // Step 2: 60 WAD wrap (<= 100 WAD buffer) executes internally (main: 100 -> 40, maxDeposit stays 50 WAD),
-        // so remaining single-step limit is max(40 WAD internal, 50 WAD external) = 50 WAD
         pool.swapGivenOut(underlying, main, TokenAmount.fromRawAmount(main, 60n * WAD), true);
-        expect(pool.getLimitAmountSwap(underlying, main, SwapKind.GivenOut)).toBe(50n * WAD);
-
-        // Step 3: 50 WAD wrap (> 40 WAD buffer) consumes the remaining 50 WAD of maxDeposit, leaving 40 WAD internal buffer
-        pool.swapGivenOut(underlying, main, TokenAmount.fromRawAmount(main, 50n * WAD), true);
-        expect(pool.maxDeposit).toBe(0n);
+        expect(pool.getLimitAmountSwap(underlying, main, SwapKind.GivenOut)).toBe(40n * WAD);
+        expect(() => pool.swapGivenOut(underlying, main, TokenAmount.fromRawAmount(main, 50n * WAD), true)).toThrow(
+            'capacity exceeded',
+        );
+        expect(pool.maxDeposit).toBe(50n * WAD);
         expect(pool.getLimitAmountSwap(underlying, main, SwapKind.GivenOut)).toBe(40n * WAD);
         expect(pool.getLimitAmountSwap(underlying, main, SwapKind.GivenIn)).toBe(40n * WAD);
     });
@@ -207,7 +508,6 @@ describe('BufferPool', () => {
         expect(eursBuffer.swapGivenIn(eurs, stataEurs, TokenAmount.fromRawAmount(eurs, 13_000n)).amount).toBe(10_384n);
 
         // Cross-decimal (18 main waUSDC, 6 underlying USDC, rate = 1.05):
-        // - getPoolState() exposes mainDecimals=18 and underlyingDecimals=6 for upstream Vault.swap
         // - 0.01 USDC (10,000 raw) -> ~9.523e15 waUSDC (>= 10,000 raw in 18 decimals) succeeds
         // - unwrapping 9.5e15 waUSDC -> 9,975 raw USDC (< 10,000) reverts
         // - EXACT_OUT wrap for 9e15 waUSDC needing 9,450 raw USDC (< 10,000) reverts
