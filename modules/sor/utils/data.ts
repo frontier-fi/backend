@@ -46,14 +46,29 @@ export async function getBasePoolsFromDb(
         cached = cache.put(cacheKey, { pools, bufferPools }, parseInt(env.SOR_POOLS_CACHE_TTL_SECONDS) * 1000);
     }
 
-    const blockedBuffers = await prisma.prismaToken.findMany({
-        where: { chain, isBufferAllowed: false },
-        select: { address: true },
-    });
-    const blockedBufferAddresses = new Set(blockedBuffers.map((token) => token.address.toLowerCase()));
     // Filter by protocol version and hook preferences
+    const [blockedBuffers, safeProviders] = await Promise.all([
+        prisma.prismaToken.findMany({
+            where: { chain, isBufferAllowed: false },
+            select: { address: true },
+        }),
+        prisma.prismaPriceRateProviderData.findMany({
+            where: { chain, reviewed: true, summary: 'safe' },
+            select: { rateProviderAddress: true },
+        }),
+    ]);
+    const blockedBufferAddresses = new Set(blockedBuffers.map((token) => token.address.toLowerCase()));
+    const safeProviderAddresses = new Set(safeProviders.map((provider) => provider.rateProviderAddress.toLowerCase()));
     const pools = cached.pools
         .filter((pool) => pool.protocolVersion === protocolVersion)
+        .filter((pool) =>
+            pool.tokens.every(
+                (token) =>
+                    !token.priceRateProvider ||
+                    token.priceRateProvider === ZERO_ADDRESS ||
+                    safeProviderAddresses.has(token.priceRateProvider.toLowerCase()),
+            ),
+        )
         .filter((pool) => {
             if (considerPoolsWithHooks) return true;
             return !pool.hook || Object.keys(pool.hook).length === 0;
@@ -142,21 +157,7 @@ async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> 
         return isSupportedHookType;
     });
 
-    // Only allow pools where every token with a rate provider has been explicitly reviewed
-    const reviewedProviders = await prisma.prismaPriceRateProviderData.findMany({
-        where: { chain, reviewed: true },
-        select: { rateProviderAddress: true },
-    });
-    const reviewedAddresses = new Set(reviewedProviders.map((p) => p.rateProviderAddress.toLowerCase()));
-
-    return pools.filter((pool) =>
-        pool.tokens.every(
-            (t) =>
-                !t.priceRateProvider ||
-                t.priceRateProvider === ZERO_ADDRESS ||
-                reviewedAddresses.has(t.priceRateProvider.toLowerCase()),
-        ),
-    );
+    return pools;
 }
 
 export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain): Promise<BufferPoolData[]> {
