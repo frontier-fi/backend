@@ -46,6 +46,11 @@ export async function getBasePoolsFromDb(
         cached = cache.put(cacheKey, { pools, bufferPools }, parseInt(env.SOR_POOLS_CACHE_TTL_SECONDS) * 1000);
     }
 
+    const blockedBuffers = await prisma.prismaToken.findMany({
+        where: { chain, isBufferAllowed: false },
+        select: { address: true },
+    });
+    const blockedBufferAddresses = new Set(blockedBuffers.map((token) => token.address.toLowerCase()));
     // Filter by protocol version and hook preferences
     const pools = cached.pools
         .filter((pool) => pool.protocolVersion === protocolVersion)
@@ -57,7 +62,8 @@ export async function getBasePoolsFromDb(
     const activeTokenAddresses = new Set(pools.flatMap((pool) => pool.tokens.map((t) => t.address.toLowerCase())));
 
     const bufferPools = cached.bufferPools.filter((bufferPool) =>
-        activeTokenAddresses.has(bufferPool.address.toLowerCase()),
+        activeTokenAddresses.has(bufferPool.address.toLowerCase()) &&
+        !blockedBufferAddresses.has(bufferPool.address.toLowerCase()),
     );
 
     return { pools, bufferPools };
@@ -189,7 +195,11 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
                 continue;
             }
             // check if token can be used for swaps through buffer pools
-            if (poolToken.token.underlyingTokenAddress && wrappedTokenAddresses.includes(poolToken.address)) {
+            if (
+                poolToken.token.isBufferAllowed !== false &&
+                poolToken.token.underlyingTokenAddress &&
+                wrappedTokenAddresses.includes(poolToken.address)
+            ) {
                 // check if underlying token exists in the database
                 const underlyingToken = tokensMap[poolToken.token.underlyingTokenAddress];
                 if (underlyingToken) {

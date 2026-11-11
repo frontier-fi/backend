@@ -64,6 +64,11 @@ describe('getBufferPoolsFromDBPools', () => {
         expect(bufferPools[0].address).toBe(wrappedAddress);
         expect(bufferPools[0].underlyingToken.address).toBe(underlyingAddress);
 
+        pools.forEach((pool) => {
+            pool.tokens[0].token.isBufferAllowed = false;
+        });
+        expect(await getBufferPoolsFromDBPools(pools, 'SEPOLIA')).toEqual([]);
+
         vi.restoreAllMocks();
     });
 });
