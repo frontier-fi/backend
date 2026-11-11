@@ -1,7 +1,7 @@
 import { Address, Hex, parseEther, parseUnits } from 'viem';
 
 import { PoolType, Token, TokenAmount } from '@balancer/sdk';
-import { HookState, GyroECLPState } from '@balancer-labs/balancer-maths';
+import { HookState, GyroECLPState } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';

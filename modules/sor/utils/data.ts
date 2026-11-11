@@ -4,6 +4,7 @@ import { Chain, PrismaPoolType, PrismaToken } from '@prisma/client';
 
 import { prisma } from '../../../prisma/prisma-client';
 import { PrismaPoolAndHookWithDynamic, HookData } from '../../../prisma/prisma-types';
+import config from '../../../config';
 import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { poolsToIgnore } from './constants';
 import { tokenService } from '../../token/token.service';
@@ -20,6 +21,7 @@ export type BufferPoolData = {
     unwrapRate: bigint;
     maxDeposit: bigint;
     maxWithdraw: bigint;
+    minWrapAmount?: bigint;
 };
 
 export type SORDbPool = PrismaPoolAndHookWithDynamic;
@@ -39,16 +41,41 @@ export async function getBasePoolsFromDb(
 
     if (!cached) {
         // get pools
-        console.time('SOR:getpools');
         const pools = await getPools(chain, poolIds);
-        console.timeEnd('SOR:getpools');
         const bufferPools = await getBufferPoolsFromDBPools(pools, chain);
         cached = cache.put(cacheKey, { pools, bufferPools }, parseInt(env.SOR_POOLS_CACHE_TTL_SECONDS) * 1000);
     }
 
     // Filter by protocol version and hook preferences
+    const [blockedTypes, blockedBuffers, safeProviders] = await Promise.all([
+        prisma.prismaTokenType.findMany({
+            where: { chain, type: 'BLOCKED_V3' },
+            select: { tokenAddress: true },
+        }),
+        prisma.prismaToken.findMany({
+            where: { chain, isBufferAllowed: false },
+            select: { address: true },
+        }),
+        prisma.prismaPriceRateProviderData.findMany({
+            where: { chain, reviewed: true, summary: 'safe' },
+            select: { rateProviderAddress: true },
+        }),
+    ]);
+    const blockedAddresses = new Set(blockedTypes.map((token) => token.tokenAddress.toLowerCase()));
+    const blockedBufferAddresses = new Set(blockedBuffers.map((token) => token.address.toLowerCase()));
+    const safeProviderAddresses = new Set(safeProviders.map((provider) => provider.rateProviderAddress.toLowerCase()));
     const pools = cached.pools
         .filter((pool) => pool.protocolVersion === protocolVersion)
+        .filter((pool) => !blockedAddresses.has(pool.address.toLowerCase()))
+        .filter((pool) =>
+            pool.tokens.every(
+                (token) =>
+                    !blockedAddresses.has(token.address.toLowerCase()) &&
+                    (!token.priceRateProvider ||
+                        token.priceRateProvider === ZERO_ADDRESS ||
+                        safeProviderAddresses.has(token.priceRateProvider.toLowerCase())),
+            ),
+        )
         .filter((pool) => {
             if (considerPoolsWithHooks) return true;
             return !pool.hook || Object.keys(pool.hook).length === 0;
@@ -56,8 +83,12 @@ export async function getBasePoolsFromDb(
 
     const activeTokenAddresses = new Set(pools.flatMap((pool) => pool.tokens.map((t) => t.address.toLowerCase())));
 
-    const bufferPools = cached.bufferPools.filter((bufferPool) =>
-        activeTokenAddresses.has(bufferPool.address.toLowerCase()),
+    const bufferPools = cached.bufferPools.filter(
+        (bufferPool) =>
+            activeTokenAddresses.has(bufferPool.address.toLowerCase()) &&
+            !blockedBufferAddresses.has(bufferPool.address.toLowerCase()) &&
+            !blockedAddresses.has(bufferPool.address.toLowerCase()) &&
+            !blockedAddresses.has(bufferPool.underlyingToken.address.toLowerCase()),
     );
 
     return { pools, bufferPools };
@@ -136,21 +167,7 @@ async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> 
         return isSupportedHookType;
     });
 
-    // Only allow pools where every token with a rate provider has been explicitly reviewed
-    const reviewedProviders = await prisma.prismaPriceRateProviderData.findMany({
-        where: { chain, reviewed: true },
-        select: { rateProviderAddress: true },
-    });
-    const reviewedAddresses = new Set(reviewedProviders.map((p) => p.rateProviderAddress.toLowerCase()));
-
-    return pools.filter((pool) =>
-        pool.tokens.every(
-            (t) =>
-                !t.priceRateProvider ||
-                t.priceRateProvider === ZERO_ADDRESS ||
-                reviewedAddresses.has(t.priceRateProvider.toLowerCase()),
-        ),
-    );
+    return pools;
 }
 
 export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain): Promise<BufferPoolData[]> {
@@ -189,7 +206,11 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
                 continue;
             }
             // check if token can be used for swaps through buffer pools
-            if (poolToken.token.underlyingTokenAddress && wrappedTokenAddresses.includes(poolToken.address)) {
+            if (
+                poolToken.token.isBufferAllowed !== false &&
+                poolToken.token.underlyingTokenAddress &&
+                wrappedTokenAddresses.includes(poolToken.address)
+            ) {
                 // check if underlying token exists in the database
                 const underlyingToken = tokensMap[poolToken.token.underlyingTokenAddress];
                 if (underlyingToken) {
@@ -212,6 +233,7 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
                         unwrapRate: parseEther(poolToken.token.unwrapRate), // the way we store rates already takes into account main/underlying decimals differences
                         maxWithdraw: parseUnits(poolToken.token.maxWithdraw, underlyingToken.decimals),
                         maxDeposit: parseUnits(poolToken.token.maxDeposit, underlyingToken.decimals),
+                        minWrapAmount: config[chain]?.vaultParams?.minWrapAmount,
                     });
                 }
             }

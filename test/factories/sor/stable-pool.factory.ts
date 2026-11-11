@@ -8,7 +8,7 @@ import { TokenPairData } from '../../../modules/sources/contracts/v3/fetch-token
 import { StablePoolV3 } from '../../../modules/sor/lib/poolsV3';
 import { PoolTokenWithRate } from '../../../modules/sor/lib/utils/poolTokenWithRate';
 import { LiquidityManagement } from '../../../modules/sor/types';
-import { HookState } from '@balancer-labs/balancer-maths';
+import { HookState } from '@frontier-fi/maths';
 
 export const StablePoolFactory = Factory.define<StablePoolV3>(({ params }) => {
     const chain: Chain = params.chain || faker.helpers.arrayElement<Chain>(['MAINNET', 'SEPOLIA']);

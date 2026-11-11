@@ -119,12 +119,13 @@ export class PathGraph {
             maxBuffersInPath: isHyperEvm ? 2 : 5, // limited only on HyperEvm due to gas cost limits on small blocks - virtually unlimited otherwise
             maxCandidatesPerTokenPath: 20,
             maxCandidatesGlobally: 100,
-            minSwapAmountRatio: 0.5, // Default to 50% so we're sure selected paths support splitPath logic
+            minSwapAmountRatio: 0.1, // Default to 10% so asymmetric split partners (e.g. 75/25, 90/10) are retained
             ...graphTraversalConfig,
         };
 
-        // Calculate minimum limit threshold based on swap amount and ratio
-        const minLimitThreshold = (swapAmount.amount * BigInt(Math.floor(config.minSwapAmountRatio * 100))) / 100n;
+        // Calculate minimum limit threshold based on swap amount and ratio (basis-point precision)
+        const minLimitThreshold =
+            (swapAmount.amount * BigInt(Math.floor(config.minSwapAmountRatio * 10_000))) / 10_000n;
 
         let paths = this.findAndValidatePathsForConfig({
             tokenIn: tokenIn.address,

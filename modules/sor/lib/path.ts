@@ -45,6 +45,7 @@ export class PathWithAmount extends PathLocal {
         isBuffer: boolean[],
         swapAmount: TokenAmount,
         mutateBalances?: boolean,
+        skipMinWrapCheck = false,
     ) {
         super(tokens, pools, isBuffer);
         this.swapAmount = swapAmount;
@@ -80,12 +81,16 @@ export class PathWithAmount extends PathLocal {
                             this.swapStepsExceedingBufferCapacity++;
                         }
                     }
-                    const outputAmount = pool.swapGivenIn(
-                        this.tokens[i],
-                        this.tokens[i + 1],
-                        amounts[i],
-                        this.mutateBalances,
-                    );
+                    const outputAmount =
+                        pool.poolType === 'Buffer'
+                            ? (pool as BufferPool).swapGivenIn(
+                                  this.tokens[i],
+                                  this.tokens[i + 1],
+                                  amounts[i],
+                                  this.mutateBalances,
+                                  skipMinWrapCheck,
+                              )
+                            : pool.swapGivenIn(this.tokens[i], this.tokens[i + 1], amounts[i], this.mutateBalances);
                     if (outputAmount.amount === 0n) {
                         throw new Error('Zero output amount on swapGivenIn hop');
                     }
@@ -121,12 +126,16 @@ export class PathWithAmount extends PathLocal {
                             this.swapStepsExceedingBufferCapacity++;
                         }
                     }
-                    const inputAmount = pool.swapGivenOut(
-                        this.tokens[i - 1],
-                        this.tokens[i],
-                        amounts[i],
-                        this.mutateBalances,
-                    );
+                    const inputAmount =
+                        pool.poolType === 'Buffer'
+                            ? (pool as BufferPool).swapGivenOut(
+                                  this.tokens[i - 1],
+                                  this.tokens[i],
+                                  amounts[i],
+                                  this.mutateBalances,
+                                  skipMinWrapCheck,
+                              )
+                            : pool.swapGivenOut(this.tokens[i - 1], this.tokens[i], amounts[i], this.mutateBalances);
                     if (inputAmount.amount === 0n) {
                         throw new Error('Zero input amount on swapGivenOut hop');
                     }

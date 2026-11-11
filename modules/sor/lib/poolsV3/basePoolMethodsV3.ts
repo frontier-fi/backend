@@ -1,5 +1,4 @@
-import { BufferState } from '@balancer-labs/balancer-maths';
-import { PoolState } from '@balancer-labs/balancer-maths';
+import { BufferState, PoolState } from '@frontier-fi/maths';
 import { BasePool } from '../basePool';
 import { BasePoolToken } from '../utils';
 

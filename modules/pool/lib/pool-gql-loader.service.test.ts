@@ -9,6 +9,30 @@ import { tokenService } from '../../token/token.service';
 describe('PoolGqlLoaderService', () => {
     const loader = new PoolGqlLoaderService();
 
+    it('applies address and symbol token restrictions inside both paginated search and count SQL', async () => {
+        const address = '0x00000000000000000000000000000000000000aa';
+        const query = vi
+            .spyOn(prisma, '$queryRaw')
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{ count: 0n }]);
+        const args = {
+            textSearch: 'usd',
+            first: 10,
+            where: { tokensIn: [address, 'DAI'], tokensNotIn: ['BAD', address] },
+        };
+        await loader.getPools(structuredClone(args));
+        expect(await loader.getPoolsCount(structuredClone(args))).toBe(0);
+        for (const [statement] of query.mock.calls) {
+            const sql = statement as unknown as { strings: string[]; values: unknown[] };
+            const text = sql.strings.join('?');
+            expect(sql.values).toEqual(expect.arrayContaining([address, '%DAI%', '%BAD%']));
+            expect(text).toContain('NOT EXISTS');
+            expect(text).toContain('t.address =');
+            expect(text).toContain(' OR EXISTS');
+            if (text.includes('LIMIT')) expect(text.indexOf('NOT EXISTS')).toBeLessThan(text.indexOf('LIMIT'));
+        }
+    });
+
     afterEach(() => {
         vi.restoreAllMocks();
     });
@@ -247,5 +271,96 @@ describe('PoolGqlLoaderService', () => {
         expect(def?.rateProviderData?.address).toBe('0x0000000000000000000000000000000000000020');
         expect(def?.priceRateProviderData?.address).toBe('0x0000000000000000000000000000000000000020');
         expect(def?.rateProviderData?.warnings).toEqual([]);
+    });
+
+    it('filters tokensIn by address with equals and by token symbol with case-insensitive contains', async () => {
+        const findManySpy = vi.spyOn(prisma.prismaPool, 'findMany').mockResolvedValue([]);
+
+        await loader.getPools({
+            where: {
+                chainIn: [Chain.SEPOLIA],
+                tokensIn: ['0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8', 'USDC'],
+            },
+        });
+
+        expect(findManySpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    AND: [
+                        {
+                            OR: [
+                                {
+                                    allTokens: {
+                                        some: {
+                                            token: {
+                                                address: {
+                                                    equals: '0x94a9d9ac8a22534e3faca9f4e7f2e2cf85d5e4c8',
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                                {
+                                    allTokens: {
+                                        some: {
+                                            token: {
+                                                symbol: {
+                                                    contains: 'USDC',
+                                                    mode: 'insensitive',
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            }),
+        );
+    });
+
+    it('keeps BOOSTED and BOOSTED_AAVE in categories while filtering out unknown dynamic tags', () => {
+        const poolMock: any = {
+            id: '0xpool1',
+            address: '0xpool1',
+            chain: Chain.SEPOLIA,
+            protocolVersion: 3,
+            type: 'STABLE',
+            typeData: { amp: '100' },
+            categories: ['BOOSTED', 'BOOSTED_AAVE', 'INCENTIVIZED', 'CUSTOM_UNLISTED_TAG'],
+            hook: null,
+            liquidityManagement: null,
+            tokens: [],
+            allTokens: [],
+            aprItems: [],
+            dynamicData: {
+                poolId: '0xpool1',
+                totalLiquidity: 1000,
+                totalLiquidity24hAgo: 1000,
+                totalShares: '100',
+                totalShares24hAgo: '100',
+                fees24h: 0,
+                volume24h: 0,
+                surplus24h: 0,
+                fees48h: 0,
+                volume48h: 0,
+                surplus48h: 0,
+                yieldCapture24h: 0,
+                yieldCapture48h: 0,
+                lifetimeVolume: 0,
+                lifetimeSwapFees: 0,
+                holdersCount: 1,
+                swapsCount: 1,
+                protocolFees24h: 0,
+                protocolFees48h: 0,
+                protocolYieldCapture24h: 0,
+                protocolYieldCapture48h: 0,
+            },
+        };
+
+        const minimal = loader.mapToMinimalGqlPool(poolMock);
+        expect(minimal.categories).toEqual(['BOOSTED', 'BOOSTED_AAVE', 'INCENTIVIZED']);
+        expect(minimal.tags).toEqual(['BOOSTED', 'BOOSTED_AAVE', 'INCENTIVIZED', 'CUSTOM_UNLISTED_TAG']);
     });
 });

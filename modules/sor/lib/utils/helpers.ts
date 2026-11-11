@@ -2,7 +2,7 @@ import { BigintIsh, SwapKind, Token, TokenAmount, WAD } from '@balancer/sdk';
 import { formatUnits } from 'viem';
 import { PathWithAmount } from '../path';
 
-import { HookState } from '@balancer-labs/balancer-maths';
+import { HookState } from '@frontier-fi/maths';
 import { LiquidityManagement } from '../../types';
 
 import { PrismaPoolAndHookWithDynamic, HookData } from '../../../../prisma/prisma-types';
@@ -67,8 +67,15 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
             throw new Error('Swap amount must be positive');
         }
 
-        const minRawFloor = path.isBuffer.some(Boolean) ? 10_000n : 100n;
+        if (path.pools.every((pool) => pool.poolType === 'Buffer')) {
+            // Pure ERC4626 buffer paths convert linearly at unwrapRate with zero fee and zero curve impact.
+            totalBenchmark += swapKind === SwapKind.GivenIn ? path.outputAmount.amount : path.inputAmount.amount;
+            continue;
+        }
+
+        const minRawFloor = 1_000n;
         const minCalculatedFloor = 1_000n;
+        const probePools = path.pools.map((pool) => pool.copyForPriceImpact?.() ?? pool);
         let pathBenchmark: bigint | null = null;
 
         for (const divisor of [1000n, 100n, 10n]) {
@@ -79,10 +86,11 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
             try {
                 const probePath = new PathWithAmount(
                     path.tokens,
-                    path.pools,
+                    probePools,
                     path.isBuffer,
                     TokenAmount.fromRawAmount(path.swapAmount.token, probeRaw),
                     false,
+                    true,
                 );
                 const probeCalculated =
                     swapKind === SwapKind.GivenIn ? probePath.outputAmount.amount : probePath.inputAmount.amount;

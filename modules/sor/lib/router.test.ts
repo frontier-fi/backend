@@ -1633,4 +1633,416 @@ describe('SOR deterministic property & brute-force optimality fuzzing', () => {
             expect(p.swapStepsExceedingBufferCapacity).toBe(0);
         }
     });
+
+    it('rejects a split leg whose 2-decimal ERC4626 buffer step falls below minWrapAmount and keeps the valid 100% single path', async () => {
+        const wbtc = new Token(11155111, '0x0000000000000000000000000000000000003001', 8, 'WBTC');
+        const eurs = new Token(11155111, '0x0000000000000000000000000000000000003002', 2, 'EURS');
+        const stataEurs = new Token(11155111, '0x0000000000000000000000000000000000003003', 2, 'stataEURS');
+
+        // Path 1: direct Weighted pool wbtc -> eurs (~575 EURS out for 0.005 WBTC)
+        const directPool = prismaPoolFactory.build({
+            id: '0x0000000000000000000000000000000000003011',
+            address: '0x0000000000000000000000000000000000003011',
+            chain: Chain.SEPOLIA,
+            type: 'WEIGHTED',
+            protocolVersion: 3,
+            tokens: [
+                prismaPoolTokenFactory.build({
+                    address: wbtc.address,
+                    index: 0,
+                    balance: '0.1',
+                    weight: '0.5',
+                    priceRate: '1',
+                    token: poolTokenFactory.build({ address: wbtc.address, decimals: 8 }),
+                }),
+                prismaPoolTokenFactory.build({
+                    address: eurs.address,
+                    index: 1,
+                    balance: '12000',
+                    weight: '0.5',
+                    priceRate: '1',
+                    token: poolTokenFactory.build({ address: eurs.address, decimals: 2 }),
+                }),
+            ],
+            dynamicData: prismaPoolDynamicDataFactory.build({
+                swapFee: '0.003',
+                aggregateSwapFee: '0.5',
+                totalShares: '100',
+            }),
+            liquidityManagement: {
+                disableUnbalancedLiquidity: false,
+                enableAddLiquidityCustom: false,
+                enableDonation: false,
+                enableRemoveLiquidityCustom: false,
+            },
+        });
+
+        // Path 2: shallower boosted Weighted pool wbtc -> stataEURS -> Buffer -> EURS
+        // At 100% of 0.0015 WBTC (~180 EURS), high slippage makes Path 2 worse than Path 1,
+        // while a 20–30% split leg (~30–45 stataEURS = 3,000–4,500 raw) beats 100% Path 1 on paper
+        // IF minWrapAmount were 1,000n — but reverts on-chain because < 10,000 raw stataEURS!
+        const boostedPool = prismaPoolFactory.build({
+            id: '0x0000000000000000000000000000000000003012',
+            address: '0x0000000000000000000000000000000000003012',
+            chain: Chain.SEPOLIA,
+            type: 'WEIGHTED',
+            protocolVersion: 3,
+            tokens: [
+                prismaPoolTokenFactory.build({
+                    address: wbtc.address,
+                    index: 0,
+                    balance: '0.01',
+                    weight: '0.5',
+                    priceRate: '1',
+                    token: poolTokenFactory.build({ address: wbtc.address, decimals: 8 }),
+                }),
+                prismaPoolTokenFactory.build({
+                    address: stataEurs.address,
+                    index: 1,
+                    balance: '990', // ~1,237.5 EURS value; 30% max out = 297 stataEURS, but optimal split leg is ~3,500 raw (< 10,000)
+                    weight: '0.5',
+                    priceRate: '1.25',
+                    token: poolTokenFactory.build({ address: stataEurs.address, decimals: 2 }),
+                }),
+            ],
+            dynamicData: prismaPoolDynamicDataFactory.build({
+                swapFee: '0.001',
+                aggregateSwapFee: '0.5',
+                totalShares: '100',
+            }),
+            liquidityManagement: {
+                disableUnbalancedLiquidity: false,
+                enableAddLiquidityCustom: false,
+                enableDonation: false,
+                enableRemoveLiquidityCustom: false,
+            },
+        });
+
+        const makeBufferData = (minWrapAmount: bigint) => ({
+            poolId: stataEurs.address as `0x${string}`,
+            address: stataEurs.address as `0x${string}`,
+            chainId: 11155111,
+            poolType: 'Buffer',
+            unwrapRate: 1_250_000_000_000_000_000n,
+            maxDeposit: 10_000_000n,
+            maxWithdraw: 10_000_000n,
+            minWrapAmount,
+            mainToken: { address: stataEurs.address as `0x${string}`, decimals: 2, balance: 1_000_000n },
+            underlyingToken: { address: eurs.address as `0x${string}`, decimals: 2, balance: 1_000_000n },
+        });
+
+        const prices = new Map([
+            [wbtc.address, 120_000],
+            [eurs.address, 1],
+            [stataEurs.address, 1.25],
+        ]);
+
+        // With legacy 1,000n minWrapAmount, SOR emits a 2-path split where the boosted leg unwraps < 10,000 raw
+        const legacyPaths = await SOR.getPathsWithPools(
+            wbtc,
+            eurs,
+            SwapKind.GivenIn,
+            150_000n, // 0.0015 WBTC (~180 EURS)
+            [directPool, boostedPool],
+            [makeBufferData(1_000n)],
+            3,
+            prices,
+        );
+        expect(legacyPaths).toHaveLength(2);
+
+        // With Vault minWrapAmount = 10,000n, SOR rejects every < 10,000 raw split leg and returns 100% directPool
+        const paths = await SOR.getPathsWithPools(
+            wbtc,
+            eurs,
+            SwapKind.GivenIn,
+            150_000n,
+            [directPool, boostedPool],
+            [makeBufferData(10_000n)],
+            3,
+            prices,
+        );
+
+        expect(paths).not.toBeNull();
+        expect(paths!).toHaveLength(1);
+        expect(paths![0].pools[0].id).toBe(directPool.id);
+    });
+
+    it('solves asymmetric EXACT_IN and EXACT_OUT splits when the secondary pool limit is below 50% of swapAmount', async () => {
+        const wbtc = new Token(11155111, '0x0000000000000000000000000000000000003101', 8, 'WBTC');
+        const aave = new Token(11155111, '0x0000000000000000000000000000000000003102', 18, 'AAVE');
+
+        const makePool = (id: `0x${string}`, wbtcBal: string, aaveBal: string) =>
+            prismaPoolFactory.build({
+                id,
+                address: id,
+                chain: Chain.SEPOLIA,
+                type: 'WEIGHTED',
+                protocolVersion: 3,
+                tokens: [
+                    prismaPoolTokenFactory.build({
+                        address: wbtc.address,
+                        index: 0,
+                        balance: wbtcBal,
+                        weight: '0.5',
+                        priceRate: '1',
+                        token: poolTokenFactory.build({ address: wbtc.address, decimals: 8 }),
+                    }),
+                    prismaPoolTokenFactory.build({
+                        address: aave.address,
+                        index: 1,
+                        balance: aaveBal,
+                        weight: '0.5',
+                        priceRate: '1',
+                        token: poolTokenFactory.build({ address: aave.address, decimals: 18 }),
+                    }),
+                ],
+                dynamicData: prismaPoolDynamicDataFactory.build({
+                    swapFee: '0.003',
+                    aggregateSwapFee: '0.5',
+                    totalShares: '100',
+                }),
+                liquidityManagement: {
+                    disableUnbalancedLiquidity: false,
+                    enableAddLiquidityCustom: false,
+                    enableDonation: false,
+                    enableRemoveLiquidityCustom: false,
+                },
+            });
+
+        // Pool 1 (matches Sepolia w5bs): 30% max in = 0.0465 WBTC (62% of 0.075 -> <75%, only in quotePaths50!), 30% max out = 17.4 AAVE (< 22)
+        // Pool 2 (matches Sepolia w5wa): 30% max in = 0.0303 WBTC (40.4% < 50% -> only in quotePaths25!), 30% max out = 6.0 AAVE (27% < 50%!)
+        const poolPrimary = makePool('0x0000000000000000000000000000000000003111', '0.155', '58');
+        const poolSecondary = makePool('0x0000000000000000000000000000000000003112', '0.101', '20');
+        const prices = new Map([
+            [wbtc.address, 75_000],
+            [aave.address, 280],
+        ]);
+
+        const exactInPaths = await SOR.getPathsWithPools(
+            wbtc,
+            aave,
+            SwapKind.GivenIn,
+            7_500_000n, // 0.075 WBTC
+            [poolPrimary, poolSecondary],
+            [],
+            3,
+            prices,
+        );
+        expect(exactInPaths).not.toBeNull();
+        expect(exactInPaths!).toHaveLength(2);
+        expect(getInputAmount(exactInPaths!).amount).toBe(7_500_000n);
+
+        const exactOutPaths = await SOR.getPathsWithPools(
+            wbtc,
+            aave,
+            SwapKind.GivenOut,
+            parseEther('22'), // 22 AAVE
+            [poolPrimary, poolSecondary],
+            [],
+            3,
+            prices,
+        );
+        expect(exactOutPaths).not.toBeNull();
+        expect(exactOutPaths!).toHaveLength(2);
+        expect(getOutputAmount(exactOutPaths!).amount).toBe(parseEther('22'));
+    });
+
+    it('solves a buffer-clamped <10% remainder split via the minSwapAmountRatio=0 fallback retry in SOR.getPathsWithPools', async () => {
+        const wbtc = new Token(11155111, '0x0000000000000000000000000000000000003201', 8, 'WBTC');
+        const stataWbtc = new Token(11155111, '0x0000000000000000000000000000000000003202', 8, 'stataWBTC');
+
+        // Direct buffer maxWithdraw = 0.49 WBTC (98% of 0.50 stataWBTC swap)
+        const wbtcBufferData = {
+            poolId: stataWbtc.address as `0x${string}`,
+            address: stataWbtc.address as `0x${string}`,
+            chainId: 11155111,
+            poolType: 'Buffer',
+            unwrapRate: parseEther('1'),
+            maxDeposit: 49_000_000n,
+            maxWithdraw: 49_000_000n,
+            minWrapAmount: 10_000n,
+            mainToken: { address: stataWbtc.address as `0x${string}`, decimals: 8, balance: 0n },
+            underlyingToken: { address: wbtc.address as `0x${string}`, decimals: 8, balance: 0n },
+        };
+
+        // Secondary Weighted pool has 0.13 stataWBTC balance -> 30% limit = 0.039 stataWBTC (7.8% < 10% primary ratio!)
+        const smallDetourPool = prismaPoolFactory.build({
+            id: '0x0000000000000000000000000000000000003211',
+            address: '0x0000000000000000000000000000000000003211',
+            chain: Chain.SEPOLIA,
+            type: 'WEIGHTED',
+            protocolVersion: 3,
+            tokens: [
+                prismaPoolTokenFactory.build({
+                    address: stataWbtc.address,
+                    index: 0,
+                    balance: '0.13',
+                    weight: '0.5',
+                    priceRate: '1',
+                    token: poolTokenFactory.build({ address: stataWbtc.address, decimals: 8 }),
+                }),
+                prismaPoolTokenFactory.build({
+                    address: wbtc.address,
+                    index: 1,
+                    balance: '0.13',
+                    weight: '0.5',
+                    priceRate: '1',
+                    token: poolTokenFactory.build({ address: wbtc.address, decimals: 8 }),
+                }),
+            ],
+            dynamicData: prismaPoolDynamicDataFactory.build({
+                swapFee: '0.003',
+                aggregateSwapFee: '0.5',
+                totalShares: '100',
+            }),
+            liquidityManagement: {
+                disableUnbalancedLiquidity: false,
+                enableAddLiquidityCustom: false,
+                enableDonation: false,
+                enableRemoveLiquidityCustom: false,
+            },
+        });
+
+        const paths = await SOR.getPathsWithPools(
+            stataWbtc,
+            wbtc,
+            SwapKind.GivenIn,
+            50_000_000n, // 0.50 stataWBTC
+            [smallDetourPool],
+            [wbtcBufferData],
+            3,
+            new Map([
+                [wbtc.address, 75_000],
+                [stataWbtc.address, 75_000],
+            ]),
+        );
+
+        expect(paths).not.toBeNull();
+        expect(paths!).toHaveLength(2);
+        expect(getInputAmount(paths!).amount).toBe(50_000_000n);
+        for (const p of paths!) {
+            expect(p.swapStepsExceedingBufferCapacity).toBe(0);
+        }
+    });
+
+    it('packs 3- and 4-leg capacity-rescue splits when 1- and 2-path splits cannot cover swapAmount, while respecting shared BufferPool caps', async () => {
+        const wbtc = new Token(11155111, '0x0000000000000000000000000000000000003301', 8, 'WBTC');
+        const stataWbtc = new Token(11155111, '0x0000000000000000000000000000000000003302', 8, 'stataWBTC');
+        const aave = new Token(11155111, '0x0000000000000000000000000000000000003303', 18, 'AAVE');
+
+        const makePool = (id: `0x${string}`, t0: Token, bal0: string, t1: Token, bal1: string, fee = '0.003') =>
+            prismaPoolFactory.build({
+                id,
+                address: id,
+                chain: Chain.SEPOLIA,
+                type: 'WEIGHTED',
+                protocolVersion: 3,
+                tokens: [
+                    prismaPoolTokenFactory.build({
+                        address: t0.address,
+                        index: 0,
+                        balance: bal0,
+                        weight: '0.5',
+                        priceRate: '1',
+                        token: poolTokenFactory.build({ address: t0.address, decimals: t0.decimals }),
+                    }),
+                    prismaPoolTokenFactory.build({
+                        address: t1.address,
+                        index: 1,
+                        balance: bal1,
+                        weight: '0.5',
+                        priceRate: '1',
+                        token: poolTokenFactory.build({ address: t1.address, decimals: t1.decimals }),
+                    }),
+                ],
+                dynamicData: prismaPoolDynamicDataFactory.build({
+                    swapFee: fee,
+                    aggregateSwapFee: '0.5',
+                    totalShares: '100',
+                }),
+                liquidityManagement: {
+                    disableUnbalancedLiquidity: false,
+                    enableAddLiquidityCustom: false,
+                    enableDonation: false,
+                    enableRemoveLiquidityCustom: false,
+                },
+            });
+
+        // Mirrors Sepolia WBTC -> AAVE topology:
+        // - p1 (direct): 30% max out = 17.4 AAVE
+        // - p2 (boosted): 30% max out = 5.7 AAVE  (p1 + p2 = 23.1 AAVE)
+        // - p3 (boosted): 30% max out = 2.7 AAVE  (p1 + p2 + p3 = 25.8 AAVE)
+        // - p4 (boosted): 30% max out = 1.8 AAVE  (p1 + p2 + p3 + p4 = 27.6 AAVE)
+        const p1 = makePool('0x0000000000000000000000000000000000003311', wbtc, '0.22', aave, '58', '0.001');
+        const p2 = makePool('0x0000000000000000000000000000000000003312', stataWbtc, '0.08', aave, '19', '0.002');
+        const p3 = makePool('0x0000000000000000000000000000000000003313', stataWbtc, '0.04', aave, '9', '0.003');
+        const p4 = makePool('0x0000000000000000000000000000000000003314', stataWbtc, '0.03', aave, '6', '0.005');
+
+        const deepBuffer = {
+            poolId: stataWbtc.address as `0x${string}`,
+            address: stataWbtc.address as `0x${string}`,
+            chainId: 11155111,
+            poolType: 'Buffer',
+            unwrapRate: parseEther('1'),
+            maxDeposit: 100_000_000n, // 1.0 WBTC
+            maxWithdraw: 100_000_000n,
+            minWrapAmount: 10_000n,
+            mainToken: { address: stataWbtc.address as `0x${string}`, decimals: 8, balance: 0n },
+            underlyingToken: { address: wbtc.address as `0x${string}`, decimals: 8, balance: 0n },
+        };
+
+        const prices = new Map([
+            [wbtc.address, 75_000],
+            [stataWbtc.address, 75_000],
+            [aave.address, 280],
+        ]);
+
+        // 25 AAVE (> 23.1 two-path max, <= 25.8 three-path max) uses 3 legs (does not unnecessarily add p4)
+        const threeLeg = await SOR.getPathsWithPools(
+            wbtc,
+            aave,
+            SwapKind.GivenOut,
+            parseEther('25'),
+            [p1, p2, p3, p4],
+            [deepBuffer],
+            3,
+            prices,
+        );
+        expect(threeLeg).not.toBeNull();
+        expect(threeLeg!).toHaveLength(3);
+        expect(getOutputAmount(threeLeg!).amount).toBe(parseEther('25'));
+
+        // 27 AAVE (> 25.8 three-path max, <= 27.6 four-path max) packs all 4 legs via fallback retry
+        const fourLeg = await SOR.getPathsWithPools(
+            wbtc,
+            aave,
+            SwapKind.GivenOut,
+            parseEther('27'),
+            [p1, p2, p3, p4],
+            [deepBuffer],
+            3,
+            prices,
+        );
+        expect(fourLeg).not.toBeNull();
+        expect(fourLeg!).toHaveLength(4);
+        expect(getOutputAmount(fourLeg!).amount).toBe(parseEther('27'));
+
+        // When shared stataWBTC Buffer maxDeposit is tightened to 0.015 WBTC (only enough for ~3.5 AAVE total across p2+p3+p4),
+        // combined capacity drops to ~17.4 + 3.5 = 20.9 AAVE < 25 AAVE, so SOR safely returns null instead of overflowing the shared buffer!
+        const tightBuffer = {
+            ...deepBuffer,
+            maxDeposit: 1_500_000n, // 0.015 WBTC
+        };
+        const blockedBySharedBuffer = await SOR.getPathsWithPools(
+            wbtc,
+            aave,
+            SwapKind.GivenOut,
+            parseEther('25'),
+            [p1, p2, p3, p4],
+            [tightBuffer],
+            3,
+            prices,
+        );
+        expect(blockedBySharedBuffer).toBeNull();
+    });
 });

@@ -13,21 +13,31 @@ export const syncBlockedBuffers = async (): Promise<void> => {
         const blockedBuffersForErc4626Addresses = (blockedBuffers[chainId] ?? []).map((address) =>
             address.toLowerCase(),
         );
-        await prisma.$transaction([
+        const operations = [
             prisma.prismaToken.updateMany({
                 where: {
                     chain: chain,
+                    isBufferAllowed: false,
+                    ...(blockedBuffersForErc4626Addresses.length > 0
+                        ? { address: { notIn: blockedBuffersForErc4626Addresses } }
+                        : {}),
                 },
                 data: { isBufferAllowed: true },
             }),
-            prisma.prismaToken.updateMany({
-                where: {
-                    chain: chain,
-                    address: { in: blockedBuffersForErc4626Addresses },
-                },
-                data: { isBufferAllowed: false },
-            }),
-        ]);
+            ...(blockedBuffersForErc4626Addresses.length > 0
+                ? [
+                      prisma.prismaToken.updateMany({
+                          where: {
+                              chain: chain,
+                              isBufferAllowed: true,
+                              address: { in: blockedBuffersForErc4626Addresses },
+                          },
+                          data: { isBufferAllowed: false },
+                      }),
+                  ]
+                : []),
+        ];
+        await prisma.$transaction(operations);
     }
 };
 
