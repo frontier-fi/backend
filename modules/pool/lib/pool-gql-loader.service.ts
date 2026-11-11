@@ -29,20 +29,7 @@ import { ContentController } from '../../content/content-controller';
 const isToken = (text: string) => text.match(/^0x[0-9a-fA-F]{40}$/);
 const isPoolId = (text: string) => isToken(text) || text.match(/^0x[0-9a-fA-F]{64}$/);
 
-const VALID_POOL_FILTER_CATEGORIES = new Set<string>([
-    'INCENTIVIZED',
-    'BLACK_LISTED',
-    'LRT',
-    'POINTS',
-    'POINTS_EIGENLAYER',
-    'POINTS_SWELL',
-    'POINTS_GYRO',
-    'POINTS_RENZO',
-    'POINTS_KELP',
-    'SUPERFEST',
-    'BOOSTED',
-    'BOOSTED_AAVE',
-]);
+const VALID_POOL_FILTER_CATEGORIES = new Set<string>(['INCENTIVIZED', 'BLACK_LISTED', 'BOOSTED', 'BOOSTED_AAVE']);
 
 const filterValidPoolFilterCategories = (categories: string[]): GqlPoolFilterCategory[] =>
     categories.filter((category): category is GqlPoolFilterCategory => VALID_POOL_FILTER_CATEGORIES.has(category));
