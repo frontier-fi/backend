@@ -18,6 +18,8 @@ export default <NetworkData>{
         address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         symbol: 'ETH',
         name: 'Ether',
+        logoURI:
+            'https://raw.githubusercontent.com/frontier-fi/tokenlists/main/src/assets/images/tokens/0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.png',
     },
     weth: {
         address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',

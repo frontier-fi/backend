@@ -173,6 +173,7 @@ export class TokenService {
                     name: config[chain].eth.name,
                     address: config[chain].eth.address,
                     symbol: config[chain].eth.symbol,
+                    logoURI: config[chain].eth.logoURI ?? weth.logoURI,
                     chain: config[chain].chain.prismaId,
                 });
             }

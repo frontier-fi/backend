@@ -20,6 +20,7 @@ export interface NetworkData {
         address: string;
         symbol: string;
         name: string;
+        logoURI?: string;
     };
     weth: {
         address: string;
