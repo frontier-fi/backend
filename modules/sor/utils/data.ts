@@ -47,7 +47,11 @@ export async function getBasePoolsFromDb(
     }
 
     // Filter by protocol version and hook preferences
-    const [blockedBuffers, safeProviders] = await Promise.all([
+    const [blockedTypes, blockedBuffers, safeProviders] = await Promise.all([
+        prisma.prismaTokenType.findMany({
+            where: { chain, type: 'BLOCKED_V3' },
+            select: { tokenAddress: true },
+        }),
         prisma.prismaToken.findMany({
             where: { chain, isBufferAllowed: false },
             select: { address: true },
@@ -57,16 +61,19 @@ export async function getBasePoolsFromDb(
             select: { rateProviderAddress: true },
         }),
     ]);
+    const blockedAddresses = new Set(blockedTypes.map((token) => token.tokenAddress.toLowerCase()));
     const blockedBufferAddresses = new Set(blockedBuffers.map((token) => token.address.toLowerCase()));
     const safeProviderAddresses = new Set(safeProviders.map((provider) => provider.rateProviderAddress.toLowerCase()));
     const pools = cached.pools
         .filter((pool) => pool.protocolVersion === protocolVersion)
+        .filter((pool) => !blockedAddresses.has(pool.address.toLowerCase()))
         .filter((pool) =>
             pool.tokens.every(
                 (token) =>
-                    !token.priceRateProvider ||
-                    token.priceRateProvider === ZERO_ADDRESS ||
-                    safeProviderAddresses.has(token.priceRateProvider.toLowerCase()),
+                    !blockedAddresses.has(token.address.toLowerCase()) &&
+                    (!token.priceRateProvider ||
+                        token.priceRateProvider === ZERO_ADDRESS ||
+                        safeProviderAddresses.has(token.priceRateProvider.toLowerCase())),
             ),
         )
         .filter((pool) => {
@@ -76,9 +83,12 @@ export async function getBasePoolsFromDb(
 
     const activeTokenAddresses = new Set(pools.flatMap((pool) => pool.tokens.map((t) => t.address.toLowerCase())));
 
-    const bufferPools = cached.bufferPools.filter((bufferPool) =>
-        activeTokenAddresses.has(bufferPool.address.toLowerCase()) &&
-        !blockedBufferAddresses.has(bufferPool.address.toLowerCase()),
+    const bufferPools = cached.bufferPools.filter(
+        (bufferPool) =>
+            activeTokenAddresses.has(bufferPool.address.toLowerCase()) &&
+            !blockedBufferAddresses.has(bufferPool.address.toLowerCase()) &&
+            !blockedAddresses.has(bufferPool.address.toLowerCase()) &&
+            !blockedAddresses.has(bufferPool.underlyingToken.address.toLowerCase()),
     );
 
     return { pools, bufferPools };

@@ -6,7 +6,7 @@ import { tokenService } from '../../token/token.service';
 afterEach(() => vi.restoreAllMocks());
 
 describe('routing safety', () => {
-    it('rechecks provider verdicts even when candidate pools are cached', async () => {
+    it('rechecks provider verdicts and blocklists even when candidate pools are cached', async () => {
         const wrapped = '0x0000000000000000000000000000000000000462';
         const underlying = '0x0000000000000000000000000000000000000a01';
         const provider = '0x0000000000000000000000000000000000000099';
@@ -34,7 +34,8 @@ describe('routing safety', () => {
             ],
         };
         const poolQuery = vi.spyOn(prisma.prismaPool, 'findMany').mockResolvedValue([pool] as any);
-        vi.spyOn(prisma.prismaToken, 'findMany').mockResolvedValue([]);
+        const blocks = vi.spyOn(prisma.prismaTokenType, 'findMany').mockResolvedValue([]);
+        const bufferBlocks = vi.spyOn(prisma.prismaToken, 'findMany').mockResolvedValue([]);
         const providers = vi
             .spyOn(prisma.prismaPriceRateProviderData, 'findMany')
             .mockResolvedValue([{ rateProviderAddress: provider }] as any);
@@ -53,6 +54,18 @@ describe('routing safety', () => {
             expect.objectContaining({ where: { chain: 'SEPOLIA', reviewed: true, summary: 'safe' } }),
         );
         providers.mockResolvedValue([]);
+        expect((await load()).pools).toHaveLength(0);
+        providers.mockResolvedValue([{ rateProviderAddress: provider }] as any);
+        bufferBlocks.mockResolvedValue([{ address: wrapped }] as any);
+        const disabledBuffer = await load();
+        expect(disabledBuffer.pools).toHaveLength(1);
+        expect(disabledBuffer.bufferPools).toHaveLength(0);
+        bufferBlocks.mockResolvedValue([]);
+        blocks.mockResolvedValue([{ tokenAddress: underlying }] as any);
+        expect((await load()).bufferPools).toHaveLength(0);
+        blocks.mockResolvedValue([{ tokenAddress: wrapped }] as any);
+        expect((await load()).pools).toHaveLength(0);
+        blocks.mockResolvedValue([{ tokenAddress: pool.address }] as any);
         expect((await load()).pools).toHaveLength(0);
         expect(poolQuery).toHaveBeenCalledTimes(1);
     });
