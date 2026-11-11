@@ -18,4 +18,5 @@ export interface BasePool {
      */
     getPoolTokens(tokenIn: Token, tokenOut: Token): { tIn: BasePoolToken; tOut: BasePoolToken };
     copy(): BasePool;
+    copyForPriceImpact?(): BasePool;
 }

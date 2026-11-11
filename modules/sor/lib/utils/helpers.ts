@@ -75,6 +75,7 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
 
         const minRawFloor = 1_000n;
         const minCalculatedFloor = 1_000n;
+        const probePools = path.pools.map((pool) => pool.copyForPriceImpact?.() ?? pool);
         let pathBenchmark: bigint | null = null;
 
         for (const divisor of [1000n, 100n, 10n]) {
@@ -85,7 +86,7 @@ export function calculatePriceImpact(paths: PathWithAmount[], swapKind: SwapKind
             try {
                 const probePath = new PathWithAmount(
                     path.tokens,
-                    path.pools,
+                    probePools,
                     path.isBuffer,
                     TokenAmount.fromRawAmount(path.swapAmount.token, probeRaw),
                     false,

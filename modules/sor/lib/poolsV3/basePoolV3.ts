@@ -288,4 +288,10 @@ export class BasePoolV3 {
     public copy(): BasePoolV3 {
         throw new Error('Must be implemented by the subclass');
     }
+
+    public copyForPriceImpact(): BasePoolV3 {
+        const pool = this.copy();
+        pool.vault = new Vault({ ...config[this.chain]?.vaultParams, minTradeAmount: 0n });
+        return pool;
+    }
 }
