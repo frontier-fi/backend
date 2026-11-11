@@ -50,6 +50,7 @@ interface TokenPair {
     bToAAmountOut: bigint;
     effectivePrice: bigint;
     effectivePriceAmountIn: bigint;
+    effectivePriceProbeUsd: number;
     protocolVersion: number;
 }
 
@@ -92,12 +93,19 @@ export async function fetchTokenPairData(
             // prepare swap amounts in
             // tokenA->tokenB with 1% of tokenA balance
             tokenPair.aToBAmountIn = parseUnits(tokenPair.tokenA.balance, tokenPair.tokenA.decimals) / 100n;
-            // tokenA->tokenB with 100USD worth of tokenA
-            const oneHundredUsdOfTokenA = (
+            // tokenA->tokenB with up to 100 USD worth of tokenA, clamped to 10% of tokenA's balance so skewed
+            // pools (e.g. >$1k total TVL with <$100 on one side) do not revert the effective-price probe
+            const probeUsd = Math.min(100, tokenPair.tokenA.balanceUsd * 0.1);
+            tokenPair.effectivePriceProbeUsd = probeUsd;
+            const probeAmountOfTokenA = (
                 (parseFloat(tokenPair.tokenA.balance) / tokenPair.tokenA.balanceUsd) *
-                100
+                probeUsd
             ).toFixed(18);
-            tokenPair.effectivePriceAmountIn = parseUnits(oneHundredUsdOfTokenA, tokenPair.tokenA.decimals);
+            tokenPair.effectivePriceAmountIn = parseUnits(probeAmountOfTokenA, tokenPair.tokenA.decimals);
+            if (tokenPair.aToBAmountIn === 0n || tokenPair.effectivePriceAmountIn === 0n) {
+                tokenPair.valid = false;
+                return;
+            }
 
             addEffectivePriceCallsToMulticaller(tokenPair, routerAddress, multicallerRouter);
             addAToBPriceCallsToMulticaller(tokenPair, routerAddress, multicallerRouter);
@@ -185,6 +193,7 @@ function generateTokenPairs(filteredPools: PoolInput[]): TokenPair[] {
             bToAAmountOut: 0n,
             effectivePrice: 0n,
             effectivePriceAmountIn: 0n,
+            effectivePriceProbeUsd: 100,
             protocolVersion: pool.protocolVersion,
         };
         // create pairs between all pool tokens
@@ -374,7 +383,13 @@ function calculateNormalizedLiquidity(tokenPair: TokenPair) {
     }
     if (priceRatio !== 0n) {
         const priceImpact = WAD - priceRatio;
-        tokenPair.normalizedLiqudity = MathSol.divDownFixed(WAD, priceImpact);
+        const rawNormalizedLiquidity = MathSol.divDownFixed(WAD, priceImpact);
+        if (tokenPair.effectivePriceProbeUsd < 100) {
+            const probeScaleWad = parseEther((tokenPair.effectivePriceProbeUsd / 100).toFixed(18));
+            tokenPair.normalizedLiqudity = MathSol.mulDownFixed(rawNormalizedLiquidity, probeScaleWad);
+        } else {
+            tokenPair.normalizedLiqudity = rawNormalizedLiquidity;
+        }
     } else {
         // can happen if the pair could not be priced on-chain and everything is 0 (aToBAmount, effectivePrice, etc) and hence the spotPrice is 0.
         // if that happens, normalizedLiquidity should be 0 as well.

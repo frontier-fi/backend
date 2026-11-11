@@ -1,6 +1,6 @@
 import { Address, Hex, parseEther } from 'viem';
 import { PoolType, Token, TokenAmount, WAD } from '@balancer/sdk';
-import { WeightedState, HookState } from '@balancer-labs/balancer-maths';
+import { WeightedState, HookState } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';

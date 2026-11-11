@@ -1,10 +1,11 @@
 import { Hex } from 'viem';
 
 import { MAX_UINT256, PoolType, SwapKind, Token, TokenAmount } from '@balancer/sdk';
-import { AddKind, RemoveKind, Vault, HookState, PoolState } from '@balancer-labs/balancer-maths';
+import { AddKind, RemoveKind, Vault, HookState, PoolState } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { TokenPairData } from '../../../sources/contracts/v3/fetch-tokenpair-data';
+import config from '../../../../config';
 
 import { LiquidityManagement } from '../../types';
 import { BasePoolToken } from '../utils';
@@ -52,7 +53,7 @@ export class BasePoolV3 {
         this.hookState = hookState;
         this.liquidityManagement = liquidityManagement;
 
-        this.vault = new Vault();
+        this.vault = new Vault(config[chain]?.vaultParams);
     }
 
     public getLimitAmountSwap(tokenIn: Token, tokenOut: Token, swapKind: SwapKind): bigint {
@@ -286,5 +287,11 @@ export class BasePoolV3 {
 
     public copy(): BasePoolV3 {
         throw new Error('Must be implemented by the subclass');
+    }
+
+    public copyForPriceImpact(): BasePoolV3 {
+        const pool = this.copy();
+        pool.vault = new Vault({ ...config[this.chain]?.vaultParams, minTradeAmount: 0n });
+        return pool;
     }
 }

@@ -9,12 +9,6 @@ import { formatEther } from 'viem';
 import { prismaBulkExecuteOperations } from '../../../prisma/prisma-util';
 import { syncErc4626Tokens } from './sync-erc4626-tokens';
 
-const nonErc4626ReviewedCache = new Set<string>();
-
-export const clearNonErc4626ReviewedCache = () => {
-    nonErc4626ReviewedCache.clear();
-};
-
 /**
  * Syncs onchain data for ERC4626 tokens and stores them in the database
  */
@@ -26,8 +20,7 @@ export const syncErc4626OnchainData = async (vaultExplorerAddress: string, viemC
 
     const candidateAddresses = reviewedErc4626
         .filter((r) => !r.assetAddress || r.erc4626Address.toLowerCase() !== r.assetAddress.toLowerCase())
-        .map((r) => r.erc4626Address.toLowerCase())
-        .filter((address) => !nonErc4626ReviewedCache.has(`${chain}-${address}`));
+        .map((r) => r.erc4626Address.toLowerCase());
 
     if (candidateAddresses.length > 0) {
         const untypedReviewedTokens = await prisma.prismaToken.findMany({
@@ -39,15 +32,7 @@ export const syncErc4626OnchainData = async (vaultExplorerAddress: string, viemC
         });
 
         if (untypedReviewedTokens.length > 0) {
-            const enriched = await syncErc4626Tokens(viemClient, chain, untypedReviewedTokens);
-            const detectedErc4626 = new Set(
-                (enriched || []).filter((t) => Boolean(t.underlyingTokenAddress)).map((t) => t.address.toLowerCase()),
-            );
-            for (const token of untypedReviewedTokens) {
-                if (!detectedErc4626.has(token.address.toLowerCase())) {
-                    nonErc4626ReviewedCache.add(`${chain}-${token.address.toLowerCase()}`);
-                }
-            }
+            await syncErc4626Tokens(viemClient, chain, untypedReviewedTokens);
         }
     }
 

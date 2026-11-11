@@ -8,9 +8,9 @@
         "@aave-dao/aave-address-book": "^4.74.6",
         "@apollo/server": "^5.5.1",
         "@as-integrations/express5": "^1.1.2",
-        "@balancer-labs/balancer-maths": "https://github.com/frontier-fi/maths/releases/download/v0.0.42/frontier-maths.tgz",
         "@balancer/sdk": "^5.2.9",
         "@escape.tech/graphql-armor": "^3.2.0",
+        "@frontier-fi/maths": "^0.1.1",
         "@prisma/client": "^6.19.3",
         "@types/graphql-fields": "^1.3.9",
         "abitype": "^1.3.0",
@@ -206,7 +206,7 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@balancer-labs/balancer-maths": ["@balancer-labs/balancer-maths@https://github.com/frontier-fi/maths/releases/download/v0.0.42/frontier-maths.tgz", {}, "sha512-EHw+fJSrX8i0mllsgi8dOpBPzdBd8Pa8XX7VVpErrxDC1/YyksNCu1Z7J05PYY9gY/7UGImUfCHdp2bQ1oh5ZQ=="],
+    "@balancer-labs/balancer-maths": ["@balancer-labs/balancer-maths@0.0.40", "", {}, "sha512-oSd9ozJctBv6D/CjPZwCsGRerOHwIRjOciOnwxxNQUaSeFlbm8YSEAdDtQ8eggTmJ75pxEBHrl+rC4IpbgAWBg=="],
 
     "@balancer/sdk": ["@balancer/sdk@5.2.9", "", { "dependencies": { "@balancer-labs/balancer-maths": "0.0.40", "viem": "2.49.3" } }, "sha512-Z5nbFeMBJe1s1DhtJjVmHGrf2ThCMWHsb+CrfXWvtgQbMzquQtaL0g3+57XChSQLFv8mO+u292pKS7YUyzHAJg=="],
 
@@ -287,6 +287,8 @@
     "@escape.tech/graphql-armor-types": ["@escape.tech/graphql-armor-types@0.7.0", "", { "dependencies": { "graphql": "^16.0.0" } }, "sha512-RHxyyp6PDgS6NAPnnmB6JdmUJ6oqhpSHFbsglGWeCcnNzceA5AkQFpir7VIDbVyS8LNC1xhipOtk7f9ycrIemQ=="],
 
     "@faker-js/faker": ["@faker-js/faker@8.4.1", "", {}, "sha512-XQ3cU+Q8Uqmrbf2e0cIC/QN43sTBSC8KF12u29Mb47tWrt2hAgBXSgpZMj4Ao8Uk0iJcU99QsOCaIL8934obCg=="],
+
+    "@frontier-fi/maths": ["@frontier-fi/maths@0.1.1", "", {}, "sha512-9VwvJTCd+QuGiAq2LlYpyhZPTt/HLJZKil+QlOhEPK86NckhBr7SOKiwoZARyZhjOf06dQoxgzXGHCyyJ9wWBQ=="],
 
     "@graphql-codegen/add": ["@graphql-codegen/add@3.2.3", "", { "dependencies": { "@graphql-codegen/plugin-helpers": "^3.1.1", "tslib": "~2.4.0" }, "peerDependencies": { "graphql": "^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0" } }, "sha512-sQOnWpMko4JLeykwyjFTxnhqjd/3NOG2OyMuvK76Wnnwh8DRrNf2VEs2kmSvLl7MndMlOj7Kh5U154dVcvhmKQ=="],
 
@@ -1423,8 +1425,6 @@
     "@ardatan/relay-compiler/yargs": ["yargs@15.4.1", "", { "dependencies": { "cliui": "^6.0.0", "decamelize": "^1.2.0", "find-up": "^4.1.0", "get-caller-file": "^2.0.1", "require-directory": "^2.1.1", "require-main-filename": "^2.0.0", "set-blocking": "^2.0.0", "string-width": "^4.2.0", "which-module": "^2.0.0", "y18n": "^4.0.0", "yargs-parser": "^18.1.2" } }, "sha512-aePbxDmcYW++PaqBsJ+HYUFwCdv4LVvdnhBy78E57PIor8/OVvhMrADFFEDh8DHDFRv/O9i3lPhsENjO7QX0+A=="],
 
     "@babel/helper-compilation-targets/lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
-
-    "@balancer/sdk/@balancer-labs/balancer-maths": ["@balancer-labs/balancer-maths@0.0.40", "", {}, "sha512-oSd9ozJctBv6D/CjPZwCsGRerOHwIRjOciOnwxxNQUaSeFlbm8YSEAdDtQ8eggTmJ75pxEBHrl+rC4IpbgAWBg=="],
 
     "@balancer/sdk/viem": ["viem@2.49.3", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.20", "ws": "8.18.3" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-FlIXd2kRygDxJtvjtPp74vjmyOKMjKlXXgTNdMxr8h3kcDrQ4bYb9q1MpSWyCVa3L2NJc9gSv+u8HcHYIZQUkw=="],
 

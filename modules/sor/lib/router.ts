@@ -26,7 +26,7 @@ export class Router {
         rebuildGraph = true,
     ): PathLocal[] {
         if (rebuildGraph) {
-            const minSwapAmountRatio = graphTraversalConfig?.minSwapAmountRatio ?? 0.5;
+            const minSwapAmountRatio = graphTraversalConfig?.minSwapAmountRatio ?? 0.1;
             // Compute USD threshold if prices provided
             const priceToken = swapKind === SwapKind.GivenIn ? tokenIn : tokenOut;
             const price = tokenPrices.get(priceToken.address.toLowerCase());
@@ -240,9 +240,11 @@ export class Router {
 
         // Buffer-cap split clamping: when a path with BufferPool steps exceeds buffer capacity at a coarse grid checkpoint,
         // clamp its allocation to its exact buffer limit and route the remainder through the best compatible partner path.
+        // Include remaining candidate `paths` after grid survivors so small remainders (< 25%) can still pair with
+        // shallower partner paths that could not individually handle the 25% checkpoint.
         const seenPartnerKeys = new Set<string>();
-        const partnerCandidates: PathWithAmount[] = [];
-        for (const candidate of [...quotePaths100, ...quotePaths75, ...quotePaths50, ...quotePaths25]) {
+        const partnerCandidates: PathLocal[] = [];
+        for (const candidate of [...quotePaths100, ...quotePaths75, ...quotePaths50, ...quotePaths25, ...paths]) {
             const key = candidate.pools.map((p) => p.id).join('>');
             if (!seenPartnerKeys.has(key)) {
                 seenPartnerKeys.add(key);
@@ -262,11 +264,25 @@ export class Router {
                     }
                     try {
                         splitPaths.push(this.splitPathsAtAmount(swapAmount, cappedPath, partner, clampedAmount));
-                        recordSplitPair(cappedPath, partner, clampedRaw);
+                        recordSplitPair(cappedPath, partner, clampedAmount.amount);
                         break;
                     } catch {
                         continue;
                     }
+                }
+            }
+        }
+
+        // If no coarse (100, 75/25, or 50/50) split succeeded yet, pair >=50%-capable anchors with compatible
+        // shallower candidates so refinementRatios can evaluate asymmetric splits (e.g. 60/40, 70/30, 80/20, 90/10).
+        if (splitPaths.length === 0 && (quotePaths75.length > 0 || quotePaths50.length > 0)) {
+            const anchors = quotePaths75.length > 0 ? quotePaths75 : quotePaths50;
+            for (const anchor of anchors.slice(0, 2)) {
+                for (const candidate of [...quotePaths25, ...paths]) {
+                    if (!this.canSplitPaths(candidate, anchor)) {
+                        continue;
+                    }
+                    recordSplitPair(candidate, anchor);
                 }
             }
         }
@@ -292,6 +308,10 @@ export class Router {
         }
 
         if (splitPaths.length === 0) {
+            const multiPathSplit = this.tryMultiPathCapacitySplit(paths, swapKind, swapAmount, 4);
+            if (multiPathSplit) {
+                return multiPathSplit;
+            }
             // console.log('No valid paths found');
             return null;
         }
@@ -482,5 +502,339 @@ export class Router {
         (pathDown as { pools: BasePool[] }).pools = pathB.pools;
 
         return [pathUp, pathDown];
+    }
+
+    /**
+     * Capacity-rescue fallback invoked strictly when all 1-path and 2-path splits fail (`splitPaths.length === 0`).
+     * Greedily packs up to `maxLegs` mutually pool-disjoint paths (accounting for shared `BufferPool` consumption
+     * statefully) and evaluates both proportional-to-capacity and best-first allocations summing to exact `swapAmount`.
+     */
+    private tryMultiPathCapacitySplit(
+        paths: PathLocal[],
+        swapKind: SwapKind,
+        swapAmount: TokenAmount,
+        maxLegs = 4,
+    ): PathWithAmount[] | null {
+        if (paths.length < 2 || swapAmount.amount <= 0n || maxLegs < 2) {
+            return null;
+        }
+
+        const swapToken = swapAmount.token;
+        const ranked: Array<{ path: PathLocal; initialCap: bigint; swapRef: bigint; calcRef: bigint }> = [];
+
+        for (const path of paths) {
+            const identityPools = new Map(path.pools.map((pool) => [pool.id, pool]));
+            const initialCap = this.getPathMaxSafeAmount(path, identityPools, swapKind, swapAmount.amount);
+            if (initialCap === null || initialCap <= 0n) {
+                continue;
+            }
+
+            let quote: PathWithAmount | null = null;
+            const halfCap = initialCap / 2n;
+            for (const probeAmt of halfCap > 0n ? [halfCap, initialCap] : [initialCap]) {
+                try {
+                    const candidateQuote = new PathWithAmount(
+                        path.tokens,
+                        path.pools,
+                        path.isBuffer,
+                        TokenAmount.fromRawAmount(swapToken, probeAmt),
+                    );
+                    if (candidateQuote.swapStepsExceedingBufferCapacity === 0) {
+                        quote = candidateQuote;
+                        break;
+                    }
+                } catch {
+                    continue;
+                }
+            }
+            if (!quote) {
+                continue;
+            }
+
+            const calcRef = swapKind === SwapKind.GivenIn ? quote.outputAmount.amount : quote.inputAmount.amount;
+            if (calcRef <= 0n) {
+                continue;
+            }
+            ranked.push({
+                path,
+                initialCap,
+                swapRef: quote.swapAmount.amount,
+                calcRef,
+            });
+        }
+
+        if (ranked.length < 2) {
+            return null;
+        }
+
+        ranked.sort((a, b) => {
+            if (swapKind === SwapKind.GivenIn) {
+                // Maximize output / input => compare b.calcRef * a.swapRef vs a.calcRef * b.swapRef
+                const lhs = b.calcRef * a.swapRef;
+                const rhs = a.calcRef * b.swapRef;
+                return lhs > rhs ? 1 : lhs < rhs ? -1 : 0;
+            }
+            // Minimize input / output => compare a.calcRef * b.swapRef vs b.calcRef * a.swapRef
+            const lhs = a.calcRef * b.swapRef;
+            const rhs = b.calcRef * a.swapRef;
+            return lhs > rhs ? 1 : lhs < rhs ? -1 : 0;
+        });
+
+        const validSplits: PathWithAmount[][] = [];
+        const maxAnchorStarts = Math.min(4, ranked.length);
+
+        for (let startIdx = 0; startIdx < maxAnchorStarts; startIdx++) {
+            const order = [startIdx];
+            for (let idx = 0; idx < ranked.length; idx++) {
+                if (idx !== startIdx) {
+                    order.push(idx);
+                }
+            }
+
+            const simPools = new Map<string, BasePool>();
+            const selected: Array<{ path: PathLocal; cap: bigint }> = [];
+            let runningCap = 0n;
+
+            for (const idx of order) {
+                if (selected.length >= maxLegs) {
+                    break;
+                }
+                const cand = ranked[idx];
+                if (!selected.every((s) => this.canSplitPaths(s.path, cand.path))) {
+                    continue;
+                }
+
+                for (const pool of cand.path.pools) {
+                    if (!simPools.has(pool.id)) {
+                        simPools.set(pool.id, pool.copy());
+                    }
+                }
+
+                const cap = this.getPathMaxSafeAmount(cand.path, simPools, swapKind, swapAmount.amount);
+                if (cap === null || cap <= 0n) {
+                    continue;
+                }
+
+                selected.push({ path: cand.path, cap });
+                runningCap += cap;
+
+                if (runningCap >= swapAmount.amount) {
+                    break;
+                }
+
+                // Deduct shared BufferPool capacity on simPools before sizing subsequent legs
+                try {
+                    const mappedSimPools = cand.path.pools.map((pool) => simPools.get(pool.id)!) as BasePool[];
+                    new PathWithAmount(
+                        cand.path.tokens,
+                        mappedSimPools,
+                        cand.path.isBuffer,
+                        TokenAmount.fromRawAmount(swapToken, cap),
+                        true,
+                    );
+                } catch {
+                    // Safe capacity already validated; ignore if non-critical
+                }
+            }
+
+            if (selected.length < 2 || runningCap < swapAmount.amount) {
+                continue;
+            }
+
+            const selectedPaths = selected.map((s) => s.path);
+
+            // Allocation Strategy A: Proportional to each leg's capacity (stays away from 30% max-ratio slippage wall)
+            const allocProp = selected.map((s) => (swapAmount.amount * s.cap) / runningCap);
+            let remProp = swapAmount.amount - allocProp.reduce((acc, v) => acc + v, 0n);
+            for (let i = 0; i < selected.length && remProp > 0n; i++) {
+                const headroom = selected[i].cap - allocProp[i];
+                if (headroom > 0n) {
+                    const add = remProp < headroom ? remProp : headroom;
+                    allocProp[i] += add;
+                    remProp -= add;
+                }
+            }
+
+            // Allocation Strategy B: Best-first greedy fill up to capacity (optimal when top legs are flat Stable/Buffer paths)
+            const allocGreedy = new Array<bigint>(selected.length).fill(0n);
+            let remGreedy = swapAmount.amount;
+            for (let i = 0; i < selected.length - 1; i++) {
+                const maxForLeg = remGreedy - BigInt(selected.length - 1 - i);
+                if (maxForLeg <= 0n) {
+                    break;
+                }
+                const take = selected[i].cap < maxForLeg ? selected[i].cap : maxForLeg;
+                allocGreedy[i] = take;
+                remGreedy -= take;
+            }
+            allocGreedy[selected.length - 1] = remGreedy;
+
+            for (const alloc of [allocProp, allocGreedy]) {
+                if (alloc.reduce((acc, v) => acc + v, 0n) !== swapAmount.amount) {
+                    continue;
+                }
+                try {
+                    validSplits.push(this.executeMultiPathSplit(selectedPaths, alloc, swapToken));
+                } catch {
+                    continue;
+                }
+            }
+        }
+
+        if (validSplits.length === 0) {
+            return null;
+        }
+
+        return this.selectBestSplitCandidate(validSplits, swapKind);
+    }
+
+    private getPathMaxSafeAmount(
+        path: PathLocal,
+        poolsById: Map<string, BasePool>,
+        swapKind: SwapKind,
+        maxTarget: bigint,
+    ): bigint | null {
+        const rawLimit = this.getPathLimitAmountWithPools(path, poolsById, swapKind);
+        if (rawLimit <= 0n) {
+            return null;
+        }
+
+        const cappedLimit = rawLimit < maxTarget ? rawLimit : maxTarget;
+        const swapToken = swapKind === SwapKind.GivenIn ? path.tokens[0] : path.tokens[path.tokens.length - 1];
+        const mappedPools = path.pools.map((pool) => poolsById.get(pool.id) ?? pool);
+
+        for (const bps of [10_000n, 9_999n, 9_990n, 9_950n, 9_900n]) {
+            const candidateAmt = (cappedLimit * bps) / 10_000n;
+            if (candidateAmt <= 0n) {
+                continue;
+            }
+            try {
+                const probe = new PathWithAmount(
+                    path.tokens,
+                    mappedPools,
+                    path.isBuffer,
+                    TokenAmount.fromRawAmount(swapToken, candidateAmt),
+                    false,
+                );
+                if (probe.swapStepsExceedingBufferCapacity > 0) {
+                    continue;
+                }
+                const calculated = swapKind === SwapKind.GivenIn ? probe.outputAmount : probe.inputAmount;
+                if (calculated.amount > 0n) {
+                    return candidateAmt;
+                }
+            } catch {
+                continue;
+            }
+        }
+
+        return null;
+    }
+
+    private getPathLimitAmountWithPools(path: PathLocal, poolsById: Map<string, BasePool>, swapKind: SwapKind): bigint {
+        const pools = path.pools.map((pool) => poolsById.get(pool.id) ?? pool);
+        const lastIdx = pools.length - 1;
+
+        if (swapKind === SwapKind.GivenIn) {
+            let limit = pools[lastIdx].getLimitAmountSwap(
+                path.tokens[lastIdx],
+                path.tokens[lastIdx + 1],
+                SwapKind.GivenIn,
+            );
+            for (let i = lastIdx - 1; i >= 0; i--) {
+                if (limit <= 0n) {
+                    return 0n;
+                }
+                const poolLimitExactIn = pools[i].getLimitAmountSwap(
+                    path.tokens[i],
+                    path.tokens[i + 1],
+                    SwapKind.GivenIn,
+                );
+                const poolLimitExactOut = pools[i].getLimitAmountSwap(
+                    path.tokens[i],
+                    path.tokens[i + 1],
+                    SwapKind.GivenOut,
+                );
+                if (poolLimitExactOut <= limit) {
+                    limit = poolLimitExactIn;
+                } else {
+                    try {
+                        const pulled = pools[i].swapGivenOut(
+                            path.tokens[i],
+                            path.tokens[i + 1],
+                            TokenAmount.fromRawAmount(path.tokens[i + 1], limit),
+                        ).amount;
+                        limit = pulled > poolLimitExactIn ? poolLimitExactIn : pulled;
+                    } catch {
+                        limit = poolLimitExactOut > 0n ? (poolLimitExactIn * limit) / poolLimitExactOut : 0n;
+                    }
+                }
+            }
+            return limit;
+        }
+
+        let limit = pools[0].getLimitAmountSwap(path.tokens[0], path.tokens[1], SwapKind.GivenOut);
+        for (let i = 1; i <= lastIdx; i++) {
+            if (limit <= 0n) {
+                return 0n;
+            }
+            const poolLimitExactIn = pools[i].getLimitAmountSwap(path.tokens[i], path.tokens[i + 1], SwapKind.GivenIn);
+            const poolLimitExactOut = pools[i].getLimitAmountSwap(
+                path.tokens[i],
+                path.tokens[i + 1],
+                SwapKind.GivenOut,
+            );
+            if (poolLimitExactIn <= limit) {
+                limit = poolLimitExactOut;
+            } else {
+                try {
+                    const pushed = pools[i].swapGivenIn(
+                        path.tokens[i],
+                        path.tokens[i + 1],
+                        TokenAmount.fromRawAmount(path.tokens[i], limit),
+                    ).amount;
+                    limit = pushed > poolLimitExactOut ? poolLimitExactOut : pushed;
+                } catch {
+                    limit = poolLimitExactIn > 0n ? (poolLimitExactOut * limit) / poolLimitExactIn : 0n;
+                }
+            }
+        }
+        return limit;
+    }
+
+    private executeMultiPathSplit(paths: PathLocal[], amounts: bigint[], swapToken: Token): PathWithAmount[] {
+        if (paths.length !== amounts.length || paths.length === 0) {
+            throw new Error('Invalid multi-path split inputs');
+        }
+        if (amounts.some((amt) => amt <= 0n)) {
+            throw new Error('Split path amount must be positive');
+        }
+
+        const uniquePools = [...new Map(paths.flatMap((p) => p.pools).map((pool) => [pool.id, pool])).values()];
+        const poolsCopyById = new Map(uniquePools.map((pool) => [pool.id, pool.copy()]));
+
+        const result: PathWithAmount[] = [];
+        for (let i = 0; i < paths.length; i++) {
+            const path = paths[i];
+            const legPools = path.pools.map((pool) => poolsCopyById.get(pool.id)!) as BasePool[];
+            const quotedLeg = new PathWithAmount(
+                path.tokens,
+                legPools,
+                path.isBuffer,
+                TokenAmount.fromRawAmount(swapToken, amounts[i]),
+                true,
+            );
+            if (quotedLeg.swapStepsExceedingBufferCapacity > 0) {
+                throw new Error('Split path exceeds buffer capacity');
+            }
+            const calculated = quotedLeg.swapKind === SwapKind.GivenIn ? quotedLeg.outputAmount : quotedLeg.inputAmount;
+            if (calculated.amount <= 0n) {
+                throw new Error('Split path returned zero amount');
+            }
+            (quotedLeg as { pools: BasePool[] }).pools = path.pools;
+            result.push(quotedLeg);
+        }
+
+        return result;
     }
 }

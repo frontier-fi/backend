@@ -83,6 +83,9 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
             : [];
     const existingTokenKeys = new Set(existingTokens.map((token) => `${token.address}-${token.chain}`));
 
+    // Sort deterministically by (chain, address) so concurrent transactions acquire row locks in the same order
+    upsertTokens.sort((a, b) => a.chain.localeCompare(b.chain) || a.address.localeCompare(b.address));
+
     const upserts = upsertTokens.map((token) =>
         prisma.prismaToken.upsert({
             where: {

@@ -1,6 +1,75 @@
-import { describe, expect, it, vi } from 'vitest';
-import { getBufferPoolsFromDBPools, SORDbPool } from './data';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getBasePoolsFromDb, getBufferPoolsFromDBPools, SORDbPool } from './data';
+import { prisma } from '../../../prisma/prisma-client';
 import { tokenService } from '../../token/token.service';
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('routing safety', () => {
+    it('rechecks provider verdicts and blocklists even when candidate pools are cached', async () => {
+        const wrapped = '0x0000000000000000000000000000000000000462';
+        const underlying = '0x0000000000000000000000000000000000000a01';
+        const provider = '0x0000000000000000000000000000000000000099';
+        const pool = {
+            id: 'safety-pool',
+            address: 'safety-pool',
+            protocolVersion: 3,
+            hook: null,
+            tokens: [
+                {
+                    address: wrapped,
+                    priceRateProvider: provider,
+                    token: {
+                        address: wrapped,
+                        decimals: 6,
+                        underlyingTokenAddress: underlying,
+                        isBufferAllowed: true,
+                        bufferBalanceWrapped: '1000',
+                        bufferBalanceUnderlying: '1000',
+                        unwrapRate: '1',
+                        maxDeposit: '1000',
+                        maxWithdraw: '1000',
+                    },
+                },
+            ],
+        };
+        const poolQuery = vi.spyOn(prisma.prismaPool, 'findMany').mockResolvedValue([pool] as any);
+        const blocks = vi.spyOn(prisma.prismaTokenType, 'findMany').mockResolvedValue([]);
+        const bufferBlocks = vi.spyOn(prisma.prismaToken, 'findMany').mockResolvedValue([]);
+        const providers = vi
+            .spyOn(prisma.prismaPriceRateProviderData, 'findMany')
+            .mockResolvedValue([{ rateProviderAddress: provider }] as any);
+        vi.spyOn(tokenService, 'getTokens').mockResolvedValue([{ address: underlying, decimals: 6 }] as any);
+        vi.spyOn(tokenService, 'getErc4626Data').mockResolvedValue({
+            [wrapped]: {
+                chain: 'SEPOLIA',
+                erc4626Address: wrapped,
+                assetAddress: underlying,
+                canUseBufferForSwaps: true,
+            },
+        } as any);
+        const load = () => getBasePoolsFromDb('SEPOLIA', 3, true, ['safety-pool']);
+        expect((await load()).bufferPools).toHaveLength(1);
+        expect(providers).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { chain: 'SEPOLIA', reviewed: true, summary: 'safe' } }),
+        );
+        providers.mockResolvedValue([]);
+        expect((await load()).pools).toHaveLength(0);
+        providers.mockResolvedValue([{ rateProviderAddress: provider }] as any);
+        bufferBlocks.mockResolvedValue([{ address: wrapped }] as any);
+        const disabledBuffer = await load();
+        expect(disabledBuffer.pools).toHaveLength(1);
+        expect(disabledBuffer.bufferPools).toHaveLength(0);
+        bufferBlocks.mockResolvedValue([]);
+        blocks.mockResolvedValue([{ tokenAddress: underlying }] as any);
+        expect((await load()).bufferPools).toHaveLength(0);
+        blocks.mockResolvedValue([{ tokenAddress: wrapped }] as any);
+        expect((await load()).pools).toHaveLength(0);
+        blocks.mockResolvedValue([{ tokenAddress: pool.address }] as any);
+        expect((await load()).pools).toHaveLength(0);
+        expect(poolQuery).toHaveBeenCalledTimes(1);
+    });
+});
 
 describe('getBufferPoolsFromDBPools', () => {
     it('deduplicates buffer pools when multiple v3 pools share the same ERC4626 token', async () => {
@@ -63,6 +132,11 @@ describe('getBufferPoolsFromDBPools', () => {
         expect(bufferPools).toHaveLength(1);
         expect(bufferPools[0].address).toBe(wrappedAddress);
         expect(bufferPools[0].underlyingToken.address).toBe(underlyingAddress);
+
+        pools.forEach((pool) => {
+            pool.tokens[0].token.isBufferAllowed = false;
+        });
+        expect(await getBufferPoolsFromDBPools(pools, 'SEPOLIA')).toEqual([]);
 
         vi.restoreAllMocks();
     });

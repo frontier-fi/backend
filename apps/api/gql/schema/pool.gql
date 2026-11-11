@@ -817,14 +817,8 @@ enum GqlPoolOrderDirection {
 enum GqlPoolFilterCategory {
     INCENTIVIZED
     BLACK_LISTED
-    LRT
-    POINTS
-    POINTS_EIGENLAYER
-    POINTS_SWELL
-    POINTS_GYRO
-    POINTS_RENZO
-    POINTS_KELP
-    SUPERFEST
+    BOOSTED
+    BOOSTED_AAVE
 }
 
 input GqlPoolFilter {

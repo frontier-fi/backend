@@ -3,8 +3,10 @@ import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
 import { parseEther } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { PathWithAmount } from '../lib/path';
+import { BufferPool } from '../lib/poolsV3/buffer/bufferPool';
 import { WeightedPoolV3 } from '../lib/poolsV3/weighted/weightedPool';
 import { Router } from '../lib/router';
+import { BasePoolToken } from '../lib/utils/basePoolToken';
 import { mapRoutes, mapToSorSwapPaths } from './mapping';
 import {
     poolTokenFactory,
@@ -259,5 +261,80 @@ describe('SOR mapping utils', () => {
         const resDust = await mapToSorSwapPaths([dustPath], 'EXACT_IN', 'SEPOLIA', 3);
         expect(resDust.priceImpact.priceImpact).toBeUndefined();
         expect(resDust.priceImpact.error).toBeDefined();
+
+        // 6. 2-decimal ERC4626 buffer routes (e.g. 200 EURS = 20,000 raw where 1/10 probe = 2,000 raw < minWrapAmount 10,000)
+        //    compute clean priceImpact via skipMinWrapCheck, and pure-buffer wraps report 0.0000 impact
+        const eurs = new Token(11155111, '0x00000000000000000000000000000000000000ee', 2, 'EURS');
+        const stataEurs = new Token(11155111, '0x00000000000000000000000000000000000000ef', 2, 'stataEURS');
+        const eursBuffer = new BufferPool(
+            stataEurs.address as `0x${string}`,
+            stataEurs.address as `0x${string}`,
+            11155111,
+            1_250_000_000_000_000_000n, // 1.25 EURS per stataEURS
+            new BasePoolToken(stataEurs, 1_000_000n, 0),
+            new BasePoolToken(eurs, 1_000_000n, 1),
+            10_000_000n,
+            10_000_000n,
+            10_000n,
+        );
+
+        const pureWrapPath = new PathWithAmount(
+            [eurs, stataEurs],
+            [eursBuffer],
+            [true],
+            TokenAmount.fromRawAmount(eurs, 20_000n), // 200 EURS -> 160 stataEURS (16,000 raw)
+        );
+        const resPureWrap = await mapToSorSwapPaths([pureWrapPath], 'EXACT_IN', 'SEPOLIA', 3);
+        expect(resPureWrap.priceImpact.error).toBeUndefined();
+        expect(resPureWrap.priceImpact.priceImpact).toBe('0.0000');
+
+        const boostedEursPool = WeightedPoolV3.fromPrismaPool(
+            prismaPoolFactory.build({
+                id: '0x0000000000000000000000000000000000000105',
+                address: '0x0000000000000000000000000000000000000105',
+                chain: Chain.SEPOLIA,
+                type: 'WEIGHTED',
+                protocolVersion: 3,
+                tokens: [
+                    prismaPoolTokenFactory.build({
+                        address: stataEurs.address,
+                        index: 0,
+                        balance: '16000',
+                        weight: '0.5',
+                        priceRate: '1.25',
+                        token: poolTokenFactory.build({ address: stataEurs.address, decimals: 2 }),
+                    }),
+                    prismaPoolTokenFactory.build({
+                        address: wbtc.address,
+                        index: 1,
+                        balance: '0.2',
+                        weight: '0.5',
+                        priceRate: '1',
+                        token: poolTokenFactory.build({ address: wbtc.address, decimals: 8 }),
+                    }),
+                ],
+                dynamicData: prismaPoolDynamicDataFactory.build({
+                    swapFee: '0.003',
+                    aggregateSwapFee: '0.5',
+                    totalShares: '100',
+                }),
+                liquidityManagement: {
+                    disableUnbalancedLiquidity: false,
+                    enableAddLiquidityCustom: false,
+                    enableDonation: false,
+                    enableRemoveLiquidityCustom: false,
+                },
+            }),
+        );
+        const boostedEursPath = new PathWithAmount(
+            [eurs, stataEurs, wbtc],
+            [eursBuffer, boostedEursPool],
+            [true, false],
+            TokenAmount.fromRawAmount(eurs, 20_000n), // 200 EURS (~1% of pool reserve -> ~0.99% curve impact)
+        );
+        const resBoostedEurs = await mapToSorSwapPaths([boostedEursPath], 'EXACT_IN', 'SEPOLIA', 3);
+        expect(resBoostedEurs.priceImpact.error).toBeUndefined();
+        // At 200 EURS (20,000 raw), divisor=10 probes 20 EURS (0.1% of reserve vs 1% full swap => ~0.89% relative slippage)
+        expect(resBoostedEurs.priceImpact.priceImpact).toBe('0.0089');
     });
 });

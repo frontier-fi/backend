@@ -18,6 +18,8 @@ export default <NetworkData>{
         address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         symbol: 'ETH',
         name: 'Ether',
+        logoURI:
+            'https://raw.githubusercontent.com/frontier-fi/tokenlists/main/src/assets/images/tokens/0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.png',
     },
     weth: {
         address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
@@ -50,6 +52,11 @@ export default <NetworkData>{
         VaultFactory: '0x2621Def28C3EF11Bd8d5D1670E45B22494fBb54e',
         WeightedLPOracleFactory: '0x5f3B2aEDF750372C784e2b5ab8A52Dc46273972d',
         WeightedPoolFactory: '0xC55Ea8a9de28CEDd9Eb1384CecD0D0437B71aB9a',
+    },
+    // Immutable Vault parameters read from on-chain VaultAdmin getters.
+    vaultParams: {
+        minTradeAmount: 1000000n,
+        minWrapAmount: 10000n,
     },
     hooks: {},
     // Multicall3 from https://github.com/mds1/multicall deployments.json.

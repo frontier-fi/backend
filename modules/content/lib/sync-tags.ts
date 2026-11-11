@@ -148,17 +148,10 @@ const getPoolMetadataTags = async (existingTags: Record<string, Set<string>>): P
                     existingTags[poolId] = new Set();
                 }
                 existingTags[poolId].add(tag.id.toUpperCase());
-                if (tag.id.toLowerCase().startsWith('points_')) {
-                    existingTags[poolId].add(`POINTS`);
-                }
             });
         }
 
         if (tag.tokens) {
-            // skip sonic points token tags, handled later
-            if (tag.id.toLowerCase().startsWith('points_sonic')) {
-                continue;
-            }
             for (const chainId in tag.tokens) {
                 const chain = chainIdToChain[chainId];
                 if (!chain) {
@@ -173,9 +166,6 @@ const getPoolMetadataTags = async (existingTags: Record<string, Set<string>>): P
                             existingTags[pool.id] = new Set();
                         }
                         existingTags[pool.id].add(tag.id.toUpperCase());
-                        if (tag.id.toLowerCase().startsWith('points_')) {
-                            existingTags[pool.id].add(`POINTS`);
-                        }
                     });
                 }
             }

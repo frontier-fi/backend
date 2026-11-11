@@ -112,7 +112,6 @@ export class TokenService {
             where.address = { in: args.where.tokensIn };
         }
 
-        console.time('prismaToken.findMany');
         const [dbTokens, typesMap] = await Promise.all([
             prisma.prismaToken.findMany({
                 where,
@@ -162,7 +161,6 @@ export class TokenService {
         //         orderBy: { tvl: 'desc' },
         //     })
         //     .then((tokens) => tokens.map((token) => ({ ...token, types: token.types.map((type) => type.type) || [] })));
-        console.timeEnd('prismaToken.findMany');
 
         for (const chain of chains) {
             const weth = tokens.find(
@@ -175,18 +173,14 @@ export class TokenService {
                     name: config[chain].eth.name,
                     address: config[chain].eth.address,
                     symbol: config[chain].eth.symbol,
+                    logoURI: config[chain].eth.logoURI ?? weth.logoURI,
                     chain: config[chain].chain.prismaId,
                 });
             }
         }
 
-        console.time('getPriceRateProviderData');
         const rateProviderData = await this.getPriceRateProviderData(tokens, chains);
-        console.timeEnd('getPriceRateProviderData');
-
-        console.time('getErc4626Data');
         const erc4626Data = await this.getErc4626Data(tokens);
-        console.timeEnd('getErc4626Data');
 
         return tokens.map((token) => ({
             ...token,

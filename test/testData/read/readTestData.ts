@@ -1,4 +1,4 @@
-import { BufferState, GyroECLPState, StableState, WeightedState } from '@balancer-labs/balancer-maths';
+import { BufferState, GyroECLPState, StableState, WeightedState } from '@frontier-fi/maths';
 import { Address } from '@balancer/sdk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
