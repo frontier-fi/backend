@@ -70,11 +70,17 @@ export function scheduleJobs(schedule: ScheduledJob[], queue: JobQueue): Schedul
     };
 
     const run = async (json: string, interval: number) => {
+        // The worker logs each job's outcome. Only a failed hand-off is logged here.
         try {
             await queue.send(json);
-            console.log(`Sent job ${json}`);
         } catch (error) {
-            console.error(error);
+            console.error(
+                JSON.stringify({
+                    ...JSON.parse(json),
+                    status: 'send-failed',
+                    error: error instanceof Error ? error.message : String(error),
+                }),
+            );
         }
         if (!stopped) {
             after(interval, () => run(json, interval));

@@ -21,6 +21,40 @@ export interface JobOutcome {
     status: 'done' | 'failed' | 'skipped';
     durationSeconds?: number;
     error?: string;
+    reason?: string;
+}
+
+/** A job outcome plus the stack of a failure, which is logged but not sent back to the scheduler. */
+type JobResult = JobOutcome & { stack?: string };
+
+function errorFields(error: unknown, prefix?: string): Pick<JobResult, 'error' | 'stack'> {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+        error: prefix ? `${prefix}: ${message}` : message,
+        stack: error instanceof Error ? error.stack : undefined,
+    };
+}
+
+// RPC errors from viem quote the request URL, and dRPC URLs carry the API key in the path.
+function redactSecrets(text: string): string {
+    return env.DRPC_API_KEY ? text.split(env.DRPC_API_KEY).join('***') : text;
+}
+
+/**
+ * Logs one JSON line per job so Better Stack can filter and alert on name, chain and status.
+ * Failures go to stderr.
+ */
+function logJobResult(name: string, chain: Chain, { stack, ...outcome }: JobResult): JobOutcome {
+    if (outcome.error) {
+        outcome.error = redactSecrets(outcome.error);
+    }
+    const line = JSON.stringify({ ...outcome, name, chain, stack: stack && redactSecrets(stack) });
+    if (outcome.status === 'failed') {
+        console.error(line);
+    } else {
+        console.log(line);
+    }
+    return outcome;
 }
 
 export const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000;
@@ -105,7 +139,7 @@ export const jobHandlers: Record<string, JobHandler> = {
     'sync-token-content-data': () => ContentController().syncTokenContentData(),
 };
 
-const runningJobs = new Map<string, Promise<JobOutcome>>();
+const runningJobs = new Map<string, Promise<JobResult>>();
 
 export interface WorkerRouteOptions {
     jobTimeoutMs?: number;
@@ -116,10 +150,9 @@ function runIfNotAlreadyRunning(
     jobId: string,
     fn: () => Promise<unknown>,
     options: Required<WorkerRouteOptions>,
-): Promise<JobOutcome> {
+): Promise<JobResult> {
     if (runningJobs.has(jobId)) {
-        console.log(`Skip job ${jobId}-skip`);
-        return Promise.resolve({ job: jobId, status: 'skipped' });
+        return Promise.resolve({ job: jobId, status: 'skipped', reason: 'already running' });
     }
 
     const run = runJob(jobId, fn, options).finally(() => runningJobs.delete(jobId));
@@ -131,31 +164,27 @@ async function runJob(
     jobId: string,
     fn: () => Promise<unknown>,
     options: Required<WorkerRouteOptions>,
-): Promise<JobOutcome> {
+): Promise<JobResult> {
     let releaseLock: (() => Promise<void>) | null = null;
     try {
         releaseLock = await options.acquireLock(jobId);
     } catch (error) {
-        console.error(`Failed to acquire advisory lock for ${jobId}:`, error);
         return {
             job: jobId,
             status: 'failed',
             durationSeconds: 0,
-            error: error instanceof Error ? error.message : String(error),
+            ...errorFields(error, 'Failed to acquire advisory lock'),
         };
     }
 
     if (!releaseLock) {
-        console.log(`Skip job ${jobId}-skip (locked by another worker)`);
-        return { job: jobId, status: 'skipped' };
+        return { job: jobId, status: 'skipped', reason: 'locked by another worker' };
     }
 
     const startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     try {
-        console.log(`Start job ${jobId}-start`);
-
         const timeoutPromise = new Promise<never>((_, reject) => {
             timer = setTimeout(() => {
                 reject(new Error(`Job ${jobId} timed out after ${options.jobTimeoutMs}ms`));
@@ -165,13 +194,10 @@ async function runJob(
         await Promise.race([fn(), timeoutPromise]);
 
         const duration = (Date.now() - startedAt) / 1000;
-        console.log(`Successful job ${jobId}-done`, duration);
         return { job: jobId, status: 'done', durationSeconds: duration };
     } catch (error: unknown) {
         const duration = (Date.now() - startedAt) / 1000;
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Error job ${jobId}-error`, duration, error);
-        return { job: jobId, status: 'failed', durationSeconds: duration, error: message };
+        return { job: jobId, status: 'failed', durationSeconds: duration, ...errorFields(error) };
     } finally {
         clearTimeout(timer);
         await releaseLock();
@@ -224,9 +250,9 @@ export function configureWorkerRoutes(
         const chain = chainIdToChain[chainId];
         const jobId = `${name}-${chainId}`;
 
-        const outcome = await runIfNotAlreadyRunning(jobId, () => handler(chain), resolvedOptions);
+        const result = await runIfNotAlreadyRunning(jobId, () => handler(chain), resolvedOptions);
 
-        res.json(outcome);
+        res.json(logJobResult(name, chain, result));
     });
 
     return {

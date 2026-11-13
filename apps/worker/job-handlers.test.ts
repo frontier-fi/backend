@@ -11,6 +11,7 @@ import {
     WorkerRouteOptions,
     WorkerRoutes,
 } from './job-handlers';
+import { env } from '../env';
 
 const SEPOLIA_ID = '11155111';
 
@@ -114,6 +115,46 @@ describe('worker route', () => {
 
         expect(result.status).toBe(200);
         expect(result.body).toMatchObject({ status: 'failed', error: 'rpc down' });
+    });
+
+    it('logs one JSON line per job with its name and chain', async () => {
+        handlers['sync-pools-v3'] = async () => undefined;
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+        expect(console.log).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(vi.mocked(console.log).mock.calls[0][0])).toMatchObject({
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'done',
+            durationSeconds: expect.any(Number),
+        });
+    });
+
+    it('logs a failed job to stderr with its stack and without the RPC key', async () => {
+        const previousKey = env.DRPC_API_KEY;
+        env.DRPC_API_KEY = 'secret-drpc-key';
+        handlers['sync-pools-v3'] = async () => {
+            throw new Error('HTTP request failed. URL: https://lb.drpc.live/base/secret-drpc-key');
+        };
+
+        try {
+            const result = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+            const line = vi.mocked(console.error).mock.calls[0][0] as string;
+            expect(line).not.toContain('secret-drpc-key');
+            expect(JSON.parse(line)).toMatchObject({
+                name: 'sync-pools-v3',
+                chain: 'SEPOLIA',
+                status: 'failed',
+                error: 'HTTP request failed. URL: https://lb.drpc.live/base/***',
+                stack: expect.stringContaining('Error: HTTP request failed'),
+            });
+            expect(result.body).not.toHaveProperty('stack');
+        } finally {
+            env.DRPC_API_KEY = previousKey;
+        }
     });
 
     it('skips a job that is still running', async () => {

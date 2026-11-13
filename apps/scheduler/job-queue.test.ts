@@ -81,6 +81,13 @@ describe('scheduleJobs', () => {
         await vi.advanceTimersByTimeAsync(2_000);
         expect(send).toHaveBeenCalledTimes(3);
         expect(console.error).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(vi.mocked(console.error).mock.calls[1][0])).toEqual({
+            name: 'job',
+            chain: '1',
+            status: 'send-failed',
+            error: 'connect ECONNREFUSED',
+        });
+        expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Sent job'));
     });
 
     it('sends nothing after stop, neither jobs waiting for their first run nor the next run of a running one', async () => {
