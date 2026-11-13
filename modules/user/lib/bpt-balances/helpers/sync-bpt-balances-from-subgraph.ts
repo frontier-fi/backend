@@ -24,7 +24,6 @@ export const syncBptBalancesFromSubgraph = async (
 ) => {
     // Must have poolIds to sync
     if (poolIds.length === 0) {
-        console.log(`syncBptBalancesFromSubgraph ${syncCategory} on ${chain} no pools provided`);
         return 0;
     }
 
@@ -45,14 +44,12 @@ export const syncBptBalancesFromSubgraph = async (
     // Get the balances synced block from the DB
     const startBlock = syncCategory ? await getLastSyncedBlock(chain, syncCategory) : 0;
     const fromBlock = Math.max(startBlock - BALANCES_SYNC_BLOCKS_MARGIN, 1);
-    const benchMessage = `syncBptBalancesFromSubgraph ${
-        syncCategory || ''
-    } on ${chain} from ${fromBlock} to ${endBlock} for ${poolIds.length} pools`;
-    console.log(benchMessage);
-    console.time(benchMessage);
     const poolShares = await subgraphClient.getAllPoolSharesWithBalance(poolIds, [zeroAddress], fromBlock);
-    console.timeEnd(benchMessage);
-    console.log(`syncBptBalancesFromSubgraph ${syncCategory || ''} on ${chain} got ${poolShares.length} poolShares`);
+    if (poolShares.length > 0) {
+        console.log(
+            `syncBptBalancesFromSubgraph ${syncCategory || ''} on ${chain} blocks ${fromBlock}-${endBlock}: updated ${poolShares.length} balances`,
+        );
+    }
     const operations = balancesToDb(poolShares, chain, endBlock, syncCategory);
     try {
         await prisma.$transaction(operations);

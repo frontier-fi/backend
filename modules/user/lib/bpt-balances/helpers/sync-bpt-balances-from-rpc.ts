@@ -20,7 +20,6 @@ export const syncBptBalancesFromRpc = async (
 ) => {
     // Must have poolIds to sync
     if (poolIds.length === 0) {
-        console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} no pools provided`);
         return 0;
     }
 
@@ -39,7 +38,6 @@ export const syncBptBalancesFromRpc = async (
 
     // no new blocks have been minted, needed for slow networks
     if (fromBlock > toBlock) {
-        console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} start block is greater than end block`);
         return 0;
     }
 
@@ -51,9 +49,6 @@ export const syncBptBalancesFromRpc = async (
 
     // Split the range into smaller chunks to avoid RPC limits, setting up to 5 times max block range
     // const toBlock = Math.min(fromBlock + 5 * range, endBlock);
-    console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} syncing from ${fromBlock} to ${toBlock}`);
-    console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} getLogs for ${poolAddresses.length} pools`);
-
     const events = await getEvents(
         fromBlock,
         toBlock,
@@ -63,8 +58,6 @@ export const syncBptBalancesFromRpc = async (
         range,
         ERC20Abi,
     );
-
-    console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} getLogs for ${poolAddresses.length} pools done`);
 
     const balancesToFetch = _.uniqBy(
         events
@@ -76,8 +69,6 @@ export const syncBptBalancesFromRpc = async (
             .filter((entry) => entry.userAddress !== zeroAddress),
         (entry) => entry.poolAddress + entry.userAddress,
     );
-
-    console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} got ${balancesToFetch.length} balances to fetch.`);
 
     const balances = await multicallViem(
         client,
@@ -106,7 +97,11 @@ export const syncBptBalancesFromRpc = async (
         };
     });
 
-    console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} got ${poolShares.length} poolShares`);
+    if (poolShares.length > 0) {
+        console.log(
+            `syncBptBalancesFromRpc ${syncCategory} on ${chain} blocks ${fromBlock}-${toBlock}: updated ${poolShares.length} balances`,
+        );
+    }
 
     const operations = balancesToDb(poolShares, chain, toBlock, syncCategory);
     try {
