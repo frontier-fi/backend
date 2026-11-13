@@ -102,8 +102,8 @@ export class CoingeckoDataService {
             },
         });
 
-        // Sepolia is excluded above, and it is the only configured chain. Skip the
-        // coin-list request when there is nothing to map.
+        // Sepolia is not in CoinGecko and is excluded above. Skip the coin-list
+        // request when there is nothing to map.
         if (allTokens.length === 0) {
             return;
         }

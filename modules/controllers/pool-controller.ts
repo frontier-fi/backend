@@ -224,11 +224,16 @@ export function PoolController(tracer?: any) {
                     );
                     hasBufferUpdates = true;
                 }
+            } else if (fromBlock <= 1) {
+                // No POOLS_V3 checkpoint: a fresh database or an admin reset. Resync every known pool
+                // at latestBlock instead of scanning RPC logs from genesis.
+                changedIds = (
+                    await prisma.prismaPool.findMany({
+                        where: { chain, protocolVersion: 3 },
+                        select: { id: true },
+                    })
+                ).map(({ id }) => id.toLowerCase());
             } else {
-                // Don't scan RPC logs from genesis when POOLS_V3 hasn't been synced yet
-                if (fromBlock <= 1) {
-                    return [];
-                }
                 const rpcMaxBlockRange = config[chain].rpcMaxBlockRange;
                 const range = Number(latestBlock) - fromBlock;
                 const numBatches = Math.ceil(range / rpcMaxBlockRange);
@@ -261,6 +266,13 @@ export function PoolController(tracer?: any) {
                 changedIds = Array.from(new Set([...changedIds, ...rampingStablePools.map((p) => p.id.toLowerCase())]));
             }
 
+            // Pools an earlier run could not update. The checkpoint moved past them, so retry them here.
+            const pendingResync = await prisma.prismaPoolDynamicData.findMany({
+                where: { chain, pendingResync: true },
+                select: { poolId: true },
+            });
+            changedIds = Array.from(new Set([...changedIds, ...pendingResync.map(({ poolId }) => poolId)]));
+
             if (changedIds.length === 0) {
                 if (hasBufferUpdates) {
                     await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);
@@ -274,6 +286,24 @@ export function PoolController(tracer?: any) {
             })) as PoolWithMappedJsonFields[];
 
             const ids = await syncPoolsV3(dbPools, chain, vaultAddress, viemClient, latestBlock);
+            const updated = new Set(ids);
+            const failed = dbPools.map(({ id }) => id).filter((id) => !updated.has(id));
+            // Flag failures before the checkpoint moves past them, so a restart still retries them.
+            // A pool that keeps failing is retried every run without holding up the checkpoint.
+            await prisma.$transaction([
+                prisma.prismaPoolDynamicData.updateMany({
+                    where: { chain, poolId: { in: failed } },
+                    data: { pendingResync: true },
+                }),
+                prisma.prismaPoolDynamicData.updateMany({
+                    where: { chain, poolId: { in: ids }, pendingResync: true },
+                    data: { pendingResync: false },
+                }),
+            ]);
+            if (failed.length > 0) {
+                console.error(`syncPoolsV3 on ${chain} could not update ${failed.length} pools, retrying next run`);
+            }
+
             await syncTokenPairs(ids, viemClient, routerAddress, chain);
             await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);
 

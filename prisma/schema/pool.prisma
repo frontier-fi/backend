@@ -68,6 +68,8 @@ model PrismaPoolDynamicData {
     chain                   Chain
     blockNumber             Int
     updatedAt               DateTime            @updatedAt
+    // Set when syncPoolsV3 could not update the pool, so a later run retries it after the checkpoint has moved on.
+    pendingResync           Boolean             @default(false)
 
     protocolYieldFee        String?
     protocolSwapFee         String              @default("0")

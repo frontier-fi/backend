@@ -8,8 +8,6 @@
  *
  * Multicall3 comes from
  * https://github.com/mds1/multicall/blob/main/deployments.json
- * Maker's Multicall v1 list is deprecated and does not cover current networks,
- * so the `multicall` field already in the config file is left as written.
  *
  * WETH, and ETH when that export exists, come from
  * https://github.com/frontier-fi/deployments/blob/main/src/constants.ts
@@ -198,10 +196,10 @@ function contractsBlock(contracts: Record<string, string>): string {
 function upsertContracts(source: string, contracts: Record<string, string>): string {
     const block = contractsBlock(contracts);
     const withComment =
-        /^    \/\/ Active addresses from frontier-fi\/deployments.*\n    contracts: \{[\s\S]*?\n    \},/m;
+        /^    \/\/ Active addresses from frontier-fi\/deployments.*\n    contracts: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (withComment.test(source)) return source.replace(withComment, block);
 
-    const bare = /^    contracts: \{[\s\S]*?\n    \},/m;
+    const bare = /^    contracts: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (bare.test(source)) return source.replace(bare, block);
 
     const anchor = source.match(/^    hooks: \{/m);
@@ -221,10 +219,10 @@ function vaultParamsBlock(vaultParams: { minTradeAmount: bigint; minWrapAmount: 
 
 function upsertVaultParams(source: string, vaultParams: { minTradeAmount: bigint; minWrapAmount: bigint }): string {
     const block = vaultParamsBlock(vaultParams);
-    const withComment = /^    \/\/ Immutable Vault parameters.*\n    vaultParams: \{[\s\S]*?\n    \},/m;
+    const withComment = /^    \/\/ Immutable Vault parameters.*\n    vaultParams: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (withComment.test(source)) return source.replace(withComment, block);
 
-    const bare = /^    vaultParams: \{[\s\S]*?\n    \},/m;
+    const bare = /^    vaultParams: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (bare.test(source)) return source.replace(bare, block);
 
     const anchor = source.match(/^    hooks: \{/m);
@@ -236,14 +234,9 @@ function setMulticall3(source: string, address: string): string {
     const pattern = /^(\s*multicall3:\s*')[^']+(')/m;
     if (!pattern.test(source)) throw new Error('multicall3 is missing');
     let next = source.replace(pattern, `$1${checksumAddress(address)}$2`);
-    const maker = /^(\s*multicall:\s*')(0x[a-fA-F0-9]{40})(')/m;
-    const makerMatch = next.match(maker);
-    if (makerMatch) {
-        next = next.replace(maker, `$1${checksumAddress(makerMatch[2])}$3`);
-    }
     const comment = '    // Multicall3 from https://github.com/mds1/multicall deployments.json.';
     if (!next.includes('github.com/mds1/multicall')) {
-        next = next.replace(/^(\s*multicall:)/m, `${comment}\n$1`);
+        next = next.replace(/^(\s*multicall3:)/m, `${comment}\n$1`);
     }
     return next;
 }
