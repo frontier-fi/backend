@@ -21,6 +21,24 @@ import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-revie
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
 import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 
+const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
+
+/**
+ * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
+ * when the source changes for a chain, so the lag stays visible without a line per run.
+ */
+export function logPoolSyncSourceChange(
+    chain: Chain,
+    source: 'subgraph' | 'rpc',
+    details: { lag: number; acceptableSGLag: number },
+) {
+    if (poolSyncSources.get(chain) === source) {
+        return;
+    }
+    poolSyncSources.set(chain, source);
+    console.log(JSON.stringify({ event: 'pool-sync-source', chain, source, ...details }));
+}
+
 export function PoolController(tracer?: any) {
     return {
         async updateLiquidityValuesForInactivePools(chain: Chain) {
@@ -166,6 +184,10 @@ export function PoolController(tracer?: any) {
             if (rpcLatestBlock - sgLastSyncedBlock > acceptableSGLag) {
                 useSubgraph = false;
             }
+            logPoolSyncSourceChange(chain, useSubgraph ? 'subgraph' : 'rpc', {
+                lag: rpcLatestBlock - sgLastSyncedBlock,
+                acceptableSGLag,
+            });
 
             const latestBlock = useSubgraph ? sgLastSyncedBlock : rpcLatestBlock;
 

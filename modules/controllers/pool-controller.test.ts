@@ -146,3 +146,25 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
         expect(mockSyncPools).not.toHaveBeenCalled();
     });
 });
+
+describe('logPoolSyncSourceChange', () => {
+    it('logs only when the pool sync source changes for a chain', async () => {
+        // A fresh module, so the syncPoolsV3 runs above have not recorded a source yet.
+        vi.resetModules();
+        const { logPoolSyncSourceChange } = await import('./pool-controller');
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        logPoolSyncSourceChange('BASE', 'rpc', { lag: 75, acceptableSGLag: 30 });
+        logPoolSyncSourceChange('BASE', 'rpc', { lag: 80, acceptableSGLag: 30 });
+        logPoolSyncSourceChange('SEPOLIA', 'subgraph', { lag: 2, acceptableSGLag: 100 });
+        logPoolSyncSourceChange('BASE', 'subgraph', { lag: 20, acceptableSGLag: 30 });
+
+        expect(log.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+            { event: 'pool-sync-source', chain: 'BASE', source: 'rpc', lag: 75, acceptableSGLag: 30 },
+            { event: 'pool-sync-source', chain: 'SEPOLIA', source: 'subgraph', lag: 2, acceptableSGLag: 100 },
+            { event: 'pool-sync-source', chain: 'BASE', source: 'subgraph', lag: 20, acceptableSGLag: 30 },
+        ]);
+
+        log.mockRestore();
+    });
+});
