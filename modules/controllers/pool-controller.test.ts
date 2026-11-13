@@ -86,4 +86,35 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
         );
         expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'POOLS_V3', rpcHead);
     });
+
+    it('retries pools it could not update on the next run while advancing the checkpoint', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mockGetLastSyncedBlock.mockResolvedValue(rpcHead - 15);
+
+        // Run 1: both pools changed, the read for 0xpoolb fails.
+        mockGetChangedPoolsV3.mockResolvedValueOnce(['0xpoola', '0xpoolb']);
+        mockPoolFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: '0xpoola' }, { id: '0xpoolb' }]);
+        mockSyncPools.mockResolvedValueOnce(['0xpoola']);
+
+        expect(await PoolController().syncPoolsV3('BASE')).toEqual(['0xpoola']);
+        expect(mockSyncTokenPairs).toHaveBeenLastCalledWith(['0xpoola'], expect.anything(), expect.any(String), 'BASE');
+        expect(mockUpsertLastSyncedBlock).toHaveBeenLastCalledWith('BASE', 'POOLS_V3', rpcHead);
+
+        // Run 2: nothing changed on chain, 0xpoolb is retried and succeeds.
+        mockGetChangedPoolsV3.mockResolvedValueOnce([]);
+        mockPoolFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: '0xpoolb' }]);
+
+        expect(await PoolController().syncPoolsV3('BASE')).toEqual(['0xpoolb']);
+        expect(mockPoolFindMany).toHaveBeenLastCalledWith(
+            expect.objectContaining({ where: { chain: 'BASE', protocolVersion: 3, id: { in: ['0xpoolb'] } } }),
+        );
+
+        // Run 3: nothing changed and nothing left to retry.
+        mockGetChangedPoolsV3.mockResolvedValueOnce([]);
+        mockPoolFindMany.mockResolvedValueOnce([]);
+        mockSyncPools.mockClear();
+
+        expect(await PoolController().syncPoolsV3('BASE')).toEqual([]);
+        expect(mockSyncPools).not.toHaveBeenCalled();
+    });
 });

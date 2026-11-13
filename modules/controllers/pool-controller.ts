@@ -21,6 +21,11 @@ import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-revie
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
 import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 
+// Pools that syncPoolsV3 could not update, retried on the next run for that chain. The checkpoint
+// still advances, so one pool that keeps failing cannot hold up the rest. Held in memory only, so a
+// restart drops them until the pool changes again.
+const poolsToRetry = new Map<Chain, Set<string>>();
+
 export function PoolController(tracer?: any) {
     return {
         async updateLiquidityValuesForInactivePools(chain: Chain) {
@@ -266,6 +271,8 @@ export function PoolController(tracer?: any) {
                 changedIds = Array.from(new Set([...changedIds, ...rampingStablePools.map((p) => p.id.toLowerCase())]));
             }
 
+            changedIds = Array.from(new Set([...changedIds, ...(poolsToRetry.get(chain) ?? [])]));
+
             if (changedIds.length === 0) {
                 if (hasBufferUpdates) {
                     await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);
@@ -279,6 +286,13 @@ export function PoolController(tracer?: any) {
             })) as PoolWithMappedJsonFields[];
 
             const ids = await syncPoolsV3(dbPools, chain, vaultAddress, viemClient, latestBlock);
+            const updated = new Set(ids);
+            const failed = dbPools.map(({ id }) => id).filter((id) => !updated.has(id));
+            poolsToRetry.set(chain, new Set(failed));
+            if (failed.length > 0) {
+                console.error(`syncPoolsV3 on ${chain} could not update ${failed.length} pools, retrying next run`);
+            }
+
             await syncTokenPairs(ids, viemClient, routerAddress, chain);
             await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);
 

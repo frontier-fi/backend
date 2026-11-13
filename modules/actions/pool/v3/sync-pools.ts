@@ -16,6 +16,8 @@ import { mergeArraysById } from '../../../helper/merge-arrays-by-id';
  * @param vaultClient
  * @param chain
  * @param blockNumber
+ * @returns the ids of the pools that were updated. Pools without on-chain token data or whose
+ *     write failed are left out, so the caller can retry them.
  */
 export const syncPools = async (
     dbPools: { id: string; type: PrismaPoolType; version: number; hook?: HookData; typeData: any }[],
@@ -23,8 +25,8 @@ export const syncPools = async (
     vault: string,
     viemClient: ViemClient,
     blockNumber: number,
-) => {
-    const poolIds = dbPools.map((pool) => pool.id);
+): Promise<string[]> => {
+    const updatedIds: string[] = [];
 
     const onchainData = await fetchPoolSyncData(viemClient, vault, dbPools, BigInt(blockNumber));
 
@@ -85,10 +87,11 @@ export const syncPools = async (
                     )) ||
                     []),
             ]);
+            updatedIds.push(pool.id);
         } catch (e) {
             console.error('Error upserting pool', e);
         }
     }
 
-    return poolIds;
+    return updatedIds;
 };
