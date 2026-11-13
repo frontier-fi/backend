@@ -1,9 +1,9 @@
 import { randomBytes } from 'crypto';
-import { Token } from '@balancer/sdk';
 import { PrismaPoolAndHookWithDynamic } from '../prisma/prisma-types';
-import { isSameAddress } from '@balancer/sdk';
 import { Address } from 'viem';
 import { BufferPoolData } from '../modules/sor/utils';
+import { Token } from '@frontier-fi/maths';
+import { addressesMatch as isSameAddress } from '../modules/web3/addresses';
 
 export function createRandomAddress() {
     return '0x' + randomBytes(20).toString('hex');

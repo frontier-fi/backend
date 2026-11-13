@@ -1,4 +1,4 @@
-import { SwapKind, Token, TokenAmount, WAD } from '@balancer/sdk';
+import { SwapKind, Token, TokenAmount, WAD } from '@frontier-fi/maths';
 import { describe, expect, it } from 'vitest';
 import { PathWithAmount } from '../path';
 import { BufferPool } from '../poolsV3/buffer/bufferPool';

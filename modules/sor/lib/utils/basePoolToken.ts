@@ -1,4 +1,4 @@
-import { BigintIsh, Token, TokenAmount } from '@balancer/sdk';
+import { BigintIsh, Token, TokenAmount } from '@frontier-fi/maths';
 
 export class BasePoolToken extends TokenAmount {
     public readonly index: number;

@@ -1,6 +1,5 @@
 import { Address, Hex, parseEther, parseUnits } from 'viem';
-import { PoolType, Token } from '@balancer/sdk';
-import { StableState, HookState } from '@frontier-fi/maths';
+import { StableState, HookState, Token, WAD } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
@@ -8,7 +7,6 @@ import { chainToChainId as chainToIdMap } from '../../../../../config/chain-id-t
 import { computeStableAmp, StableData } from '../../../../pool/subgraph-pool';
 import { TokenPairData } from '../../../../sources/contracts/v3/fetch-tokenpair-data';
 
-import { WAD } from '../../utils/math';
 import { BasePoolMethodsV3 } from '../basePoolMethodsV3';
 import { PoolTokenWithRate } from '../../utils/poolTokenWithRate';
 
@@ -82,7 +80,7 @@ export class StablePoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
         super(
             id,
             address,
-            PoolType.Stable,
+            'Stable',
             chain,
             swapFee,
             aggregateSwapFee,

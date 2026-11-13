@@ -1,7 +1,6 @@
-import { Hex } from 'viem';
+import { Hex, maxUint256 } from 'viem';
 
-import { MAX_UINT256, PoolType, SwapKind, Token, TokenAmount } from '@balancer/sdk';
-import { AddKind, RemoveKind, Vault, HookState, PoolState } from '@frontier-fi/maths';
+import { AddKind, RemoveKind, Vault, HookState, PoolState, SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { TokenPairData } from '../../../sources/contracts/v3/fetch-tokenpair-data';
@@ -14,7 +13,7 @@ export class BasePoolV3 {
     public readonly chain: Chain;
     public readonly id: Hex;
     public readonly address: string;
-    declare public readonly poolType: PoolType | string;
+    declare public readonly poolType: string;
     public readonly swapFee: bigint;
     public readonly aggregateSwapFee: bigint;
     public readonly tokenPairs: TokenPairData[];
@@ -32,7 +31,7 @@ export class BasePoolV3 {
     constructor(
         id: Hex,
         address: string,
-        poolType: PoolType | string,
+        poolType: string,
         chain: Chain,
         swapFee: bigint,
         aggregateSwapFee: bigint,
@@ -199,7 +198,7 @@ export class BasePoolV3 {
                 {
                     pool: this.id,
                     minAmountsOutRaw: this.poolState.tokens.map((_, i) => (i === tOut.index ? swapAmount.amount : 0n)),
-                    maxBptAmountInRaw: MAX_UINT256,
+                    maxBptAmountInRaw: maxUint256,
                     kind: RemoveKind.SINGLE_TOKEN_EXACT_OUT,
                 },
                 this.poolState,
@@ -218,7 +217,7 @@ export class BasePoolV3 {
             const { amountsInRaw } = this.vault.addLiquidity(
                 {
                     pool: this.id,
-                    maxAmountsInRaw: this.poolState.tokens.map((_, i) => (i === tIn.index ? MAX_UINT256 : 0n)),
+                    maxAmountsInRaw: this.poolState.tokens.map((_, i) => (i === tIn.index ? maxUint256 : 0n)),
                     minBptAmountOutRaw: swapAmount.amount,
                     kind: AddKind.SINGLE_TOKEN_EXACT_OUT,
                 },

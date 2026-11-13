@@ -1,5 +1,4 @@
 import { BufferState, GyroECLPState, StableState, WeightedState } from '@frontier-fi/maths';
-import { Address } from '@balancer/sdk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -12,7 +11,7 @@ import {
     mapWeightedPoolStateToPrismaPool,
 } from './mapping';
 import { Path, SwapPathInput } from '../generate/getSwapPath';
-import { maxUint256 } from 'viem';
+import { Address, maxUint256 } from 'viem';
 
 type PoolBase = {
     poolAddress: string;

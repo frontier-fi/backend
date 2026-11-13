@@ -1,10 +1,10 @@
-import { PoolType, SwapKind, Token, TokenAmount } from '@balancer/sdk';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { Hex } from 'viem';
 
 import { BasePoolToken } from './utils/basePoolToken';
 
 export interface BasePool {
-    readonly poolType: PoolType | string;
+    readonly poolType: string;
     readonly id: Hex;
     readonly address: string;
     swapFee: bigint;

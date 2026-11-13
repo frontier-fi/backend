@@ -1,8 +1,8 @@
-import { Address, SwapKind, TokenAmount, Token } from '@balancer/sdk';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { PathSegment, PathGraphTraversalConfig } from './pathGraphTypes';
 import { BasePool } from '../basePool';
 import { PathLocal } from '../path';
-import { formatUnits } from 'viem';
+import { Address, formatUnits } from 'viem';
 import { SorAbortError } from '../../errors';
 
 const DEFAULT_MAX_PATH_SEGMENTS_PER_TOKEN_PAIR = 4;
