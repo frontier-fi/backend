@@ -48,7 +48,6 @@ export interface NetworkData {
         minWrapAmount: bigint;
     };
     hooks?: Record<string, GqlHookType>;
-    multicall: string;
     multicall3: string;
     aprHandlers: AprHandlerConfigs;
     workerJobs: WorkerJob[];

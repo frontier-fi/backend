@@ -57,8 +57,6 @@ export default <NetworkData>{
         minWrapAmount: 10000n,
     },
     hooks: {},
-    // Maker's Multicall v1 is not deployed on Base. Nothing reads this field, so it points at Multicall3.
-    multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
     // Multicall3 from https://github.com/mds1/multicall deployments.json.
     multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
     aprHandlers: {
