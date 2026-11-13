@@ -7,6 +7,7 @@ const {
     mockGetChangedPoolsV3,
     mockSyncPools,
     mockSyncTokenPairs,
+    pendingResync,
     rpcHead,
     subgraphHead,
 } = vi.hoisted(() => ({
@@ -16,13 +17,33 @@ const {
     mockGetChangedPoolsV3: vi.fn(),
     mockSyncPools: vi.fn(),
     mockSyncTokenPairs: vi.fn(),
+    // Stands in for the pendingResync column, which outlives a worker restart.
+    pendingResync: new Set<string>(),
     rpcHead: 1_000_000,
     // Further behind than Base's acceptableSGLag, so syncPoolsV3 takes the RPC path.
     subgraphHead: 1_000_000 - 100,
 }));
 
 vi.mock('../../prisma/prisma-client', () => ({
-    prisma: { prismaPool: { findMany: mockPoolFindMany } },
+    prisma: {
+        prismaPool: { findMany: mockPoolFindMany },
+        prismaPoolDynamicData: {
+            findMany: async () => [...pendingResync].map((poolId) => ({ poolId })),
+            updateMany: async ({
+                where,
+                data,
+            }: {
+                where: { poolId: { in: string[] } };
+                data: { pendingResync: boolean };
+            }) => {
+                for (const poolId of where.poolId.in) {
+                    if (data.pendingResync) pendingResync.add(poolId);
+                    else pendingResync.delete(poolId);
+                }
+            },
+        },
+        $transaction: (operations: Promise<unknown>[]) => Promise.all(operations),
+    },
 }));
 
 vi.mock('../actions/last-synced-block', () => ({
@@ -49,6 +70,7 @@ import { PoolController } from './pool-controller';
 describe('PoolController.syncPoolsV3 on the RPC path', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        pendingResync.clear();
         mockSyncPools.mockImplementation(async (pools: { id: string }[]) => pools.map((pool) => pool.id));
     });
 
@@ -87,7 +109,7 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
         expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'POOLS_V3', rpcHead);
     });
 
-    it('retries pools it could not update on the next run while advancing the checkpoint', async () => {
+    it('retries pools it could not update on a later run, across a restart, while advancing the checkpoint', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         mockGetLastSyncedBlock.mockResolvedValue(rpcHead - 15);
 
@@ -99,12 +121,18 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
         expect(await PoolController().syncPoolsV3('BASE')).toEqual(['0xpoola']);
         expect(mockSyncTokenPairs).toHaveBeenLastCalledWith(['0xpoola'], expect.anything(), expect.any(String), 'BASE');
         expect(mockUpsertLastSyncedBlock).toHaveBeenLastCalledWith('BASE', 'POOLS_V3', rpcHead);
+        expect([...pendingResync]).toEqual(['0xpoolb']);
+
+        // The worker restarts: module state is gone, the database is not.
+        vi.resetModules();
+        const { PoolController: RestartedPoolController } = await import('./pool-controller');
 
         // Run 2: nothing changed on chain, 0xpoolb is retried and succeeds.
         mockGetChangedPoolsV3.mockResolvedValueOnce([]);
         mockPoolFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: '0xpoolb' }]);
 
-        expect(await PoolController().syncPoolsV3('BASE')).toEqual(['0xpoolb']);
+        expect(await RestartedPoolController().syncPoolsV3('BASE')).toEqual(['0xpoolb']);
+        expect([...pendingResync]).toEqual([]);
         expect(mockPoolFindMany).toHaveBeenLastCalledWith(
             expect.objectContaining({ where: { chain: 'BASE', protocolVersion: 3, id: { in: ['0xpoolb'] } } }),
         );
