@@ -1,5 +1,5 @@
 import { parseEther, parseUnits, zeroAddress } from 'viem';
-import { MathSol, WAD } from '../../../sor/lib/utils/math';
+import { MathSol, WAD } from '@frontier-fi/maths';
 import { ViemClient } from '../../types';
 import { ViemMulticallCall, multicallViem } from '../../../web3/multicaller-viem';
 import BalancerRouterAbi from '../abis/BalancerRouter';

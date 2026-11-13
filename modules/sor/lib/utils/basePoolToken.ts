@@ -1,5 +1,4 @@
-import { BigintIsh, Token } from './token';
-import { TokenAmount } from './tokenAmount';
+import { BigintIsh, Token, TokenAmount } from '@frontier-fi/maths';
 
 export class BasePoolToken extends TokenAmount {
     public readonly index: number;

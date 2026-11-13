@@ -1,10 +1,9 @@
-import { SwapKind } from '@frontier-fi/maths';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { PathSegment, PathGraphTraversalConfig } from './pathGraphTypes';
 import { BasePool } from '../basePool';
 import { PathLocal } from '../path';
 import { Address, formatUnits } from 'viem';
 import { SorAbortError } from '../../errors';
-import { Token, TokenAmount } from '../utils';
 
 const DEFAULT_MAX_PATH_SEGMENTS_PER_TOKEN_PAIR = 4;
 export const DEFAULT_MAX_DEPTH = 8;

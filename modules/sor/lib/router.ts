@@ -1,8 +1,6 @@
-import { SwapKind } from '@frontier-fi/maths';
-import { Token, TokenAmount } from './utils';
+import { max, min, SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { PathGraph } from './pathGraph/pathGraph';
 import { PathGraphTraversalConfig } from './pathGraph/pathGraphTypes';
-import { max, min } from './utils/math';
 import { BasePool } from './basePool';
 import { PathLocal, PathWithAmount } from './path';
 import { formatUnits, parseEther } from 'viem';

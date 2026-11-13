@@ -1,8 +1,7 @@
 import { Address, Hex, parseEther, parseUnits } from 'viem';
 
-import { HookState, GyroECLPState } from '@frontier-fi/maths';
+import { HookState, GyroECLPState, Token, TokenAmount, WAD } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
-import { Token, TokenAmount } from '../../utils';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
 import { chainToChainId as chainToIdMap } from '../../../../../config/chain-id-to-chain';
@@ -13,7 +12,7 @@ import { BasePoolMethodsV3 } from '../basePoolMethodsV3';
 
 import { LiquidityManagement } from '../../../types';
 import { DerivedGyroEParams, GyroEParams } from '../../gyroE/types';
-import { getHookState, PoolTokenWithRate, WAD } from '../../utils';
+import { getHookState, PoolTokenWithRate } from '../../utils';
 import { BasePoolV3 } from '../basePoolV3';
 
 type GyroPoolToken = PoolTokenWithRate;

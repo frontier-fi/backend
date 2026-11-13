@@ -1,6 +1,5 @@
-import { SwapKind } from '@frontier-fi/maths';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { maxUint256 } from 'viem';
-import { Token, TokenAmount } from '../../utils';
 import { BufferPool } from './bufferPool';
 import { BufferPoolData } from '../../../utils/data';
 

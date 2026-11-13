@@ -9,10 +9,9 @@ import {
     GqlSorSwap,
 } from '../../../apps/api/gql/generated-schema';
 import { aGqlPoolMinimal } from '../../../apps/api/gql/schema/__mocks__/graphql';
-import { SwapKind } from '@frontier-fi/maths';
+import { SwapKind, TokenAmount } from '@frontier-fi/maths';
 import { formatUnits } from 'viem';
 import { PathWithAmount } from '../lib/path';
-import { TokenAmount } from '../lib/utils';
 import { Chain } from '@prisma/client';
 import { addressesMatch, replaceZeroAddressWithEth } from '../../web3/addresses';
 import { calculatePriceImpact, getInputAmount, getOutputAmount } from '../lib/utils/helpers';

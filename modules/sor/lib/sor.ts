@@ -1,5 +1,4 @@
-import { SwapKind } from '@frontier-fi/maths';
-import { Token } from './utils';
+import { SwapKind, Token } from '@frontier-fi/maths';
 
 import { Router } from './router';
 import { DEFAULT_MAX_DEPTH, DEFAULT_MAX_DEPTH_FALLBACK } from './pathGraph/pathGraph';

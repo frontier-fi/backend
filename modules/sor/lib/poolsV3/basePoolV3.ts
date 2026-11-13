@@ -1,8 +1,7 @@
 import { Hex, maxUint256 } from 'viem';
 
-import { AddKind, RemoveKind, Vault, HookState, PoolState, SwapKind } from '@frontier-fi/maths';
+import { AddKind, RemoveKind, Vault, HookState, PoolState, SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
-import { Token, TokenAmount } from '../utils';
 
 import { TokenPairData } from '../../../sources/contracts/v3/fetch-tokenpair-data';
 import config from '../../../../config';

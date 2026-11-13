@@ -1,4 +1,5 @@
-import { BigintIsh, PoolTokenWithRate, Token } from '../../utils';
+import { BigintIsh, Token } from '@frontier-fi/maths';
+import { PoolTokenWithRate } from '../../utils';
 
 export class WeightedPoolTokenWithRate extends PoolTokenWithRate {
     public readonly weight: bigint;

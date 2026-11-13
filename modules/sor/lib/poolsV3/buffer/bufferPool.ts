@@ -1,13 +1,19 @@
 import { Address, Hex, maxUint256 } from 'viem';
-import { BufferState, DEFAULT_MINIMUM_WRAP_AMOUNT, SwapKind } from '@frontier-fi/maths';
-import { Token, TokenAmount } from '../../utils';
+import {
+    BufferState,
+    DEFAULT_MINIMUM_WRAP_AMOUNT,
+    MathSol,
+    SwapKind,
+    Token,
+    TokenAmount,
+    WAD,
+} from '@frontier-fi/maths';
 
 import config from '../../../../../config';
 import { chainIdToChain } from '../../../../../config/chain-id-to-chain';
 import { BasePoolMethodsV3 } from '../basePoolMethodsV3';
 import { BasePoolToken } from '../../utils/basePoolToken';
 import { BufferPoolData } from '../../../utils/data';
-import { MathSol, WAD } from '../../utils';
 
 export { DEFAULT_MINIMUM_WRAP_AMOUNT };
 

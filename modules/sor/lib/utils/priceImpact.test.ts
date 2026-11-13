@@ -1,4 +1,4 @@
-import { SwapKind } from '@frontier-fi/maths';
+import { SwapKind, Token, TokenAmount, WAD } from '@frontier-fi/maths';
 import { describe, expect, it } from 'vitest';
 import { PathWithAmount } from '../path';
 import { BufferPool } from '../poolsV3/buffer/bufferPool';
@@ -7,10 +7,7 @@ import { WeightedPoolV3 } from '../poolsV3/weighted/weightedPool';
 import { WeightedPoolTokenWithRate } from '../poolsV3/weighted/weightedPoolTokenWithRate';
 import { mapToSorSwapPaths } from '../../utils/mapping';
 import { BasePoolToken } from './basePoolToken';
-import { WAD } from './math';
 import { PoolTokenWithRate } from './poolTokenWithRate';
-import { Token } from './token';
-import { TokenAmount } from './tokenAmount';
 
 const tokenIn = new Token(11155111, '0x000000000000000000000000000000000000000a', 18);
 const tokenOut = new Token(11155111, '0x000000000000000000000000000000000000000b', 18);

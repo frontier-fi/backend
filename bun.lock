@@ -9,7 +9,7 @@
         "@apollo/server": "^5.5.1",
         "@as-integrations/express5": "^1.1.2",
         "@escape.tech/graphql-armor": "^3.2.0",
-        "@frontier-fi/maths": "^0.1.1",
+        "@frontier-fi/maths": "^0.2.0",
         "@prisma/client": "^6.19.3",
         "@types/graphql-fields": "^1.3.9",
         "abitype": "^1.3.0",
@@ -283,7 +283,7 @@
 
     "@faker-js/faker": ["@faker-js/faker@8.4.1", "", {}, "sha512-XQ3cU+Q8Uqmrbf2e0cIC/QN43sTBSC8KF12u29Mb47tWrt2hAgBXSgpZMj4Ao8Uk0iJcU99QsOCaIL8934obCg=="],
 
-    "@frontier-fi/maths": ["@frontier-fi/maths@0.1.1", "", {}, "sha512-9VwvJTCd+QuGiAq2LlYpyhZPTt/HLJZKil+QlOhEPK86NckhBr7SOKiwoZARyZhjOf06dQoxgzXGHCyyJ9wWBQ=="],
+    "@frontier-fi/maths": ["@frontier-fi/maths@0.2.0", "", {}, "sha512-CgGW6gKenCYBuJ2a53gpijMFOu4cySvr7dL/ozt8oOu2w3ly2sOkA4nlWvsPWR9sy0fsviteRWgdC8JtYuzEGQ=="],
 
     "@graphql-codegen/add": ["@graphql-codegen/add@3.2.3", "", { "dependencies": { "@graphql-codegen/plugin-helpers": "^3.1.1", "tslib": "~2.4.0" }, "peerDependencies": { "graphql": "^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0" } }, "sha512-sQOnWpMko4JLeykwyjFTxnhqjd/3NOG2OyMuvK76Wnnwh8DRrNf2VEs2kmSvLl7MndMlOj7Kh5U154dVcvhmKQ=="],
 

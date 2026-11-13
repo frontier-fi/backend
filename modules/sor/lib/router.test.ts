@@ -1,7 +1,6 @@
 import { Chain } from '@prisma/client';
-import { SwapKind } from '@frontier-fi/maths';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { parseEther } from 'viem';
-import { Token, TokenAmount } from './utils';
 
 import { Router } from './router';
 import { SOR } from './sor';

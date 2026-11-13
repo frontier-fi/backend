@@ -1,5 +1,5 @@
+import { Token } from '@frontier-fi/maths';
 import { BasePool } from '../basePool';
-import { Token } from '../utils';
 
 export interface PoolTokenPair {
     id: string;

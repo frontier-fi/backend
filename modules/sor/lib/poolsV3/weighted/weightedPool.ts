@@ -1,7 +1,6 @@
 import { Address, Hex, parseEther } from 'viem';
-import { WeightedState, HookState } from '@frontier-fi/maths';
+import { WeightedState, HookState, Token, TokenAmount, WAD } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
-import { Token, TokenAmount, WAD } from '../../utils';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
 import { TokenPairData } from '../../../../sources/contracts/v3/fetch-tokenpair-data';

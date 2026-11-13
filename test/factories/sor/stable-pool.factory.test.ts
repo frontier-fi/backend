@@ -1,7 +1,8 @@
+import { Token, TokenAmount } from '@frontier-fi/maths';
 import { parseEther, parseUnits } from 'viem';
 import { StablePoolFactory } from './stable-pool.factory';
 import { StablePoolV3 } from '../../../modules/sor/lib/poolsV3/stable/stablePool';
-import { PoolTokenWithRate, Token, TokenAmount } from '../../../modules/sor/lib/utils';
+import { PoolTokenWithRate } from '../../../modules/sor/lib/utils';
 
 describe('SOR Stable pool factory', () => {
     it('Create Stable Pool', () => {

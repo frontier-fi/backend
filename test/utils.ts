@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import { PrismaPoolAndHookWithDynamic } from '../prisma/prisma-types';
 import { Address } from 'viem';
 import { BufferPoolData } from '../modules/sor/utils';
-import { Token } from '../modules/sor/lib/utils';
+import { Token } from '@frontier-fi/maths';
 import { addressesMatch as isSameAddress } from '../modules/web3/addresses';
 
 export function createRandomAddress() {

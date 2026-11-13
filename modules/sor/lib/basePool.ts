@@ -1,9 +1,7 @@
-import { SwapKind } from '@frontier-fi/maths';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { Hex } from 'viem';
 
 import { BasePoolToken } from './utils/basePoolToken';
-import { Token } from './utils/token';
-import { TokenAmount } from './utils/tokenAmount';
 
 export interface BasePool {
     readonly poolType: string;

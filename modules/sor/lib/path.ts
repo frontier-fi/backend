@@ -1,7 +1,6 @@
-import { SwapKind } from '@frontier-fi/maths';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { BasePool } from './basePool';
 import { BufferPool } from './poolsV3/buffer/bufferPool';
-import { Token, TokenAmount } from './utils';
 
 export class PathLocal {
     public readonly pools: BasePool[];
