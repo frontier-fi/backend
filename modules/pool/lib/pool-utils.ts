@@ -1,4 +1,4 @@
-import { ZERO_ADDRESS } from '@balancer/sdk';
+import { zeroAddress as ZERO_ADDRESS } from 'viem';
 import { PrismaPoolDynamicData, PrismaPoolToken, PrismaPoolType } from '@prisma/client';
 
 type PoolWithTypeAndFactory = {

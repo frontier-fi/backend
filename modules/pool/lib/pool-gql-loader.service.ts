@@ -20,7 +20,7 @@ import { prisma } from '../../../prisma/prisma-client';
 import { Chain, Prisma, PrismaUserWalletBalance } from '@prisma/client';
 import { fixedNumber } from '../../view-helpers/fixed-number';
 import { EclpData, resolveStableAmp, StableData } from '../subgraph-pool';
-import { ZERO_ADDRESS } from '@balancer/sdk';
+import { zeroAddress as ZERO_ADDRESS } from 'viem';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { GraphQLError } from 'graphql';
 import { mapPoolToken, enrichWithErc4626Data, mapAprItems } from './pool-gql-mapper-helper';

@@ -1,6 +1,6 @@
-import { Address, Hex } from 'viem';
-import { MAX_UINT256, SwapKind, Token, TokenAmount } from '@balancer/sdk';
-import { BufferState, DEFAULT_MINIMUM_WRAP_AMOUNT } from '@frontier-fi/maths';
+import { Address, Hex, maxUint256 as MAX_UINT256 } from 'viem';
+import { BufferState, DEFAULT_MINIMUM_WRAP_AMOUNT, SwapKind } from '@frontier-fi/maths';
+import { Token, TokenAmount } from '../../utils';
 
 import config from '../../../../../config';
 import { chainIdToChain } from '../../../../../config/chain-id-to-chain';

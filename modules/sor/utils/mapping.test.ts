@@ -1,12 +1,12 @@
 import { Chain } from '@prisma/client';
-import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
+import { SwapKind } from '@frontier-fi/maths';
 import { parseEther } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { PathWithAmount } from '../lib/path';
 import { BufferPool } from '../lib/poolsV3/buffer/bufferPool';
 import { WeightedPoolV3 } from '../lib/poolsV3/weighted/weightedPool';
 import { Router } from '../lib/router';
-import { BasePoolToken } from '../lib/utils/basePoolToken';
+import { BasePoolToken, Token, TokenAmount } from '../lib/utils';
 import { mapRoutes, mapToSorSwapPaths } from './mapping';
 import {
     poolTokenFactory,

@@ -1,8 +1,9 @@
-import { Hex } from 'viem';
+import { Hex, maxUint256 as MAX_UINT256 } from 'viem';
 
-import { MAX_UINT256, PoolType, SwapKind, Token, TokenAmount } from '@balancer/sdk';
-import { AddKind, RemoveKind, Vault, HookState, PoolState } from '@frontier-fi/maths';
+import { AddKind, RemoveKind, Vault, HookState, PoolState, SwapKind } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
+import { PoolType } from '../types';
+import { Token, TokenAmount } from '../utils';
 
 import { TokenPairData } from '../../../sources/contracts/v3/fetch-tokenpair-data';
 import config from '../../../../config';

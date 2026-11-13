@@ -31,7 +31,6 @@
         "@aave-dao/aave-address-book": "^4.74.6",
         "@apollo/server": "^5.5.1",
         "@as-integrations/express5": "^1.1.2",
-        "@balancer/sdk": "^5.2.9",
         "@escape.tech/graphql-armor": "^3.2.0",
         "@frontier-fi/maths": "^0.1.1",
         "@prisma/client": "^6.19.3",

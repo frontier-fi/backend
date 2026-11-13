@@ -1,4 +1,5 @@
-import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
+import { SwapKind } from '@frontier-fi/maths';
+import { Token, TokenAmount } from './utils';
 import { PathGraph } from './pathGraph/pathGraph';
 import { PathGraphTraversalConfig } from './pathGraph/pathGraphTypes';
 import { max, min } from './utils/math';

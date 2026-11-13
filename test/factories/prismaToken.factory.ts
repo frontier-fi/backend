@@ -2,7 +2,7 @@ import { PrismaToken } from '@prisma/client';
 import { Factory } from 'fishery';
 import { createRandomAddress } from '../utils';
 import { PrismaPoolTokenWithDynamicData } from '../../prisma/prisma-types';
-import { ZERO_ADDRESS } from '@balancer/sdk';
+import { zeroAddress as ZERO_ADDRESS } from 'viem';
 
 export const prismaPoolTokenFactory = Factory.define<PrismaPoolTokenWithDynamicData>(({ sequence, params }) => {
     const tokenAddress = params?.address || createRandomAddress();

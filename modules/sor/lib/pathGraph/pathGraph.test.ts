@@ -1,6 +1,7 @@
+import { SwapKind } from '@frontier-fi/maths';
 import { PathGraph } from './pathGraph';
 import { BasePool } from '../basePool';
-import { Token, TokenAmount, SwapKind } from '@balancer/sdk';
+import { Token, TokenAmount } from '../utils';
 import { describe, test, expect, beforeEach } from 'vitest';
 
 const baseConfig = {

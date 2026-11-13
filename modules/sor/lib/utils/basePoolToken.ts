@@ -1,4 +1,5 @@
-import { BigintIsh, Token, TokenAmount } from '@balancer/sdk';
+import { BigintIsh, Token } from './token';
+import { TokenAmount } from './tokenAmount';
 
 export class BasePoolToken extends TokenAmount {
     public readonly index: number;

@@ -1,6 +1,6 @@
 import { Chain } from '@prisma/client';
 import { GqlSorSwapType, GqlSwapCallDataInput } from '../../apps/api/gql/generated-schema';
-import { TokenAmount } from '@balancer/sdk';
+import { TokenAmount } from './lib/utils';
 
 export interface GetSwapPathsInput {
     chain: Chain;

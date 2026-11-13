@@ -1,8 +1,9 @@
 import { Address, Hex, parseEther, parseUnits } from 'viem';
 
-import { PoolType, Token, TokenAmount } from '@balancer/sdk';
 import { HookState, GyroECLPState } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
+import { PoolType } from '../../types';
+import { Token, TokenAmount } from '../../utils';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
 import { chainToChainId as chainToIdMap } from '../../../../../config/chain-id-to-chain';

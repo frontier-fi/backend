@@ -1,6 +1,7 @@
 import { Chain } from '@prisma/client';
-import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
+import { SwapKind } from '@frontier-fi/maths';
 import { formatUnits, parseEther, parseUnits } from 'viem';
+import { Token, TokenAmount } from '../../utils';
 import { GyroECLPPool } from './gyroECLPPool';
 import {
     hookFactory,

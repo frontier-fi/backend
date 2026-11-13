@@ -1,5 +1,7 @@
-import { BigintIsh, DECIMAL_SCALES, MathSol, Token, TokenAmount, WAD } from '@balancer/sdk';
 import { BasePoolToken } from './basePoolToken';
+import { MathSol, WAD } from './math';
+import { BigintIsh, Token } from './token';
+import { DECIMAL_SCALES, TokenAmount } from './tokenAmount';
 
 export class PoolTokenWithRate extends BasePoolToken {
     public readonly rate: bigint;

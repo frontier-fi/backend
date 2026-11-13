@@ -1,5 +1,4 @@
-import { BigintIsh, Token } from '@balancer/sdk';
-import { PoolTokenWithRate } from '../../utils';
+import { BigintIsh, PoolTokenWithRate, Token } from '../../utils';
 
 export class WeightedPoolTokenWithRate extends PoolTokenWithRate {
     public readonly weight: bigint;

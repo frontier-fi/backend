@@ -1,10 +1,9 @@
 // yarn vitest poolsV3/weighted/weightedPool.test.ts
 
-import { Token, TokenAmount } from '@balancer/sdk';
 import { parseEther } from 'viem';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
-import { WAD } from '../../utils/math';
+import { Token, TokenAmount, WAD } from '../../utils';
 import { WeightedPoolV3 } from './weightedPool';
 import { createRandomAddress } from '../../../../../test/utils';
 

@@ -1,6 +1,7 @@
 // bun run vitest sor/sor.integration.test.ts
 
-import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
+import { SwapKind } from '@frontier-fi/maths';
+import { Token, TokenAmount } from './lib/utils';
 import { Chain } from '@prisma/client';
 import {
     type Address,

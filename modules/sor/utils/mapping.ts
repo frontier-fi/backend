@@ -9,9 +9,29 @@ import {
     GqlPoolMinimal,
 } from '../../../apps/api/gql/generated-schema';
 import { aGqlPoolMinimal } from '../../../apps/api/gql/schema/__mocks__/graphql';
-import { SwapKind, TokenAmount, BatchSwapStep, DEFAULT_USERDATA, SingleSwap } from '@balancer/sdk';
-import { formatUnits } from 'viem';
+import { SwapKind } from '@frontier-fi/maths';
+import { Address, formatUnits, Hex } from 'viem';
 import { PathWithAmount } from '../lib/path';
+import { TokenAmount } from '../lib/utils';
+
+const DEFAULT_USERDATA: Hex = '0x';
+
+interface SingleSwap {
+    poolId: Hex;
+    kind: SwapKind;
+    assetIn: Address;
+    assetOut: Address;
+    amount: bigint;
+    userData: Hex;
+}
+
+interface BatchSwapStep {
+    poolId: Hex;
+    assetInIndex: bigint;
+    assetOutIndex: bigint;
+    amount: bigint;
+    userData: Hex;
+}
 import { Chain } from '@prisma/client';
 import { addressesMatch, replaceZeroAddressWithEth } from '../../web3/addresses';
 import { GqlSorSwap } from '../../../apps/api/gql/generated-schema';

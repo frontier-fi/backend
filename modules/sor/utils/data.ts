@@ -1,5 +1,5 @@
 import { Cache } from 'memory-cache';
-import { Address, parseEther, parseUnits } from 'viem';
+import { Address, parseEther, parseUnits, zeroAddress as ZERO_ADDRESS } from 'viem';
 import { Chain, PrismaPoolType, PrismaToken } from '@prisma/client';
 
 import { prisma } from '../../../prisma/prisma-client';
@@ -9,7 +9,6 @@ import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { poolsToIgnore } from './constants';
 import { tokenService } from '../../token/token.service';
 import { env } from '../../../apps/env';
-import { ZERO_ADDRESS } from '@balancer/sdk';
 
 export type BufferPoolData = {
     poolId: string;

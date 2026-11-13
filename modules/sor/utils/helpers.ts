@@ -4,7 +4,7 @@ import { chainToChainId as chainToIdMap } from '../../../config/chain-id-to-chai
 import { GqlSorGetSwapPaths } from '../../../apps/api/gql/generated-schema';
 import { addressesMatch, replaceZeroAddressWithEth } from '../../web3/addresses';
 import { Address } from 'viem';
-import { Token, TokenAmount } from '@balancer/sdk';
+import { Token, TokenAmount } from '../lib/utils';
 import config from '../../../config';
 
 export async function getTokenAmountHuman(tokenAddr: string, humanAmount: string, chain: Chain): Promise<TokenAmount> {

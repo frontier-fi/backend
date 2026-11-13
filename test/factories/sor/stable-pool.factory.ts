@@ -1,12 +1,11 @@
 // stablePoolFactory.ts
 import { Factory } from 'fishery';
 import { faker } from '@faker-js/faker';
-import { Token, TokenAmount } from '@balancer/sdk';
 import { Chain } from '@prisma/client';
 import { parseEther, parseUnits, Address } from 'viem';
 import { TokenPairData } from '../../../modules/sources/contracts/v3/fetch-tokenpair-data';
 import { StablePoolV3 } from '../../../modules/sor/lib/poolsV3';
-import { PoolTokenWithRate } from '../../../modules/sor/lib/utils/poolTokenWithRate';
+import { PoolTokenWithRate, Token, TokenAmount } from '../../../modules/sor/lib/utils';
 import { LiquidityManagement } from '../../../modules/sor/types';
 import { HookState } from '@frontier-fi/maths';
 
