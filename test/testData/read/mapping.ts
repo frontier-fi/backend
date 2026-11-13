@@ -1,7 +1,8 @@
 import { Address, formatEther, formatUnits } from 'viem';
-import { isSameAddress, Token } from '@balancer/sdk';
 
+import { Token } from '@frontier-fi/maths';
 import { PoolTokenWithRate } from '../../../modules/sor/lib/utils';
+import { addressesMatch as isSameAddress } from '../../../modules/web3/addresses';
 import { PrismaPoolAndHookWithDynamic } from '../../../prisma/prisma-types';
 import { prismaPoolFactory, prismaPoolTokenFactory } from '../../factories';
 import { getDecimalsFromScalingFactor } from '../../utils';

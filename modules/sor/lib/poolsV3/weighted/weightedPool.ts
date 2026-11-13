@@ -1,6 +1,5 @@
 import { Address, Hex, parseEther } from 'viem';
-import { PoolType, Token, TokenAmount, WAD } from '@balancer/sdk';
-import { WeightedState, HookState } from '@frontier-fi/maths';
+import { WeightedState, HookState, Token, TokenAmount, WAD } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
@@ -88,7 +87,7 @@ export class WeightedPoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
         super(
             id,
             address,
-            PoolType.Weighted,
+            'Weighted',
             chain,
             swapFee,
             aggregateSwapFee,

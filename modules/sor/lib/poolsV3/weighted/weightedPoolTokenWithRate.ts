@@ -1,4 +1,4 @@
-import { BigintIsh, Token } from '@balancer/sdk';
+import { BigintIsh, Token } from '@frontier-fi/maths';
 import { PoolTokenWithRate } from '../../utils';
 
 export class WeightedPoolTokenWithRate extends PoolTokenWithRate {

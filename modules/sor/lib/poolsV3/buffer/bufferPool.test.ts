@@ -1,4 +1,4 @@
-import { SwapKind, Token, TokenAmount } from '@balancer/sdk';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { maxUint256 } from 'viem';
 import { BufferPool } from './bufferPool';
 import { BufferPoolData } from '../../../utils/data';

@@ -1,7 +1,6 @@
 import { Address, Hex, parseEther, parseUnits } from 'viem';
 
-import { PoolType, Token, TokenAmount } from '@balancer/sdk';
-import { HookState, GyroECLPState } from '@frontier-fi/maths';
+import { HookState, GyroECLPState, Token, TokenAmount, WAD } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
@@ -13,7 +12,7 @@ import { BasePoolMethodsV3 } from '../basePoolMethodsV3';
 
 import { LiquidityManagement } from '../../../types';
 import { DerivedGyroEParams, GyroEParams } from '../../gyroE/types';
-import { getHookState, PoolTokenWithRate, WAD } from '../../utils';
+import { getHookState, PoolTokenWithRate } from '../../utils';
 import { BasePoolV3 } from '../basePoolV3';
 
 type GyroPoolToken = PoolTokenWithRate;
@@ -113,7 +112,7 @@ export class GyroECLPPool extends BasePoolV3 implements BasePoolMethodsV3 {
         super(
             id,
             address,
-            PoolType.GyroE,
+            'GyroE',
             chain,
             swapFee,
             aggregateSwapFee,

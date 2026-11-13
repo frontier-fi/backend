@@ -1,4 +1,4 @@
-import { TokenAmount, SwapKind, Token } from '@balancer/sdk';
+import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { BasePool } from './basePool';
 import { BufferPool } from './poolsV3/buffer/bufferPool';
 

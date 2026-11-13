@@ -1,4 +1,4 @@
-import { Token } from '@balancer/sdk';
+import { Token } from '@frontier-fi/maths';
 import { BasePool } from '../basePool';
 
 export interface PoolTokenPair {

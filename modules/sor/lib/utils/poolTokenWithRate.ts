@@ -1,4 +1,4 @@
-import { BigintIsh, DECIMAL_SCALES, MathSol, Token, TokenAmount, WAD } from '@balancer/sdk';
+import { BigintIsh, DECIMAL_SCALES, MathSol, Token, TokenAmount, WAD } from '@frontier-fi/maths';
 import { BasePoolToken } from './basePoolToken';
 
 export class PoolTokenWithRate extends BasePoolToken {

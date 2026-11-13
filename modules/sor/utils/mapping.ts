@@ -6,15 +6,14 @@ import {
     GqlSorGetSwapPaths,
     GqlSorCallData,
     QuerySorGetSwapPathsArgs,
-    GqlPoolMinimal,
+    GqlSorSwap,
 } from '../../../apps/api/gql/generated-schema';
 import { aGqlPoolMinimal } from '../../../apps/api/gql/schema/__mocks__/graphql';
-import { SwapKind, TokenAmount, BatchSwapStep, DEFAULT_USERDATA, SingleSwap } from '@balancer/sdk';
+import { SwapKind, TokenAmount } from '@frontier-fi/maths';
 import { formatUnits } from 'viem';
 import { PathWithAmount } from '../lib/path';
 import { Chain } from '@prisma/client';
 import { addressesMatch, replaceZeroAddressWithEth } from '../../web3/addresses';
-import { GqlSorSwap } from '../../../apps/api/gql/generated-schema';
 import { calculatePriceImpact, getInputAmount, getOutputAmount } from '../lib/utils/helpers';
 import { GetSwapPathsInput } from '../types';
 import { getTokenAmountHuman } from './helpers';
@@ -206,77 +205,37 @@ function mapSingleSwap(path: PathWithAmount): GqlSorSwapRoute {
 }
 
 export function mapSwaps(paths: PathWithAmount[], swapKind: SwapKind): GqlSorSwap[] {
-    const swaps = getSwaps(paths, swapKind);
     const assets = [...new Set(paths.flatMap((p) => p.tokens).map((t) => t.address))];
+    const swaps: GqlSorSwap[] = [];
 
-    if (Array.isArray(swaps)) {
-        return swaps.map((swap) => ({
-            ...swap,
-            assetInIndex: Number(swap.assetInIndex.toString()),
-            assetOutIndex: Number(swap.assetOutIndex.toString()),
-            amount: swap.amount.toString(),
-        }));
-    } else {
-        const assetInIndex = assets.indexOf(swaps.assetIn);
-        const assetOutIndex = assets.indexOf(swaps.assetOut);
-        return [
-            {
-                ...swaps,
-                assetInIndex,
-                assetOutIndex,
-                amount: swaps.amount.toString(),
-                userData: swaps.userData,
-            },
-        ];
-    }
-}
-
-function getSwaps(paths: PathWithAmount[], swapKind: SwapKind): BatchSwapStep[] | SingleSwap {
-    const isBatchSwap = paths.length > 1 || paths[0].pools.length > 1;
-    const assets = [...new Set(paths.flatMap((p) => p.tokens).map((t) => t.address))];
-
-    if (isBatchSwap) {
-        const swaps: BatchSwapStep[] = [];
-
-        if (swapKind === SwapKind.GivenIn) {
-            paths.forEach((p) => {
-                p.pools.forEach((pool, i) => {
-                    swaps.push({
-                        poolId: pool.id,
-                        assetInIndex: BigInt(assets.indexOf(p.tokens[i].address)),
-                        assetOutIndex: BigInt(assets.indexOf(p.tokens[i + 1].address)),
-                        amount: i === 0 ? p.inputAmount.amount : 0n,
-                        userData: DEFAULT_USERDATA,
-                    });
-                });
-            });
-        } else {
-            paths.forEach((p) => {
-                // Vault expects given out swaps to be in reverse order
-                const reversedPools = [...p.pools].reverse();
-                const reversedTokens = [...p.tokens].reverse();
-                reversedPools.forEach((pool, i) => {
-                    swaps.push({
-                        poolId: pool.id,
-                        assetInIndex: BigInt(assets.indexOf(reversedTokens[i + 1].address)),
-                        assetOutIndex: BigInt(assets.indexOf(reversedTokens[i].address)),
-                        amount: i === 0 ? p.outputAmount.amount : 0n,
-                        userData: DEFAULT_USERDATA,
-                    });
+    if (swapKind === SwapKind.GivenIn) {
+        for (const p of paths) {
+            p.pools.forEach((pool, i) => {
+                swaps.push({
+                    poolId: pool.id,
+                    assetInIndex: assets.indexOf(p.tokens[i].address),
+                    assetOutIndex: assets.indexOf(p.tokens[i + 1].address),
+                    amount: (i === 0 ? p.inputAmount.amount : 0n).toString(),
+                    userData: '0x',
                 });
             });
         }
-        return swaps;
     } else {
-        const path = paths[0];
-        const pool = path.pools[0];
-        return {
-            poolId: pool.id,
-            kind: swapKind,
-            assetIn: path.tokens[0].address,
-            assetOut: path.tokens[1].address,
-            amount: path.swapAmount.amount,
-            userData: DEFAULT_USERDATA,
-        } as SingleSwap;
+        for (const p of paths) {
+            // Vault expects given out swaps to be in reverse order
+            const reversedPools = [...p.pools].reverse();
+            const reversedTokens = [...p.tokens].reverse();
+            reversedPools.forEach((pool, i) => {
+                swaps.push({
+                    poolId: pool.id,
+                    assetInIndex: assets.indexOf(reversedTokens[i + 1].address),
+                    assetOutIndex: assets.indexOf(reversedTokens[i].address),
+                    amount: (i === 0 ? p.outputAmount.amount : 0n).toString(),
+                    userData: '0x',
+                });
+            });
+        }
     }
+
+    return swaps;
 }
