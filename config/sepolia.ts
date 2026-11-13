@@ -60,7 +60,6 @@ export default <NetworkData>{
     },
     hooks: {},
     // Multicall3 from https://github.com/mds1/multicall deployments.json.
-    multicall: '0x25Eef291876194AeFAd0D60Dff89e268b90754Bb',
     multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
     aprHandlers: {
         ybAprHandler: {

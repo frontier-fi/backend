@@ -28,7 +28,12 @@ export function ContentController() {
             const chains = Object.keys(config) as Chain[];
 
             //sync coingecko Ids first, then override Ids from the content service
-            await new CoingeckoDataService().syncCoingeckoIds();
+            // A CoinGecko failure must not block the token list and blocklist sync.
+            try {
+                await new CoingeckoDataService().syncCoingeckoIds();
+            } catch (error) {
+                console.error('Failed to sync CoinGecko ids', error);
+            }
             await syncTokenContentData(chains);
         },
         async reloadAllTokenTypes(chain: Chain) {
