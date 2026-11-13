@@ -20,7 +20,7 @@ import { prisma } from '../../../prisma/prisma-client';
 import { Chain, Prisma, PrismaUserWalletBalance } from '@prisma/client';
 import { fixedNumber } from '../../view-helpers/fixed-number';
 import { EclpData, resolveStableAmp, StableData } from '../subgraph-pool';
-import { zeroAddress as ZERO_ADDRESS } from 'viem';
+import { zeroAddress } from 'viem';
 import { mapHookToGqlHook } from '../../sources/transformers';
 import { GraphQLError } from 'graphql';
 import { mapPoolToken, enrichWithErc4626Data, mapAprItems } from './pool-gql-mapper-helper';
@@ -61,7 +61,7 @@ export class PoolGqlLoaderService {
 
     private async enrichWithRateproviderData(mappedPool: GqlPoolMinimal | GqlPoolUnion) {
         for (const token of mappedPool.poolTokens) {
-            if (token.priceRateProvider && token.priceRateProvider !== ZERO_ADDRESS) {
+            if (token.priceRateProvider && token.priceRateProvider !== zeroAddress) {
                 const rateproviderData = await prisma.prismaPriceRateProviderData.findUnique({
                     where: {
                         chain_rateProviderAddress: {
@@ -96,7 +96,7 @@ export class PoolGqlLoaderService {
             }
             if (token.hasNestedPool) {
                 for (const nestedToken of token.nestedPool!.tokens) {
-                    if (nestedToken.priceRateProvider && nestedToken.priceRateProvider !== ZERO_ADDRESS) {
+                    if (nestedToken.priceRateProvider && nestedToken.priceRateProvider !== zeroAddress) {
                         const rateproviderData = await prisma.prismaPriceRateProviderData.findUnique({
                             where: {
                                 chain_rateProviderAddress: {
@@ -181,7 +181,7 @@ export class PoolGqlLoaderService {
                 // if a pool has a rateprovider that is non-zero address, it needs to have a review to be included in the results
                 return gqlPools.filter((pool) => {
                     for (const token of pool.poolTokens) {
-                        if (token.priceRateProvider && token.priceRateProvider !== ZERO_ADDRESS) {
+                        if (token.priceRateProvider && token.priceRateProvider !== zeroAddress) {
                             if (!token.priceRateProviderData?.reviewed) {
                                 return false;
                             }
@@ -276,7 +276,7 @@ export class PoolGqlLoaderService {
             // if a pool has a rateprovider that is non-zero address, it needs to have a review to be included in the results
             return gqlPools.filter((pool) => {
                 for (const token of pool.poolTokens) {
-                    if (token.priceRateProvider && token.priceRateProvider !== ZERO_ADDRESS) {
+                    if (token.priceRateProvider && token.priceRateProvider !== zeroAddress) {
                         if (!token.priceRateProviderData?.reviewed) {
                             return false;
                         }

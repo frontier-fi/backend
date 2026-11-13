@@ -1,4 +1,4 @@
-import { zeroAddress as ZERO_ADDRESS } from 'viem';
+import { zeroAddress } from 'viem';
 import { PrismaPoolDynamicData, PrismaPoolToken, PrismaPoolType } from '@prisma/client';
 
 type PoolWithTypeAndFactory = {
@@ -23,7 +23,7 @@ export function collectsYieldFee(pool: PoolWithTypeAndFactory) {
 }
 
 export function tokenCollectsYieldFee(token: PrismaPoolToken) {
-    return !token.exemptFromProtocolYieldFee && token.priceRateProvider && token.priceRateProvider !== ZERO_ADDRESS;
+    return !token.exemptFromProtocolYieldFee && token.priceRateProvider && token.priceRateProvider !== zeroAddress;
 }
 
 export function capturesYield(pool: PoolWithTypeAndFactory) {

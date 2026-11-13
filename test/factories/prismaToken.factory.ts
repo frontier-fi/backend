@@ -2,7 +2,7 @@ import { PrismaToken } from '@prisma/client';
 import { Factory } from 'fishery';
 import { createRandomAddress } from '../utils';
 import { PrismaPoolTokenWithDynamicData } from '../../prisma/prisma-types';
-import { zeroAddress as ZERO_ADDRESS } from 'viem';
+import { zeroAddress } from 'viem';
 
 export const prismaPoolTokenFactory = Factory.define<PrismaPoolTokenWithDynamicData>(({ sequence, params }) => {
     const tokenAddress = params?.address || createRandomAddress();
@@ -16,7 +16,7 @@ export const prismaPoolTokenFactory = Factory.define<PrismaPoolTokenWithDynamicD
         chain: 'SEPOLIA',
         index: sequence ? sequence - 1 : 0,
         nestedPoolId: null,
-        priceRateProvider: ZERO_ADDRESS,
+        priceRateProvider: zeroAddress,
         exemptFromProtocolYieldFee: false,
         token: prismaTokenFactory.build({ address: tokenAddress, decimals, chain }),
         balance: '10.000000000000000000',

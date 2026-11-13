@@ -1,4 +1,4 @@
-import { parseEther, parseUnits, zeroAddress as ZERO_ADDRESS } from 'viem';
+import { parseEther, parseUnits, zeroAddress } from 'viem';
 import { MathSol, WAD } from '../../../sor/lib/utils/math';
 import { ViemClient } from '../../types';
 import { ViemMulticallCall, multicallViem } from '../../../web3/multicaller-viem';
@@ -237,7 +237,7 @@ function addEffectivePriceCallsToMulticaller(
             address: balancerRouterAddress as `0x${string}`,
             functionName: 'queryRemoveLiquiditySingleTokenExactIn',
             abi: BalancerRouterAbi,
-            args: [tokenPair.poolId, tokenPair.effectivePriceAmountIn, tokenPair.tokenB.address, ZERO_ADDRESS, '0x'],
+            args: [tokenPair.poolId, tokenPair.effectivePriceAmountIn, tokenPair.tokenB.address, zeroAddress, '0x'],
         });
     } else {
         multicaller.push({
@@ -250,7 +250,7 @@ function addEffectivePriceCallsToMulticaller(
                 tokenPair.tokenA.address,
                 tokenPair.tokenB.address,
                 tokenPair.effectivePriceAmountIn,
-                ZERO_ADDRESS,
+                zeroAddress,
                 '0x',
             ],
         });
@@ -269,7 +269,7 @@ function addAToBPriceCallsToMulticaller(
             address: balancerRouterAddress as `0x${string}`,
             functionName: 'queryRemoveLiquiditySingleTokenExactIn',
             abi: BalancerRouterAbi,
-            args: [tokenPair.poolId, tokenPair.aToBAmountIn, tokenPair.tokenB.address, ZERO_ADDRESS, '0x'],
+            args: [tokenPair.poolId, tokenPair.aToBAmountIn, tokenPair.tokenB.address, zeroAddress, '0x'],
         });
     } else {
         multicaller.push({
@@ -282,7 +282,7 @@ function addAToBPriceCallsToMulticaller(
                 tokenPair.tokenA.address,
                 tokenPair.tokenB.address,
                 tokenPair.aToBAmountIn,
-                ZERO_ADDRESS,
+                zeroAddress,
                 '0x',
             ],
         });
@@ -303,7 +303,7 @@ function addBToAPriceCallsToMulticaller(
             address: balancerRouterAddress as `0x${string}`,
             functionName: 'queryAddLiquidityUnbalanced',
             abi: BalancerRouterAbi,
-            args: [tokenPair.poolId, amountsIn, ZERO_ADDRESS, `0x`],
+            args: [tokenPair.poolId, amountsIn, zeroAddress, `0x`],
         });
     } else {
         multicaller.push({
@@ -316,7 +316,7 @@ function addBToAPriceCallsToMulticaller(
                 tokenPair.tokenB.address,
                 tokenPair.tokenA.address,
                 `${tokenPair.aToBAmountOut}`,
-                ZERO_ADDRESS,
+                zeroAddress,
                 `0x`,
             ],
         });

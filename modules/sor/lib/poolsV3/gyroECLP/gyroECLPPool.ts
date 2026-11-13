@@ -2,7 +2,6 @@ import { Address, Hex, parseEther, parseUnits } from 'viem';
 
 import { HookState, GyroECLPState } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
-import { PoolType } from '../../types';
 import { Token, TokenAmount } from '../../utils';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
@@ -114,7 +113,7 @@ export class GyroECLPPool extends BasePoolV3 implements BasePoolMethodsV3 {
         super(
             id,
             address,
-            PoolType.GyroE,
+            'GyroE',
             chain,
             swapFee,
             aggregateSwapFee,

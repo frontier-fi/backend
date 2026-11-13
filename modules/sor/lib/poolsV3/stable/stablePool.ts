@@ -1,7 +1,6 @@
 import { Address, Hex, parseEther, parseUnits } from 'viem';
 import { StableState, HookState } from '@frontier-fi/maths';
 import { Chain } from '@prisma/client';
-import { PoolType } from '../../types';
 import { Token } from '../../utils';
 
 import { PrismaPoolAndHookWithDynamic } from '../../../../../prisma/prisma-types';
@@ -83,7 +82,7 @@ export class StablePoolV3 extends BasePoolV3 implements BasePoolMethodsV3 {
         super(
             id,
             address,
-            PoolType.Stable,
+            'Stable',
             chain,
             swapFee,
             aggregateSwapFee,

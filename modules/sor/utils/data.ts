@@ -1,5 +1,5 @@
 import { Cache } from 'memory-cache';
-import { Address, parseEther, parseUnits, zeroAddress as ZERO_ADDRESS } from 'viem';
+import { Address, parseEther, parseUnits, zeroAddress } from 'viem';
 import { Chain, PrismaPoolType, PrismaToken } from '@prisma/client';
 
 import { prisma } from '../../../prisma/prisma-client';
@@ -71,7 +71,7 @@ export async function getBasePoolsFromDb(
                 (token) =>
                     !blockedAddresses.has(token.address.toLowerCase()) &&
                     (!token.priceRateProvider ||
-                        token.priceRateProvider === ZERO_ADDRESS ||
+                        token.priceRateProvider === zeroAddress ||
                         safeProviderAddresses.has(token.priceRateProvider.toLowerCase())),
             ),
         )

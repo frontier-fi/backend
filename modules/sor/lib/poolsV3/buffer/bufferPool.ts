@@ -1,4 +1,4 @@
-import { Address, Hex, maxUint256 as MAX_UINT256 } from 'viem';
+import { Address, Hex, maxUint256 } from 'viem';
 import { BufferState, DEFAULT_MINIMUM_WRAP_AMOUNT, SwapKind } from '@frontier-fi/maths';
 import { Token, TokenAmount } from '../../utils';
 
@@ -112,7 +112,7 @@ export class BufferPool implements BasePoolMethodsV3 {
     }
 
     public getNormalizedLiquidity(tokenIn: Token, tokenOut: Token): bigint {
-        return MAX_UINT256;
+        return maxUint256;
     }
 
     public getLimitAmountSwap(tokenIn: Token, tokenOut: Token, swapKind: SwapKind): bigint {
@@ -142,7 +142,7 @@ export class BufferPool implements BasePoolMethodsV3 {
             }
         }
 
-        return MathSol.min(MathSol.max(bufferLimit, externalLimit), MAX_UINT256);
+        return MathSol.min(MathSol.max(bufferLimit, externalLimit), maxUint256);
     }
 
     public swapGivenIn(
@@ -227,7 +227,7 @@ export class BufferPool implements BasePoolMethodsV3 {
                 if (deposit < 0n || deposit > this.maxDeposit) {
                     throw new Error('Buffer deposit capacity exceeded');
                 }
-                if (this.maxDeposit < MAX_UINT256) {
+                if (this.maxDeposit < maxUint256) {
                     this.maxDeposit -= deposit;
                 }
                 underlyingTokenAmount.amount += inputAmount.amount - deposit;
@@ -252,7 +252,7 @@ export class BufferPool implements BasePoolMethodsV3 {
                 if (withdrawal < 0n || withdrawal > this.maxWithdraw) {
                     throw new Error('Buffer withdrawal capacity exceeded');
                 }
-                if (this.maxWithdraw < MAX_UINT256) {
+                if (this.maxWithdraw < maxUint256) {
                     this.maxWithdraw -= withdrawal;
                 }
                 underlyingTokenAmount.amount += withdrawal - outputAmount.amount;

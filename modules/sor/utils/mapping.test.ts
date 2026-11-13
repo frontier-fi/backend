@@ -89,6 +89,15 @@ describe('SOR mapping utils', () => {
         expect(result.routes[0].tokenInAmount).toBe('25');
         expect(result.routes[0].tokenOutAmount).toBe('0.01');
         expect(result.routes[0].hops[0].tokenOutAmount).toBe('0.01');
+        expect(result.swaps).toEqual([
+            {
+                poolId: '0x0000000000000000000000000000000000000001',
+                assetInIndex: 0,
+                assetOutIndex: 1,
+                amount: '25000000',
+                userData: '0x',
+            },
+        ]);
     });
 
     it('calculates proportional route shares for split batch swaps', () => {

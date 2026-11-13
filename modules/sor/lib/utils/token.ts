@@ -1,11 +1,7 @@
 import { Address } from 'viem';
 
+// Interim local copy until @frontier-fi/maths@0.2.0 is published (frontier-fi/maths#10)
 export type BigintIsh = bigint | string | number;
-
-export type InputToken = {
-    address: Address;
-    decimals: number;
-};
 
 export class Token {
     public readonly chainId: number;
@@ -16,7 +12,6 @@ export class Token {
 
     public constructor(chainId: number, address: Address, decimals: number, symbol?: string, name?: string) {
         this.chainId = chainId;
-        // Addresses are always lowercased for speed
         this.address = address.toLowerCase() as Address;
         this.decimals = decimals;
         this.symbol = symbol;
@@ -29,12 +24,5 @@ export class Token {
 
     public isSameAddress(address: Address) {
         return this.address === address.toLowerCase();
-    }
-
-    public toInputToken(): InputToken {
-        return {
-            address: this.address,
-            decimals: this.decimals,
-        };
     }
 }
