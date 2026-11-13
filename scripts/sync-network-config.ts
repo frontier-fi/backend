@@ -196,10 +196,10 @@ function contractsBlock(contracts: Record<string, string>): string {
 function upsertContracts(source: string, contracts: Record<string, string>): string {
     const block = contractsBlock(contracts);
     const withComment =
-        /^    \/\/ Active addresses from frontier-fi\/deployments.*\n    contracts: \{[\s\S]*?\n    \},/m;
+        /^    \/\/ Active addresses from frontier-fi\/deployments.*\n    contracts: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (withComment.test(source)) return source.replace(withComment, block);
 
-    const bare = /^    contracts: \{[\s\S]*?\n    \},/m;
+    const bare = /^    contracts: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (bare.test(source)) return source.replace(bare, block);
 
     const anchor = source.match(/^    hooks: \{/m);
@@ -219,10 +219,10 @@ function vaultParamsBlock(vaultParams: { minTradeAmount: bigint; minWrapAmount: 
 
 function upsertVaultParams(source: string, vaultParams: { minTradeAmount: bigint; minWrapAmount: bigint }): string {
     const block = vaultParamsBlock(vaultParams);
-    const withComment = /^    \/\/ Immutable Vault parameters.*\n    vaultParams: \{[\s\S]*?\n    \},/m;
+    const withComment = /^    \/\/ Immutable Vault parameters.*\n    vaultParams: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (withComment.test(source)) return source.replace(withComment, block);
 
-    const bare = /^    vaultParams: \{[\s\S]*?\n    \},/m;
+    const bare = /^    vaultParams: \{(?:\}|[\s\S]*?\n    \}),/m;
     if (bare.test(source)) return source.replace(bare, block);
 
     const anchor = source.match(/^    hooks: \{/m);
