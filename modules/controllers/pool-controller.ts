@@ -224,11 +224,16 @@ export function PoolController(tracer?: any) {
                     );
                     hasBufferUpdates = true;
                 }
+            } else if (fromBlock <= 1) {
+                // No POOLS_V3 checkpoint: a fresh database or an admin reset. Resync every known pool
+                // at latestBlock instead of scanning RPC logs from genesis.
+                changedIds = (
+                    await prisma.prismaPool.findMany({
+                        where: { chain, protocolVersion: 3 },
+                        select: { id: true },
+                    })
+                ).map(({ id }) => id.toLowerCase());
             } else {
-                // Don't scan RPC logs from genesis when POOLS_V3 hasn't been synced yet
-                if (fromBlock <= 1) {
-                    return [];
-                }
                 const rpcMaxBlockRange = config[chain].rpcMaxBlockRange;
                 const range = Number(latestBlock) - fromBlock;
                 const numBatches = Math.ceil(range / rpcMaxBlockRange);
