@@ -23,7 +23,14 @@ import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 import { logger } from '../common/logger';
 
 const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
-const pendingResyncByChain = new Map<Chain, string>();
+export const PENDING_RESYNC_REMINDER_MS = 3 * 60_000;
+
+interface PendingResyncLogState {
+    key: string;
+    lastLoggedAt: number;
+}
+
+const pendingResyncByChain = new Map<Chain, PendingResyncLogState>();
 const MAX_LOGGED_POOL_IDS = 5;
 
 /**
@@ -44,31 +51,39 @@ export function logPoolSyncSourceChange(
 
 /**
  * Pending pool resyncs retry on every run by design (30s in production, 5m on staging).
- * Log only when the set of failing pools changes (and when it recovers back to empty) as
- * warn/info JSON so stuck pools cannot flood error alerts.
+ * Logs when the failing set changes, every 3m while non-empty (feeding Better Stack's
+ * stuck-pool metric/alert), and once on recovery back to empty; silent while healthy.
  */
-export function logPoolPendingResyncChange(chain: Chain, failedPoolIds: readonly string[]) {
+export function logPoolPendingResyncChange(chain: Chain, failedPoolIds: readonly string[], nowMs: number = Date.now()) {
     const sortedIds = [...new Set(failedPoolIds.map((id) => id.toLowerCase()))].sort();
     const key = sortedIds.join(',');
-    const previous = pendingResyncByChain.get(chain) ?? '';
-    if (previous === key) {
+    const previous = pendingResyncByChain.get(chain);
+    const previousKey = previous?.key ?? '';
+
+    if (sortedIds.length === 0) {
+        if (previousKey === '') {
+            return;
+        }
+        pendingResyncByChain.set(chain, { key: '', lastLoggedAt: nowMs });
+        logger.info('Recovered all pools pending resync', { event: 'pool-sync-retry', chain, failedPools: 0 });
         return;
     }
-    pendingResyncByChain.set(chain, key);
-    if (sortedIds.length > 0) {
-        const failedPools = sortedIds.length;
-        const poolIds = sortedIds.slice(0, MAX_LOGGED_POOL_IDS);
-        const omittedPools = failedPools - poolIds.length;
-        logger.warn('Pools pending resync on next run', {
-            event: 'pool-sync-retry',
-            chain,
-            failedPools,
-            poolIds,
-            ...(omittedPools > 0 ? { omittedPools } : {}),
-        });
-    } else {
-        logger.info('Recovered all pools pending resync', { event: 'pool-sync-retry', chain, failedPools: 0 });
+
+    if (previousKey === key && previous !== undefined && nowMs - previous.lastLoggedAt < PENDING_RESYNC_REMINDER_MS) {
+        return;
     }
+
+    pendingResyncByChain.set(chain, { key, lastLoggedAt: nowMs });
+    const failedPools = sortedIds.length;
+    const poolIds = sortedIds.slice(0, MAX_LOGGED_POOL_IDS);
+    const omittedPools = failedPools - poolIds.length;
+    logger.warn('Pools pending resync on next run', {
+        event: 'pool-sync-retry',
+        chain,
+        failedPools,
+        poolIds,
+        ...(omittedPools > 0 ? { omittedPools } : {}),
+    });
 }
 
 export function PoolController(tracer?: any) {
@@ -325,8 +340,9 @@ export function PoolController(tracer?: any) {
                 where: { chain, pendingResync: true },
                 select: { poolId: true },
             });
-            const alreadyPendingIds = new Set(pendingResync.map(({ poolId }) => poolId.toLowerCase()));
-            changedIds = Array.from(new Set([...changedIds, ...alreadyPendingIds]));
+            changedIds = Array.from(
+                new Set([...changedIds, ...pendingResync.map(({ poolId }) => poolId.toLowerCase())]),
+            );
 
             if (changedIds.length === 0) {
                 logPoolPendingResyncChange(chain, []);
@@ -341,7 +357,7 @@ export function PoolController(tracer?: any) {
                 select: { id: true, type: true, version: true, hook: true, typeData: true },
             })) as PoolWithMappedJsonFields[];
 
-            const ids = await syncPoolsV3(dbPools, chain, vaultAddress, viemClient, latestBlock, alreadyPendingIds);
+            const ids = await syncPoolsV3(dbPools, chain, vaultAddress, viemClient, latestBlock);
             const updated = new Set(ids);
             const failed = dbPools.map(({ id }) => id).filter((id) => !updated.has(id));
             // Flag failures before the checkpoint moves past them, so a restart still retries them.

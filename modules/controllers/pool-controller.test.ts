@@ -126,7 +126,6 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
             expect.any(String),
             expect.anything(),
             rpcHead,
-            new Set(),
         );
         expect(mockSyncTokenPairs).toHaveBeenLastCalledWith(['0xpoola'], expect.anything(), expect.any(String), 'BASE');
         expect(mockUpsertLastSyncedBlock).toHaveBeenLastCalledWith('BASE', 'POOLS_V3', rpcHead);
@@ -147,7 +146,6 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
             expect.any(String),
             expect.anything(),
             rpcHead,
-            new Set(['0xpoolb']),
         );
         expect([...pendingResync]).toEqual([]);
         expect(mockPoolFindMany).toHaveBeenLastCalledWith(
@@ -213,21 +211,41 @@ describe('logPoolSyncSourceChange', () => {
 });
 
 describe('logPoolPendingResyncChange', () => {
-    it('logs warn JSON when the failing pool set changes, caps listed IDs, and logs info JSON on recovery', async () => {
+    it('logs warn JSON on changes and 3m reminders while stuck, caps listed IDs, and logs info JSON once on recovery', async () => {
         vi.resetModules();
-        const { logPoolPendingResyncChange } = await import('./pool-controller');
+        const { logPoolPendingResyncChange, PENDING_RESYNC_REMINDER_MS } = await import('./pool-controller');
         const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
         const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-        logPoolPendingResyncChange('BASE', []);
-        logPoolPendingResyncChange('BASE', ['0xpoolb', '0xpoola']);
-        logPoolPendingResyncChange('BASE', ['0xpoola', '0xpoolb']);
-        logPoolPendingResyncChange('BASE', ['0xpoolb', '0xpoolc']);
-        logPoolPendingResyncChange('BASE', ['0xp1', '0xp2', '0xp3', '0xp4', '0xp5', '0xp6', '0xp7']);
-        logPoolPendingResyncChange('BASE', []);
-        logPoolPendingResyncChange('BASE', []);
+        // Healthy initial state stays silent.
+        logPoolPendingResyncChange('BASE', [], 0);
+        // Set enters pendingResync -> logs immediately.
+        logPoolPendingResyncChange('BASE', ['0xpoolb', '0xpoola'], 1_000);
+        // Unchanged set before reminder interval -> stays silent.
+        logPoolPendingResyncChange('BASE', ['0xpoola', '0xpoolb'], 31_000);
+        // Unchanged set at reminder interval -> re-emits warn reminder.
+        logPoolPendingResyncChange('BASE', ['0xpoola', '0xpoolb'], 1_000 + PENDING_RESYNC_REMINDER_MS);
+        // Set changes shortly after -> logs immediately regardless of reminder interval.
+        logPoolPendingResyncChange('BASE', ['0xpoolb', '0xpoolc'], 2_000 + PENDING_RESYNC_REMINDER_MS);
+        // Larger set caps listed IDs and reports omittedPools.
+        logPoolPendingResyncChange(
+            'BASE',
+            ['0xp1', '0xp2', '0xp3', '0xp4', '0xp5', '0xp6', '0xp7'],
+            3_000 + PENDING_RESYNC_REMINDER_MS,
+        );
+        // Recovery logs once; subsequent empty runs stay silent even well past reminder interval.
+        logPoolPendingResyncChange('BASE', [], 4_000 + PENDING_RESYNC_REMINDER_MS);
+        logPoolPendingResyncChange('BASE', [], 4_000 + PENDING_RESYNC_REMINDER_MS * 3);
 
         expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            {
+                level: 'warn',
+                message: 'Pools pending resync on next run',
+                event: 'pool-sync-retry',
+                chain: 'BASE',
+                failedPools: 2,
+                poolIds: ['0xpoola', '0xpoolb'],
+            },
             {
                 level: 'warn',
                 message: 'Pools pending resync on next run',
