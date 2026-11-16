@@ -68,11 +68,15 @@ const tokensPerMinute = env.COINGECKO_API_KEY ? 10 : 3;
 const requestRateLimiter = new RateLimiter({ tokensPerInterval: tokensPerMinute, interval: 'minute' });
 //max 10 addresses per request because of URI size limit, pro is max 180 because of URI limit
 const addressChunkSize = env.COINGECKO_API_KEY ? 180 : 20;
+export const COIN_LIST_CACHE_TTL_MS = 24 * 60 * 60_000;
+
 export class CoingeckoDataService {
     private readonly apiKey: string;
     private readonly fiatParam = 'usd';
     /** Demo keys are rejected by pro-api.coingecko.com with error 10011. */
     private useDemoApi = false;
+    private cachedCoinMap?: { expiresAt: number; map: Map<string, string> };
+    private checkedMissingUntil = new Map<string, number>();
 
     constructor() {
         this.apiKey = env.COINGECKO_API_KEY ?? '';
@@ -89,64 +93,104 @@ export class CoingeckoDataService {
         return { 'x-cg-pro-api-key': this.apiKey };
     }
 
-    public async syncCoingeckoIds() {
-        // Q: Do coingecko IDs change?
-        const allTokens = await prisma.prismaToken.findMany({
-            where: {
-                OR: [{ coingeckoTokenId: null }, { coingeckoPlatformId: null }],
-                AND: {
-                    chain: {
-                        not: 'SEPOLIA',
-                    },
-                },
-            },
-        });
-
-        // Sepolia is not in CoinGecko and is excluded above. Skip the coin-list
-        // request when there is nothing to map.
-        if (allTokens.length === 0) {
-            return;
+    private async getPlatformCoinMap(
+        nowMs: number,
+        platformToChain: Record<string, Chain>,
+    ): Promise<{ expiresAt: number; map: Map<string, string> }> {
+        if (this.cachedCoinMap && this.cachedCoinMap.expiresAt > nowMs) {
+            return this.cachedCoinMap;
         }
 
         const coinIds = await this.getCoinIdList();
-        const platformToChain = Object.fromEntries(
-            Object.entries(config)
-                .filter(([chain, _]) => chain !== 'SEPOLIA') // Sepolia is not in CG
-                .map(([chain, chainConfig]) => [chainConfig.coingecko.platformId, chain]),
-        );
-        const coinMap = coinIds.reduce(
-            (acc, coin) => {
-                for (const [platform, address] of Object.entries(coin.platforms)) {
-                    if (platformToChain[platform]) {
-                        // tokenAddress-chain
-                        acc[`${address.toLowerCase()}-${platformToChain[platform]}`] = coin.id;
-                    }
+        const map = new Map<string, string>();
+        for (const coin of coinIds) {
+            for (const [platform, address] of Object.entries(coin.platforms)) {
+                const chain = platformToChain[platform];
+                if (chain && address) {
+                    map.set(`${address.toLowerCase()}-${chain}`, coin.id);
                 }
-                return acc;
-            },
-            {} as Record<string, string>,
+            }
+        }
+
+        for (const [key, expiresAt] of this.checkedMissingUntil) {
+            if (expiresAt <= nowMs) {
+                this.checkedMissingUntil.delete(key);
+            }
+        }
+
+        this.cachedCoinMap = { expiresAt: nowMs + COIN_LIST_CACHE_TTL_MS, map };
+        return this.cachedCoinMap;
+    }
+
+    public async syncCoingeckoIds(nowMs: number = Date.now()) {
+        const cgChains = (Object.keys(config) as Chain[]).filter(
+            (chain) => chain !== 'SEPOLIA' && Boolean(config[chain]?.coingecko?.platformId),
+        );
+        if (cgChains.length === 0) {
+            return;
+        }
+
+        const excludedByConfig = new Set(
+            cgChains.flatMap((chain) =>
+                (config[chain].coingecko.excludedTokenAddresses ?? []).map(
+                    (address) => `${address.toLowerCase()}-${chain}`,
+                ),
+            ),
         );
 
-        const updates = allTokens
-            .map((token) => {
-                const coingeckoTokenId = coinMap[`${token.address}-${token.chain}`];
-                const coingeckoPlatformId = config[token.chain].coingecko.platformId;
+        const candidateTokens = await prisma.prismaToken.findMany({
+            where: {
+                chain: { in: cgChains },
+                coingeckoTokenId: null,
+                excludedFromCoingecko: false,
+                types: { none: { type: 'BPT' } },
+            },
+            select: {
+                address: true,
+                chain: true,
+                coingeckoTokenId: true,
+            },
+        });
 
-                if (token.coingeckoTokenId !== coingeckoTokenId || token.coingeckoPlatformId !== coingeckoPlatformId) {
-                    return prisma.prismaToken.update({
+        const uncheckedTokens = candidateTokens.filter((token) => {
+            const key = `${token.address.toLowerCase()}-${token.chain}`;
+            if (excludedByConfig.has(key)) {
+                return false;
+            }
+            const missingUntil = this.checkedMissingUntil.get(key);
+            return missingUntil === undefined || missingUntil <= nowMs;
+        });
+
+        if (uncheckedTokens.length === 0) {
+            return;
+        }
+
+        const platformToChain = Object.fromEntries(
+            cgChains.map((chain) => [config[chain].coingecko.platformId, chain]),
+        ) as Record<string, Chain>;
+        const { expiresAt, map } = await this.getPlatformCoinMap(nowMs, platformToChain);
+
+        const updates = [];
+        for (const token of uncheckedTokens) {
+            const key = `${token.address.toLowerCase()}-${token.chain}`;
+            const coingeckoTokenId = map.get(key);
+            if (coingeckoTokenId) {
+                updates.push(
+                    prisma.prismaToken.update({
                         where: {
                             address_chain: { address: token.address, chain: token.chain },
                         },
-                        data: {
-                            coingeckoTokenId,
-                            coingeckoPlatformId,
-                        },
-                    });
-                }
-            })
-            .filter((update): update is NonNullable<typeof update> => !!update);
+                        data: { coingeckoTokenId },
+                    }),
+                );
+            } else {
+                this.checkedMissingUntil.set(key, expiresAt);
+            }
+        }
 
-        await prisma.$transaction(updates);
+        if (updates.length > 0) {
+            await prisma.$transaction(updates);
+        }
     }
 
     async tokenPrice(chain: Chain, tokens: string[]) {
