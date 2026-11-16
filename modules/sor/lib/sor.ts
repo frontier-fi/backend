@@ -11,6 +11,7 @@ import { SorSwapOptions } from './types';
 import { PathWithAmount } from './path';
 import { BufferPool, GyroECLPPool, StablePoolV3, WeightedPoolV3 } from './poolsV3';
 import { BufferPoolData } from '../utils/data';
+import { logger } from '../../common/logger';
 
 export class SOR {
     private static readonly prismaPoolCache = new WeakMap<
@@ -53,7 +54,6 @@ export class SOR {
                 continue;
             }
             if (!isLiquidityManagement(prismaPool.liquidityManagement)) {
-                console.log('LiquidityManagement incorrect for pool', prismaPool.id);
                 continue;
             }
             try {
@@ -94,7 +94,6 @@ export class SOR {
                         pool = GyroECLPPool.fromPrismaPool(prismaPool);
                         break;
                     default:
-                        console.log('Unsupported pool type');
                         break;
                 }
                 if (pool) {
@@ -103,7 +102,11 @@ export class SOR {
                 }
             } catch (e: any) {
                 // Do nothing, just skip the pool
-                console.error('Skipping pool', prismaPool.id, prismaPool.chain, e.message);
+                logger.warn('Skipped malformed pool in SOR', {
+                    chain: prismaPool.chain,
+                    poolId: prismaPool.id,
+                    err: e,
+                });
             }
         }
 

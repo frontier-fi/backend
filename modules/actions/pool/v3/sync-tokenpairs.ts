@@ -3,6 +3,7 @@ import { prisma } from '../../../../prisma/prisma-client';
 import { ViemClient } from '../../../sources/viem-client';
 import { fetchTokenPairData } from '../../../sources/contracts/v3/fetch-tokenpair-data';
 import { prismaBulkExecuteOperations } from '../../../../prisma/prisma-util';
+import { logger } from '../../../common/logger';
 
 /**
  * Syncs all the token pair data for the given pool ids
@@ -49,7 +50,7 @@ export const syncTokenPairs = async (
                 }),
             );
         } catch (e) {
-            console.error('Error upserting pool', e);
+            logger.error('Failed to prepare pool token-pair update', { chain, poolId, err: e });
         }
     }
 

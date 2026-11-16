@@ -1,6 +1,7 @@
 import { ApolloServer } from '@apollo/server';
 import { GraphQLError } from 'graphql';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '../../../modules/common/logger';
 import { schema } from '../gql/generated-schema-ast';
 import { ResolverContext } from '../gql/resolver-context';
 import { apolloErrorLoggerPlugin } from './error-logger';
@@ -11,7 +12,7 @@ describe('apolloErrorLoggerPlugin', () => {
     });
 
     it('logs unexpected resolver errors to stderr and skips client errors', async () => {
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
         const failure = new Error('database connection reset');
 
         const server = new ApolloServer<ResolverContext>({
@@ -40,7 +41,10 @@ describe('apolloErrorLoggerPlugin', () => {
             { query: 'query CountPools { poolGetPoolsCount }' },
             { contextValue: { adminApiKey: null, req: {} as ResolverContext['req'] } },
         );
-        expect(errorSpy).toHaveBeenCalledWith('GraphQL error in CountPools:', failure);
+        expect(errorSpy).toHaveBeenCalledWith('GraphQL execution error', {
+            operationName: 'CountPools',
+            err: failure,
+        });
 
         await server.stop();
     });

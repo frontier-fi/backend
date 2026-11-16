@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '../../../../modules/common/logger';
 import { sorProxyUrl } from './sor.resolvers';
 
 describe('sorProxyUrl', () => {
@@ -33,7 +34,7 @@ describe('sorProxyUrl', () => {
         ['http://[::1]:4000/graphql', 4000],
         ['http://localhost/graphql', 80],
     ])('quotes in process instead of proxying to itself at %s', (url, port) => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
 
         expect(sorProxyUrl({ SOR_INSTANCE: false, SOR_SERVICE_URL: url, PORT: port })).toBe(undefined);
         expect(warn).toHaveBeenCalledOnce();

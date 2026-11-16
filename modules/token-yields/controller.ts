@@ -2,6 +2,7 @@ import { Chain } from '@prisma/client';
 import config from '../../config';
 import { TokenYieldsService } from './service';
 import { TokenYieldConfig } from './types';
+import { logger } from '../common/logger';
 
 const fetchAndStoreAllYields = async () => {
     const configs = Object.fromEntries(
@@ -18,7 +19,7 @@ const fetchAndStoreAllYields = async () => {
         try {
             await s.fetchAndStoreYields(configs[chain], chain);
         } catch (e: any) {
-            console.error(e);
+            logger.error('Failed to fetch and store token yields', { chain, err: e });
         }
     }
 };

@@ -8,6 +8,7 @@ import { blockNumbers } from '../../block-numbers';
 import { getViemClient } from '../../sources/viem-client';
 import { formatEther, formatUnits, parseAbi } from 'viem/utils';
 import config from '../../../config';
+import { logger } from '../../common/logger';
 
 export async function reloadSnapshots(chain: Chain, poolId: string): Promise<void> {
     const pool = await prisma.prismaPool.findUniqueOrThrow({
@@ -312,10 +313,13 @@ async function getTotalSharesAtBlocks(
                     value: formatEther(result as bigint),
                 };
             } catch (error) {
-                console.error(
-                    `Failed to get total shares for pool ${pool.id} at block ${block.number} (timestamp: ${block.timestamp}):`,
-                    error,
-                );
+                logger.error('Failed to fetch pool total shares for snapshot', {
+                    chain: pool.chain,
+                    poolId: pool.id,
+                    blockNumber: block.number,
+                    timestamp: block.timestamp,
+                    err: error,
+                });
                 return {
                     timestamp: block.timestamp,
                     value: '0',
@@ -386,10 +390,13 @@ async function getPoolTokenBalancesAtBlocks(
                     tokens,
                 };
             } catch (error) {
-                console.error(
-                    `Failed to get pool token balances for pool ${pool.id} at block ${block.number} (timestamp: ${block.timestamp}):`,
-                    error,
-                );
+                logger.error('Failed to fetch pool token balances for snapshot', {
+                    chain: pool.chain,
+                    poolId: pool.id,
+                    blockNumber: block.number,
+                    timestamp: block.timestamp,
+                    err: error,
+                });
                 return {
                     timestamp: block.timestamp,
                     tokens: [],

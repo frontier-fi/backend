@@ -16,10 +16,13 @@ function fakeQueue(answer: (name: string) => Promise<void> = async () => undefin
 }
 
 describe('scheduleJobs', () => {
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
     beforeEach(() => {
         vi.useFakeTimers();
-        vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     });
 
     afterEach(() => {
@@ -80,7 +83,17 @@ describe('scheduleJobs', () => {
 
         await vi.advanceTimersByTimeAsync(2_000);
         expect(send).toHaveBeenCalledTimes(3);
-        expect(console.error).toHaveBeenCalledTimes(2);
+        expect(stderrSpy).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(String(stderrSpy.mock.calls[1][0]))).toMatchObject({
+            level: 'error',
+            message: 'Failed to dispatch job to worker',
+            name: 'job',
+            chain: '1',
+            status: 'send-failed',
+            error: 'connect ECONNREFUSED',
+        });
+        const stdoutText = stdoutSpy.mock.calls.map(([line]: unknown[]) => String(line)).join('');
+        expect(stdoutText).not.toContain('Sent job');
     });
 
     it('sends nothing after stop, neither jobs waiting for their first run nor the next run of a running one', async () => {

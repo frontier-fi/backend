@@ -11,6 +11,7 @@ import {
     WorkerRouteOptions,
     WorkerRoutes,
 } from './job-handlers';
+import { env } from '../env';
 
 const SEPOLIA_ID = '11155111';
 
@@ -84,10 +85,18 @@ describe('worker route', () => {
         }
     });
 
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
     beforeEach(() => {
         for (const name of Object.keys(handlers)) delete handlers[name];
-        vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+        stdoutSpy.mockRestore();
+        stderrSpy.mockRestore();
     });
 
     it('answers the health check', async () => {
@@ -114,6 +123,110 @@ describe('worker route', () => {
 
         expect(result.status).toBe(200);
         expect(result.body).toMatchObject({ status: 'failed', error: 'rpc down' });
+    });
+
+    it('logs one JSON line per job with its name and chain', async () => {
+        handlers['sync-pools-v3'] = async () => undefined;
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(stdoutSpy.mock.calls[0][0]))).toMatchObject({
+            level: 'info',
+            message: 'Worker job finished',
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'done',
+            durationSeconds: expect.any(Number),
+        });
+    });
+
+    it('logs a failed job to stderr with its stack and without the RPC key', async () => {
+        const previousKey = env.DRPC_API_KEY;
+        env.DRPC_API_KEY = 'secret-drpc-key';
+        handlers['sync-pools-v3'] = async () => {
+            const err = new Error('HTTP request failed. URL: https://lb.drpc.live/base/secret-drpc-key');
+            err.stack = [
+                'Error: HTTP request failed. URL: https://lb.drpc.live/base/secret-drpc-key',
+                '    at fetchJson (https://lb.drpc.live/base/secret-drpc-key:10:5)',
+            ].join('\n');
+            throw err;
+        };
+
+        try {
+            const result = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+            const line = String(stderrSpy.mock.calls[0][0]).trimEnd();
+            expect(line).not.toContain('secret-drpc-key');
+            const parsed = JSON.parse(line);
+            expect(parsed).toMatchObject({
+                level: 'error',
+                message: 'Worker job failed',
+                name: 'sync-pools-v3',
+                chain: 'SEPOLIA',
+                status: 'failed',
+                error: 'HTTP request failed. URL: https://lb.drpc.live/base/***',
+            });
+            expect(parsed.stack).toMatch(/^\s*at /);
+            expect(parsed.stack).toContain('https://lb.drpc.live/base/***');
+            expect(parsed.stack).not.toContain('HTTP request failed');
+            expect(result.body).not.toHaveProperty('stack');
+        } finally {
+            env.DRPC_API_KEY = previousKey;
+        }
+    });
+
+    it('keeps oversized failure logs valid JSON under DigitalOcean 2 KB syslog limit', async () => {
+        handlers['sync-pools-v3'] = async () => {
+            const err = new Error('x'.repeat(4_000));
+            err.stack = `Error: ${'x'.repeat(4_000)}\n${'    at frame (/app/index.js:1:1)\n'.repeat(40)}`;
+            throw err;
+        };
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+        const line = String(stderrSpy.mock.calls[0][0]).trimEnd();
+        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_600);
+        const parsed = JSON.parse(line);
+        expect(parsed).toMatchObject({
+            level: 'error',
+            message: 'Worker job failed',
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'failed',
+        });
+        expect(parsed.error.endsWith('…')).toBe(true);
+        expect(parsed.stack.endsWith('…')).toBe(true);
+        expect(parsed.stack).toContain('at frame (/app/index.js:1:1)');
+        expect(parsed.stack).not.toContain('xxxx');
+    });
+
+    it('caps multi-byte and JSON-escaped failure logs by UTF-8 byte length', async () => {
+        handlers['sync-pools-v3'] = async () => {
+            const payload = '─"\\\n\u001b😀'.repeat(300);
+            const err = new Error(payload);
+            err.stack = `Error: ${payload}\n${`    at ${payload} (/app/index.js:1:1)\n`.repeat(10)}`;
+            throw err;
+        };
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+        const line = String(stderrSpy.mock.calls[0][0]).trimEnd();
+        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_600);
+        expect(Buffer.from(line, 'utf8').toString('utf8')).toBe(line);
+        const parsed = JSON.parse(line);
+        expect(parsed).toMatchObject({
+            level: 'error',
+            message: 'Worker job failed',
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'failed',
+        });
+        expect(parsed.error.endsWith('…')).toBe(true);
+        expect(parsed.stack === undefined || parsed.stack.endsWith('…')).toBe(true);
     });
 
     it('skips a job that is still running', async () => {
@@ -150,13 +263,19 @@ describe('worker drain', () => {
     let url: string;
     let routes: WorkerRoutes;
 
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
     beforeEach(async () => {
         for (const name of Object.keys(handlers)) delete handlers[name];
-        vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
         ({ server, url, routes } = await serve(handlers));
     });
 
     afterEach(async () => {
+        stdoutSpy.mockRestore();
+        stderrSpy.mockRestore();
         if (server?.listening) {
             server.closeAllConnections();
             await new Promise((resolve) => server.close(resolve));

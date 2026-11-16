@@ -1,5 +1,6 @@
 import { Chain, Prisma } from '@prisma/client';
 import { prisma } from '../../../prisma/prisma-client';
+import { logger } from '../../common/logger';
 
 export const syncIncentivizedCategory = async (chain: Chain) => {
     const poolsWithReward = await prisma.prismaPoolAprItem.findMany({
@@ -34,7 +35,11 @@ export const syncIncentivizedCategory = async (chain: Chain) => {
     const queries = [];
 
     if (idsToRemove.length > 0) {
-        console.log('[sync-categories] Removing incentivized category from pools:', idsToRemove);
+        logger.info('Removed incentivized category from pools', {
+            chain,
+            count: idsToRemove.length,
+            poolIds: idsToRemove.slice(0, 10),
+        });
         queries.push(
             prisma.$executeRaw`UPDATE "PrismaPool"
             SET categories = array_remove(categories, 'INCENTIVIZED')
@@ -43,7 +48,11 @@ export const syncIncentivizedCategory = async (chain: Chain) => {
     }
 
     if (idsToAdd.length > 0) {
-        console.log('[sync-categories] Adding incentivized category to pools:', idsToAdd);
+        logger.info('Added incentivized category to pools', {
+            chain,
+            count: idsToAdd.length,
+            poolIds: idsToAdd.slice(0, 10),
+        });
         queries.push(
             prisma.$executeRaw`UPDATE "PrismaPool"
             SET categories = array_append(categories, 'INCENTIVIZED')

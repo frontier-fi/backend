@@ -1,5 +1,6 @@
 import { PriceHandler, TokenPriceData, PriceItem } from '../types';
 import _ from 'lodash';
+import { logger } from '../../common/logger';
 
 export class ERC4626PriceHandler implements PriceHandler {
     public readonly exitIfFails = false;
@@ -61,7 +62,11 @@ export class ERC4626PriceHandler implements PriceHandler {
                         updatedBy: this.id,
                     });
                 } catch (e: any) {
-                    console.error('ERC4626 price failed for', erc4626Token.address, chain, e.message);
+                    logger.error('ERC4626 token price calculation failed', {
+                        chain,
+                        tokenAddress: erc4626Token.address,
+                        err: e,
+                    });
                 }
             }
         }

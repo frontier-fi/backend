@@ -212,8 +212,7 @@ export class CoingeckoDataService {
     }
 
     private async get<T>(endpoint: string, retriesLeft = 1): Promise<T> {
-        const remainingRequests = await requestRateLimiter.removeTokens(1);
-        console.log('Remaining coingecko requests', remainingRequests);
+        await requestRateLimiter.removeTokens(1);
 
         let response: Response;
         try {

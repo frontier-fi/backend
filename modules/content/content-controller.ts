@@ -10,6 +10,7 @@ import { prisma } from '../../prisma/prisma-client';
 import { getFeaturedPools } from './lib/get-featured-pools';
 import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
 import { getViemClient } from '../sources/viem-client';
+import { logger } from '../common/logger';
 
 export function ContentController() {
     return {
@@ -33,7 +34,7 @@ export function ContentController() {
             try {
                 await coingeckoDataService.syncCoingeckoIds();
             } catch (error) {
-                console.error('Failed to sync CoinGecko ids', error);
+                logger.error('Failed to sync CoinGecko IDs', { err: error });
             }
         },
         async reloadAllTokenTypes(chain: Chain) {

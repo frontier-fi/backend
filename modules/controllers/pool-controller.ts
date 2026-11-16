@@ -20,6 +20,71 @@ import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
 import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-reviews';
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
 import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
+import { logger } from '../common/logger';
+
+const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
+export const PENDING_RESYNC_REMINDER_MS = 3 * 60_000;
+
+interface PendingResyncLogState {
+    key: string;
+    lastLoggedAt: number;
+}
+
+const pendingResyncByChain = new Map<Chain, PendingResyncLogState>();
+const MAX_LOGGED_POOL_IDS = 5;
+
+/**
+ * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
+ * when the source changes for a chain, so the lag stays visible without a line per run.
+ */
+export function logPoolSyncSourceChange(
+    chain: Chain,
+    source: 'subgraph' | 'rpc',
+    details: { lag: number; acceptableSGLag: number },
+) {
+    if (poolSyncSources.get(chain) === source) {
+        return;
+    }
+    poolSyncSources.set(chain, source);
+    logger.info('Pool sync source changed', { event: 'pool-sync-source', chain, source, ...details });
+}
+
+/**
+ * Pending pool resyncs retry on every run by design (30s in production, 5m on staging).
+ * Logs when the failing set changes, every 3m while non-empty (feeding Better Stack's
+ * stuck-pool metric/alert), and once on recovery back to empty; silent while healthy.
+ */
+export function logPoolPendingResyncChange(chain: Chain, failedPoolIds: readonly string[], nowMs: number = Date.now()) {
+    const sortedIds = [...new Set(failedPoolIds.map((id) => id.toLowerCase()))].sort();
+    const key = sortedIds.join(',');
+    const previous = pendingResyncByChain.get(chain);
+    const previousKey = previous?.key ?? '';
+
+    if (sortedIds.length === 0) {
+        if (previousKey === '') {
+            return;
+        }
+        pendingResyncByChain.set(chain, { key: '', lastLoggedAt: nowMs });
+        logger.info('Recovered all pools pending resync', { event: 'pool-sync-retry', chain, failedPools: 0 });
+        return;
+    }
+
+    if (previousKey === key && previous !== undefined && nowMs - previous.lastLoggedAt < PENDING_RESYNC_REMINDER_MS) {
+        return;
+    }
+
+    pendingResyncByChain.set(chain, { key, lastLoggedAt: nowMs });
+    const failedPools = sortedIds.length;
+    const poolIds = sortedIds.slice(0, MAX_LOGGED_POOL_IDS);
+    const omittedPools = failedPools - poolIds.length;
+    logger.warn('Pools pending resync on next run', {
+        event: 'pool-sync-retry',
+        chain,
+        failedPools,
+        poolIds,
+        ...(omittedPools > 0 ? { omittedPools } : {}),
+    });
+}
 
 export function PoolController(tracer?: any) {
     return {
@@ -166,6 +231,10 @@ export function PoolController(tracer?: any) {
             if (rpcLatestBlock - sgLastSyncedBlock > acceptableSGLag) {
                 useSubgraph = false;
             }
+            logPoolSyncSourceChange(chain, useSubgraph ? 'subgraph' : 'rpc', {
+                lag: rpcLatestBlock - sgLastSyncedBlock,
+                acceptableSGLag,
+            });
 
             const latestBlock = useSubgraph ? sgLastSyncedBlock : rpcLatestBlock;
 
@@ -271,9 +340,12 @@ export function PoolController(tracer?: any) {
                 where: { chain, pendingResync: true },
                 select: { poolId: true },
             });
-            changedIds = Array.from(new Set([...changedIds, ...pendingResync.map(({ poolId }) => poolId)]));
+            changedIds = Array.from(
+                new Set([...changedIds, ...pendingResync.map(({ poolId }) => poolId.toLowerCase())]),
+            );
 
             if (changedIds.length === 0) {
+                logPoolPendingResyncChange(chain, []);
                 if (hasBufferUpdates) {
                     await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);
                 }
@@ -300,9 +372,7 @@ export function PoolController(tracer?: any) {
                     data: { pendingResync: false },
                 }),
             ]);
-            if (failed.length > 0) {
-                console.error(`syncPoolsV3 on ${chain} could not update ${failed.length} pools, retrying next run`);
-            }
+            logPoolPendingResyncChange(chain, failed);
 
             await syncTokenPairs(ids, viemClient, routerAddress, chain);
             await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);

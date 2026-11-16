@@ -1,4 +1,5 @@
 import { prisma } from '../prisma/prisma-client';
+import { logger } from '../modules/common/logger';
 import { startApiServer } from './api/server';
 import { startWorkerServer } from './worker/server';
 import { startSchedulerServer } from './scheduler/server';
@@ -37,6 +38,6 @@ async function main() {
 }
 
 main().catch((error) => {
-    console.error(error);
+    logger.error('Fatal startup error', { err: error });
     process.exit(1);
 });

@@ -3,18 +3,18 @@ import { prisma } from '../../../prisma/prisma-client';
 import { normalizeAddress } from '../../web3/addresses';
 import { githubChainToChain } from './github-helper';
 import { contentSources } from '../../../config/content-sources';
+import { logger } from '../../common/logger';
 
 const knownChains = new Set<string>(Object.values(Chain));
 
 export const syncRateProviderReviews = async (): Promise<void> => {
     const rateProviders = await getRateProviderReviews();
     const data = [];
-    let skipped = 0;
+    let malformed = 0;
 
     for (const item of rateProviders) {
         // The registry covers every Balancer chain. Rows for chains we do not run have no enum value.
         if (!item.chain || !knownChains.has(item.chain)) {
-            skipped += 1;
             continue;
         }
         try {
@@ -33,12 +33,12 @@ export const syncRateProviderReviews = async (): Promise<void> => {
                 })),
             });
         } catch {
-            skipped += 1;
+            malformed += 1;
         }
     }
 
-    if (skipped > 0) {
-        console.log(`syncRateProviderReviews skipped ${skipped} rows for chains or addresses this API does not use`);
+    if (malformed > 0) {
+        logger.warn('Skipped malformed rate provider review rows', { malformedCount: malformed });
     }
 
     await prisma.$transaction([

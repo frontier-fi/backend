@@ -27,7 +27,6 @@ export class TokenPriceService {
     public async getTokenPricesFrom24hAgo(chains: Chain[]): Promise<PrismaTokenCurrentPrice[]> {
         const oneDayAgo = moment().subtract(24, 'hours').unix();
         const twoDaysAgo = moment().subtract(48, 'hours').unix();
-        console.time(`TokenPrice load 24hrs ago - ${chains}`);
         const tokenPrices = await prisma.prismaTokenPrice.findMany({
             orderBy: { timestamp: 'desc' },
             where: { timestamp: { lte: oneDayAgo, gte: twoDaysAgo }, chain: { in: chains } },
@@ -37,8 +36,6 @@ export class TokenPriceService {
             (price, i, self) =>
                 self.findIndex((t) => t.tokenAddress === price.tokenAddress && t.chain === price.chain) === i,
         );
-
-        console.timeEnd(`TokenPrice load 24hrs ago - ${chains}`);
 
         // also add ETH price (0xeee..)
         this.addNativeEthPrice(chains, distinctTokenPrices);

@@ -123,7 +123,6 @@ export class AprRepository {
 
         if (operations.length > 0) {
             await prismaBulkExecuteOperations(operations);
-            console.log(`Updated ${operations.length} APR items`);
         }
 
         return [...changedPoolIds];

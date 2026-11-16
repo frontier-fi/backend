@@ -1,5 +1,6 @@
 import { Chain } from '@prisma/client';
 import { PriceHandler, TokenPriceData, PriceItem } from '../types';
+import { logger } from '../../common/logger';
 
 export class FallbackPriceHandler implements PriceHandler {
     public readonly exitIfFails = false;
@@ -38,7 +39,7 @@ export class FallbackPriceHandler implements PriceHandler {
 
             return priceItems;
         } catch (error) {
-            console.error('FallbackPriceHandler: Error calculating prices:', error);
+            logger.error('Fallback price calculation failed', { handler: this.id, err: error });
             return [];
         }
     }

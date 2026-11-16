@@ -12,6 +12,7 @@ import { AprsController } from '../../modules/controllers/aprs-controller';
 import { ContentController } from '../../modules/content/content-controller';
 import { UserBalancesController } from '../../modules/user/user-balances-controller';
 import { env } from '../env';
+import { logger, redactSecrets, stackFrames } from '../../modules/common/logger';
 import { withDefaultConnectionParams } from '../../prisma/prisma-client';
 
 export type JobHandler = (chain: Chain) => Promise<unknown>;
@@ -21,6 +22,52 @@ export interface JobOutcome {
     status: 'done' | 'failed' | 'skipped';
     durationSeconds?: number;
     error?: string;
+    reason?: string;
+}
+
+/** A job outcome plus the failure value, which is logged via logger.error but not sent back to the scheduler. */
+type JobResult = JobOutcome & { err?: unknown };
+
+function errorFields(error: unknown, prefix?: string): Pick<JobResult, 'error' | 'err'> {
+    const message = error instanceof Error ? error.message : String(error);
+    const fullMessage = prefix ? `${prefix}: ${message}` : message;
+    if (!prefix) {
+        return { error: fullMessage, err: error };
+    }
+    const wrapped = new Error(fullMessage);
+    if (error instanceof Error) {
+        const frames = stackFrames(error);
+        wrapped.stack = frames ? `Error: ${fullMessage}\n${frames}` : undefined;
+    } else {
+        wrapped.stack = undefined;
+    }
+    return { error: fullMessage, err: wrapped };
+}
+
+/**
+ * Logs one canonical JSON line per job execution so Better Stack can compute durations,
+ * stall heartbeats, and error alerts per name and chain.
+ */
+function logJobResult(name: string, chain: Chain, { err, ...outcome }: JobResult): JobOutcome {
+    if (outcome.error) {
+        outcome.error = redactSecrets(outcome.error);
+    }
+    const fields = {
+        job: outcome.job,
+        name,
+        chain,
+        status: outcome.status,
+        durationSeconds: outcome.durationSeconds,
+        reason: outcome.reason,
+    };
+    if (outcome.status === 'failed') {
+        logger.error('Worker job failed', { ...fields, err: err ?? outcome.error });
+    } else if (outcome.status === 'skipped') {
+        logger.info('Worker job skipped', fields);
+    } else {
+        logger.info('Worker job finished', fields);
+    }
+    return outcome;
 }
 
 export const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000;
@@ -59,7 +106,7 @@ export async function acquirePostgresAdvisoryLock(
         try {
             await client.$executeRaw`SELECT pg_advisory_unlock(${lockKey}::bigint)`;
         } catch (error) {
-            console.error(`Failed to release advisory lock for ${jobId}:`, error);
+            logger.error('Failed to release advisory lock', { jobId, err: error });
         }
     };
 }
@@ -72,7 +119,7 @@ async function updateTokenPricesForAllChains(): Promise<void> {
         try {
             await service.updatePrices(chain);
         } catch (error) {
-            console.error(`Error updating prices for chain ${chain}:`, error);
+            logger.error('Failed to update token prices for chain', { chain, err: error });
             errors.push(error instanceof Error ? error : new Error(`Unknown error: ${error}`));
         }
     }
@@ -105,7 +152,7 @@ export const jobHandlers: Record<string, JobHandler> = {
     'sync-token-content-data': () => ContentController().syncTokenContentData(),
 };
 
-const runningJobs = new Map<string, Promise<JobOutcome>>();
+const runningJobs = new Map<string, Promise<JobResult>>();
 
 export interface WorkerRouteOptions {
     jobTimeoutMs?: number;
@@ -116,10 +163,9 @@ function runIfNotAlreadyRunning(
     jobId: string,
     fn: () => Promise<unknown>,
     options: Required<WorkerRouteOptions>,
-): Promise<JobOutcome> {
+): Promise<JobResult> {
     if (runningJobs.has(jobId)) {
-        console.log(`Skip job ${jobId}-skip`);
-        return Promise.resolve({ job: jobId, status: 'skipped' });
+        return Promise.resolve({ job: jobId, status: 'skipped', reason: 'already running' });
     }
 
     const run = runJob(jobId, fn, options).finally(() => runningJobs.delete(jobId));
@@ -131,31 +177,27 @@ async function runJob(
     jobId: string,
     fn: () => Promise<unknown>,
     options: Required<WorkerRouteOptions>,
-): Promise<JobOutcome> {
+): Promise<JobResult> {
     let releaseLock: (() => Promise<void>) | null = null;
     try {
         releaseLock = await options.acquireLock(jobId);
     } catch (error) {
-        console.error(`Failed to acquire advisory lock for ${jobId}:`, error);
         return {
             job: jobId,
             status: 'failed',
             durationSeconds: 0,
-            error: error instanceof Error ? error.message : String(error),
+            ...errorFields(error, 'Failed to acquire advisory lock'),
         };
     }
 
     if (!releaseLock) {
-        console.log(`Skip job ${jobId}-skip (locked by another worker)`);
-        return { job: jobId, status: 'skipped' };
+        return { job: jobId, status: 'skipped', reason: 'locked by another worker' };
     }
 
     const startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     try {
-        console.log(`Start job ${jobId}-start`);
-
         const timeoutPromise = new Promise<never>((_, reject) => {
             timer = setTimeout(() => {
                 reject(new Error(`Job ${jobId} timed out after ${options.jobTimeoutMs}ms`));
@@ -165,13 +207,10 @@ async function runJob(
         await Promise.race([fn(), timeoutPromise]);
 
         const duration = (Date.now() - startedAt) / 1000;
-        console.log(`Successful job ${jobId}-done`, duration);
         return { job: jobId, status: 'done', durationSeconds: duration };
     } catch (error: unknown) {
         const duration = (Date.now() - startedAt) / 1000;
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Error job ${jobId}-error`, duration, error);
-        return { job: jobId, status: 'failed', durationSeconds: duration, error: message };
+        return { job: jobId, status: 'failed', durationSeconds: duration, ...errorFields(error) };
     } finally {
         clearTimeout(timer);
         await releaseLock();
@@ -215,7 +254,7 @@ export function configureWorkerRoutes(
             !Object.hasOwn(handlers, name) ||
             !Object.hasOwn(chainIdToChain, chainId)
         ) {
-            console.error(`Unhandled job ${String(name)} for chain ${String(chainId)}`);
+            logger.warn('Rejected unhandled worker job request', { name: String(name), chain: String(chainId) });
             res.sendStatus(400);
             return;
         }
@@ -224,9 +263,9 @@ export function configureWorkerRoutes(
         const chain = chainIdToChain[chainId];
         const jobId = `${name}-${chainId}`;
 
-        const outcome = await runIfNotAlreadyRunning(jobId, () => handler(chain), resolvedOptions);
+        const result = await runIfNotAlreadyRunning(jobId, () => handler(chain), resolvedOptions);
 
-        res.json(outcome);
+        res.json(logJobResult(name, chain, result));
     });
 
     return {
