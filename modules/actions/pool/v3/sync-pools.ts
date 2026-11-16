@@ -25,14 +25,16 @@ export const syncPools = async (
     vault: string,
     viemClient: ViemClient,
     blockNumber: number,
+    alreadyPendingIds: ReadonlySet<string> = new Set(),
 ): Promise<string[]> => {
     const updatedIds: string[] = [];
 
     const onchainData = await fetchPoolSyncData(viemClient, vault, dbPools, BigInt(blockNumber));
 
     const skipped = dbPools.filter((pool) => !Array.isArray(onchainData[pool.id]?.poolToken));
-    if (skipped.length > 0) {
-        console.log(`syncPools skipped ${skipped.length} pools with no on-chain token data on ${chain}`);
+    const newlySkipped = skipped.filter((pool) => !alreadyPendingIds.has(pool.id.toLowerCase()));
+    if (newlySkipped.length > 0) {
+        console.log(`syncPools skipped ${newlySkipped.length} pools with no on-chain token data on ${chain}`);
     }
 
     const upserts = dbPools
@@ -89,7 +91,9 @@ export const syncPools = async (
             ]);
             updatedIds.push(pool.id);
         } catch (e) {
-            console.error(`Error: failed to upsert pool ${pool.id} on ${chain}`, e);
+            if (!alreadyPendingIds.has(pool.id.toLowerCase())) {
+                console.error(`Error: failed to upsert pool ${pool.id} on ${chain}`, e);
+            }
         }
     }
 

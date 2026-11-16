@@ -76,6 +76,7 @@ export function scheduleJobs(schedule: ScheduledJob[], queue: JobQueue): Schedul
         } catch (error) {
             console.error(
                 JSON.stringify({
+                    level: 'error',
                     ...JSON.parse(json),
                     status: 'send-failed',
                     error: error instanceof Error ? error.message : String(error),

@@ -82,6 +82,7 @@ describe('scheduleJobs', () => {
         expect(send).toHaveBeenCalledTimes(3);
         expect(console.error).toHaveBeenCalledTimes(2);
         expect(JSON.parse(vi.mocked(console.error).mock.calls[1][0])).toEqual({
+            level: 'error',
             name: 'job',
             chain: '1',
             status: 'send-failed',

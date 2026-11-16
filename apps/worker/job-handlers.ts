@@ -27,16 +27,39 @@ export interface JobOutcome {
 /** A job outcome plus the stack of a failure, which is logged but not sent back to the scheduler. */
 type JobResult = JobOutcome & { stack?: string };
 
+/** Strips the repeated `Error: <message>` header so long error messages cannot crowd out stack frames. */
+function stackFrames(error: Error): string | undefined {
+    if (!error.stack) {
+        return undefined;
+    }
+    let rest = error.stack;
+    if (error.message && rest.startsWith(`${error.name}: ${error.message}`)) {
+        rest = rest.slice(error.name.length + 2 + error.message.length);
+    } else if (error.message && rest.startsWith(`Error: ${error.message}`)) {
+        rest = rest.slice('Error: '.length + error.message.length);
+    } else if (rest === error.name || rest.startsWith(`${error.name}\n`) || rest.startsWith(`${error.name}\r\n`)) {
+        rest = rest.slice(error.name.length);
+    } else {
+        const frameStart = rest.indexOf('\n    at ');
+        if (frameStart !== -1) {
+            rest = rest.slice(frameStart + 1);
+        }
+    }
+    rest = rest.replace(/^\r?\n/, '');
+    return rest.trim() ? rest : undefined;
+}
+
 function errorFields(error: unknown, prefix?: string): Pick<JobResult, 'error' | 'stack'> {
     const message = error instanceof Error ? error.message : String(error);
     return {
         error: prefix ? `${prefix}: ${message}` : message,
-        stack: error instanceof Error ? error.stack : undefined,
+        stack: error instanceof Error ? stackFrames(error) : undefined,
     };
 }
 
 const MAX_LOG_ERROR_CHARS = 500;
 const MAX_LOG_STACK_CHARS = 700;
+const MAX_LOG_LINE_BYTES = 1_500;
 
 // RPC errors from viem quote the request URL, and dRPC URLs carry the API key in the path.
 function redactSecrets(text: string): string {
@@ -44,7 +67,31 @@ function redactSecrets(text: string): string {
 }
 
 function capText(text: string, maxChars: number): string {
-    return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+    if (text.length <= maxChars) {
+        return text;
+    }
+    let end = maxChars;
+    if (end > 0) {
+        const code = text.charCodeAt(end - 1);
+        if (code >= 0xd800 && code <= 0xdbff) {
+            end -= 1;
+        }
+    }
+    return `${text.slice(0, end)}…`;
+}
+
+function highestFittingLength(maxChars: number, fits: (len: number) => boolean): number {
+    let low = 0;
+    let high = maxChars;
+    while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if (fits(mid)) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return low;
 }
 
 /**
@@ -56,17 +103,49 @@ function logJobResult(name: string, chain: Chain, { stack, ...outcome }: JobResu
     if (outcome.error) {
         outcome.error = redactSecrets(outcome.error);
     }
-    const line = JSON.stringify({
-        level: outcome.status === 'failed' ? 'error' : 'info',
-        job: outcome.job,
-        name,
-        chain,
-        status: outcome.status,
-        durationSeconds: outcome.durationSeconds,
-        reason: outcome.reason,
-        error: outcome.error && capText(outcome.error, MAX_LOG_ERROR_CHARS),
-        stack: stack && capText(redactSecrets(stack), MAX_LOG_STACK_CHARS),
-    });
+    const rawError = outcome.error;
+    const rawStack = stack ? redactSecrets(stack) : undefined;
+    const serialize = (error?: string, stackTrace?: string) =>
+        JSON.stringify({
+            level: outcome.status === 'failed' ? 'error' : 'info',
+            job: outcome.job,
+            name,
+            chain,
+            status: outcome.status,
+            durationSeconds: outcome.durationSeconds,
+            reason: outcome.reason,
+            error,
+            stack: stackTrace,
+        });
+
+    let cappedError = rawError && capText(rawError, MAX_LOG_ERROR_CHARS);
+    let cappedStack = rawStack && capText(rawStack, MAX_LOG_STACK_CHARS);
+    let line = serialize(cappedError, cappedStack);
+
+    if (Buffer.byteLength(line, 'utf8') > MAX_LOG_LINE_BYTES) {
+        if (rawStack && Buffer.byteLength(serialize(cappedError, undefined), 'utf8') <= MAX_LOG_LINE_BYTES) {
+            const len = highestFittingLength(
+                Math.max(0, Math.min(rawStack.length, MAX_LOG_STACK_CHARS) - 1),
+                (candidate) =>
+                    Buffer.byteLength(serialize(cappedError, capText(rawStack, candidate)), 'utf8') <=
+                    MAX_LOG_LINE_BYTES,
+            );
+            cappedStack = len > 0 ? capText(rawStack, len) : undefined;
+        } else {
+            cappedStack = undefined;
+            if (rawError) {
+                const len = highestFittingLength(
+                    Math.max(0, Math.min(rawError.length, MAX_LOG_ERROR_CHARS) - 1),
+                    (candidate) =>
+                        Buffer.byteLength(serialize(capText(rawError, candidate), undefined), 'utf8') <=
+                        MAX_LOG_LINE_BYTES,
+                );
+                cappedError = capText(rawError, len);
+            }
+        }
+        line = serialize(cappedError, cappedStack);
+    }
+
     if (outcome.status === 'failed') {
         console.error(line);
     } else {

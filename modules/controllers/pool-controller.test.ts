@@ -119,6 +119,14 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
         mockSyncPools.mockResolvedValueOnce(['0xpoola']);
 
         expect(await PoolController().syncPoolsV3('BASE')).toEqual(['0xpoola']);
+        expect(mockSyncPools).toHaveBeenLastCalledWith(
+            expect.anything(),
+            'BASE',
+            expect.any(String),
+            expect.anything(),
+            rpcHead,
+            new Set(),
+        );
         expect(mockSyncTokenPairs).toHaveBeenLastCalledWith(['0xpoola'], expect.anything(), expect.any(String), 'BASE');
         expect(mockUpsertLastSyncedBlock).toHaveBeenLastCalledWith('BASE', 'POOLS_V3', rpcHead);
         expect([...pendingResync]).toEqual(['0xpoolb']);
@@ -132,6 +140,14 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
         mockPoolFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: '0xpoolb' }]);
 
         expect(await RestartedPoolController().syncPoolsV3('BASE')).toEqual(['0xpoolb']);
+        expect(mockSyncPools).toHaveBeenLastCalledWith(
+            expect.anything(),
+            'BASE',
+            expect.any(String),
+            expect.anything(),
+            rpcHead,
+            new Set(['0xpoolb']),
+        );
         expect([...pendingResync]).toEqual([]);
         expect(mockPoolFindMany).toHaveBeenLastCalledWith(
             expect.objectContaining({ where: { chain: 'BASE', protocolVersion: 3, id: { in: ['0xpoolb'] } } }),
@@ -170,18 +186,19 @@ describe('logPoolSyncSourceChange', () => {
 });
 
 describe('logPoolPendingResyncChange', () => {
-    it('logs warn JSON when pending resync count changes and info JSON on recovery', async () => {
+    it('logs warn JSON when the failing pool set changes, caps listed IDs, and logs info JSON on recovery', async () => {
         vi.resetModules();
         const { logPoolPendingResyncChange } = await import('./pool-controller');
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-        logPoolPendingResyncChange('BASE', 0);
-        logPoolPendingResyncChange('BASE', 2);
-        logPoolPendingResyncChange('BASE', 2);
-        logPoolPendingResyncChange('BASE', 1);
-        logPoolPendingResyncChange('BASE', 0);
-        logPoolPendingResyncChange('BASE', 0);
+        logPoolPendingResyncChange('BASE', []);
+        logPoolPendingResyncChange('BASE', ['0xpoolb', '0xpoola']);
+        logPoolPendingResyncChange('BASE', ['0xpoola', '0xpoolb']);
+        logPoolPendingResyncChange('BASE', ['0xpoolb', '0xpoolc']);
+        logPoolPendingResyncChange('BASE', ['0xp1', '0xp2', '0xp3', '0xp4', '0xp5', '0xp6', '0xp7']);
+        logPoolPendingResyncChange('BASE', []);
+        logPoolPendingResyncChange('BASE', []);
 
         expect(warn.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
             {
@@ -189,14 +206,25 @@ describe('logPoolPendingResyncChange', () => {
                 event: 'pool-sync-retry',
                 chain: 'BASE',
                 failedPools: 2,
-                message: 'syncPoolsV3 on BASE could not update 2 pools, retrying next run',
+                poolIds: ['0xpoola', '0xpoolb'],
+                message: 'syncPoolsV3 on BASE could not update 2 pools (0xpoola, 0xpoolb), retrying next run',
             },
             {
                 level: 'warn',
                 event: 'pool-sync-retry',
                 chain: 'BASE',
-                failedPools: 1,
-                message: 'syncPoolsV3 on BASE could not update 1 pools, retrying next run',
+                failedPools: 2,
+                poolIds: ['0xpoolb', '0xpoolc'],
+                message: 'syncPoolsV3 on BASE could not update 2 pools (0xpoolb, 0xpoolc), retrying next run',
+            },
+            {
+                level: 'warn',
+                event: 'pool-sync-retry',
+                chain: 'BASE',
+                failedPools: 7,
+                poolIds: ['0xp1', '0xp2', '0xp3', '0xp4', '0xp5'],
+                message:
+                    'syncPoolsV3 on BASE could not update 7 pools (0xp1, 0xp2, 0xp3, 0xp4, 0xp5, +2 more), retrying next run',
             },
         ]);
         expect(log.mock.calls.map(([line]) => JSON.parse(line))).toEqual([

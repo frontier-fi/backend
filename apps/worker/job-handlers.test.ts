@@ -136,7 +136,12 @@ describe('worker route', () => {
         const previousKey = env.DRPC_API_KEY;
         env.DRPC_API_KEY = 'secret-drpc-key';
         handlers['sync-pools-v3'] = async () => {
-            throw new Error('HTTP request failed. URL: https://lb.drpc.live/base/secret-drpc-key');
+            const err = new Error('HTTP request failed. URL: https://lb.drpc.live/base/secret-drpc-key');
+            err.stack = [
+                'Error: HTTP request failed. URL: https://lb.drpc.live/base/secret-drpc-key',
+                '    at fetchJson (https://lb.drpc.live/base/secret-drpc-key:10:5)',
+            ].join('\n');
+            throw err;
         };
 
         try {
@@ -144,14 +149,17 @@ describe('worker route', () => {
 
             const line = vi.mocked(console.error).mock.calls[0][0] as string;
             expect(line).not.toContain('secret-drpc-key');
-            expect(JSON.parse(line)).toMatchObject({
+            const parsed = JSON.parse(line);
+            expect(parsed).toMatchObject({
                 level: 'error',
                 name: 'sync-pools-v3',
                 chain: 'SEPOLIA',
                 status: 'failed',
                 error: 'HTTP request failed. URL: https://lb.drpc.live/base/***',
-                stack: expect.stringContaining('Error: HTTP request failed'),
             });
+            expect(parsed.stack).toMatch(/^\s*at /);
+            expect(parsed.stack).toContain('https://lb.drpc.live/base/***');
+            expect(parsed.stack).not.toContain('HTTP request failed');
             expect(result.body).not.toHaveProperty('stack');
         } finally {
             env.DRPC_API_KEY = previousKey;
@@ -168,7 +176,7 @@ describe('worker route', () => {
         await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
 
         const line = vi.mocked(console.error).mock.calls[0][0] as string;
-        expect(Buffer.byteLength(line, 'utf8')).toBeLessThan(1_600);
+        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_500);
         const parsed = JSON.parse(line);
         expect(parsed).toMatchObject({
             level: 'error',
@@ -179,6 +187,33 @@ describe('worker route', () => {
         });
         expect(parsed.error.endsWith('…')).toBe(true);
         expect(parsed.stack.endsWith('…')).toBe(true);
+        expect(parsed.stack).toContain('at frame (/app/index.js:1:1)');
+        expect(parsed.stack).not.toContain('xxxx');
+    });
+
+    it('caps multi-byte and JSON-escaped failure logs by UTF-8 byte length', async () => {
+        handlers['sync-pools-v3'] = async () => {
+            const payload = '─"\\\n\u001b😀'.repeat(300);
+            const err = new Error(payload);
+            err.stack = `Error: ${payload}\n${`    at ${payload} (/app/index.js:1:1)\n`.repeat(10)}`;
+            throw err;
+        };
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+        const line = vi.mocked(console.error).mock.calls[0][0] as string;
+        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_500);
+        expect(line).toBe((line as string & { toWellFormed(): string }).toWellFormed());
+        const parsed = JSON.parse(line);
+        expect(parsed).toMatchObject({
+            level: 'error',
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'failed',
+        });
+        expect(parsed.error.endsWith('…')).toBe(true);
+        expect(parsed.stack === undefined || parsed.stack.endsWith('…')).toBe(true);
     });
 
     it('skips a job that is still running', async () => {
