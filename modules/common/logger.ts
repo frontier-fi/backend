@@ -8,6 +8,29 @@ const MAX_LOG_ERROR_CHARS = 500;
 const MAX_LOG_STACK_CHARS = 700;
 export const MAX_LOG_LINE_BYTES = 1_600;
 
+const LOG_LEVEL_RANK: Record<LogLevel, number> = {
+    debug: 10,
+    info: 20,
+    warn: 30,
+    error: 40,
+};
+
+function isLogLevel(value: string): value is LogLevel {
+    return value === 'debug' || value === 'info' || value === 'warn' || value === 'error';
+}
+
+function configuredMinLevel(): LogLevel {
+    const rawLevel = (env.LOG_LEVEL ?? process.env.LOG_LEVEL ?? '').trim().toLowerCase();
+    if (isLogLevel(rawLevel)) {
+        return rawLevel;
+    }
+    const rawDebug = (env.DEBUG ?? process.env.DEBUG ?? '').trim().toLowerCase();
+    if (rawDebug !== '' && rawDebug !== '0' && rawDebug !== 'false') {
+        return 'debug';
+    }
+    return 'info';
+}
+
 function secretValues(): string[] {
     return [env.DRPC_API_KEY, env.COINGECKO_API_KEY, env.MERKL_API_KEY].filter(
         (value): value is string => typeof value === 'string' && value.length >= 4,
@@ -205,6 +228,9 @@ export function formatLogLine(level: LogLevel, message: string, fields?: LogFiel
 }
 
 function writeLog(level: LogLevel, message: string, fields?: LogFields): void {
+    if (LOG_LEVEL_RANK[level] < LOG_LEVEL_RANK[configuredMinLevel()]) {
+        return;
+    }
     const line = `${formatLogLine(level, message, fields)}\n`;
     if (level === 'warn' || level === 'error') {
         process.stderr.write(line);

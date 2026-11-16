@@ -173,7 +173,7 @@ Dependabot proposes updates to the pinned GitHub Actions and Docker base images 
 
 DigitalOcean forwards container `stdout`/`stderr` over Syslog (2 KB line limit, `stderr` severity is not preserved).
 
-1. **Never use `console.*` in app code** (enforced in CI) — import `logger` (`logger.info`, `logger.warn`, `logger.error`, `logger.debug`).
+1. **Never use `console.*` in app code** (enforced in CI) — import `logger` (`logger.info`, `logger.warn`, `logger.error`, `logger.debug`; `debug` is a no-op unless `LOG_LEVEL=debug` or `DEBUG` is set).
 2. **Keep `message` static, put variables in `fields`**: `logger.error('Pool sync failed', { chain, poolId, err })` (enables Better Stack `_pattern` grouping and field filtering).
 3. **Pass `Error` objects via `{ err }`** rather than stringifying them; `logger` caps stack traces to fit the 1,600-byte Syslog budget and redacts RPC keys.
 4. **Log state transitions and failures, not healthy per-tick progress** (3-day retention; high-frequency cron ticks drown out real signals). The worker runner (`apps/worker/job-handlers.ts`) emits one canonical summary line per job execution (`name`, `chain`, `status`, `durationSeconds`) to feed Better Stack metrics and stall alerts. Individual handlers and services under `modules/` must stay silent on healthy runs — log only state transitions (e.g. `subgraph` <-> `rpc` fallback), warnings, or errors.

@@ -1,34 +1,87 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '../../apps/env';
 import { findConsoleViolations } from '../../scripts/check-no-console';
 import { logger, MAX_LOG_LINE_BYTES } from './logger';
 
 describe('logger', () => {
+    let previousEnvLogLevel: string | undefined;
+    let previousEnvDebug: string | undefined;
+    let previousProcessLogLevel: string | undefined;
+    let previousProcessDebug: string | undefined;
+
+    beforeEach(() => {
+        previousEnvLogLevel = env.LOG_LEVEL;
+        previousEnvDebug = env.DEBUG;
+        previousProcessLogLevel = process.env.LOG_LEVEL;
+        previousProcessDebug = process.env.DEBUG;
+        env.LOG_LEVEL = undefined;
+        env.DEBUG = undefined;
+        delete process.env.LOG_LEVEL;
+        delete process.env.DEBUG;
+    });
+
     afterEach(() => {
+        env.LOG_LEVEL = previousEnvLogLevel;
+        env.DEBUG = previousEnvDebug;
+        if (previousProcessLogLevel === undefined) {
+            delete process.env.LOG_LEVEL;
+        } else {
+            process.env.LOG_LEVEL = previousProcessLogLevel;
+        }
+        if (previousProcessDebug === undefined) {
+            delete process.env.DEBUG;
+        } else {
+            process.env.DEBUG = previousProcessDebug;
+        }
         vi.restoreAllMocks();
     });
 
-    it('writes info and debug JSON lines to stdout and warn and error JSON lines to stderr', () => {
+    it('suppresses debug by default and writes info to stdout and warn/error to stderr', () => {
         const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
         const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
         logger.debug('Debug event', { count: 1n });
-        logger.info('Info event', { chain: 'BASE' });
+        logger.info('Info event', { chain: 'BASE', count: 1n });
         logger.warn('Warn event', { failedPools: 2 });
         logger.error('Error event', { poolId: '0xpool' });
 
-        expect(stdout).toHaveBeenCalledTimes(2);
+        expect(stdout).toHaveBeenCalledTimes(1);
         expect(stderr).toHaveBeenCalledTimes(2);
 
-        const debugLine = JSON.parse(String(stdout.mock.calls[0][0]));
-        const infoLine = JSON.parse(String(stdout.mock.calls[1][0]));
+        const infoLine = JSON.parse(String(stdout.mock.calls[0][0]));
         const warnLine = JSON.parse(String(stderr.mock.calls[0][0]));
         const errorLine = JSON.parse(String(stderr.mock.calls[1][0]));
 
-        expect(debugLine).toEqual({ level: 'debug', message: 'Debug event', count: '1' });
-        expect(infoLine).toEqual({ level: 'info', message: 'Info event', chain: 'BASE' });
+        expect(infoLine).toEqual({ level: 'info', message: 'Info event', chain: 'BASE', count: '1' });
         expect(warnLine).toEqual({ level: 'warn', message: 'Warn event', failedPools: 2 });
         expect(errorLine).toEqual({ level: 'error', message: 'Error event', poolId: '0xpool' });
+    });
+
+    it('enables debug logs when DEBUG or LOG_LEVEL=debug is set and honors LOG_LEVEL=warn', () => {
+        const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+        process.env.DEBUG = '1';
+        logger.debug('Debug via DEBUG', { step: 1 });
+        delete process.env.DEBUG;
+
+        process.env.LOG_LEVEL = 'debug';
+        logger.debug('Debug via LOG_LEVEL', { step: 2 });
+
+        process.env.LOG_LEVEL = 'warn';
+        logger.debug('Suppressed debug');
+        logger.info('Suppressed info');
+        logger.warn('Emitted warn');
+        logger.error('Emitted error');
+
+        expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            { level: 'debug', message: 'Debug via DEBUG', step: 1 },
+            { level: 'debug', message: 'Debug via LOG_LEVEL', step: 2 },
+        ]);
+        expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            { level: 'warn', message: 'Emitted warn' },
+            { level: 'error', message: 'Emitted error' },
+        ]);
     });
 
     it('extracts error and stack frames via { err }, strips repeated error message, and redacts secrets', () => {
