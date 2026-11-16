@@ -12,6 +12,7 @@ import { AprsController } from '../../modules/controllers/aprs-controller';
 import { ContentController } from '../../modules/content/content-controller';
 import { UserBalancesController } from '../../modules/user/user-balances-controller';
 import { env } from '../env';
+import { logger, redactSecrets, stackFrames } from '../../modules/common/logger';
 import { withDefaultConnectionParams } from '../../prisma/prisma-client';
 
 export type JobHandler = (chain: Chain) => Promise<unknown>;
@@ -24,132 +25,47 @@ export interface JobOutcome {
     reason?: string;
 }
 
-/** A job outcome plus the stack of a failure, which is logged but not sent back to the scheduler. */
-type JobResult = JobOutcome & { stack?: string };
+/** A job outcome plus the failure value, which is logged via logger.error but not sent back to the scheduler. */
+type JobResult = JobOutcome & { err?: unknown };
 
-/** Strips the repeated `Error: <message>` header so long error messages cannot crowd out stack frames. */
-function stackFrames(error: Error): string | undefined {
-    if (!error.stack) {
-        return undefined;
-    }
-    let rest = error.stack;
-    if (error.message && rest.startsWith(`${error.name}: ${error.message}`)) {
-        rest = rest.slice(error.name.length + 2 + error.message.length);
-    } else if (error.message && rest.startsWith(`Error: ${error.message}`)) {
-        rest = rest.slice('Error: '.length + error.message.length);
-    } else if (rest === error.name || rest.startsWith(`${error.name}\n`) || rest.startsWith(`${error.name}\r\n`)) {
-        rest = rest.slice(error.name.length);
-    } else {
-        const frameStart = rest.indexOf('\n    at ');
-        if (frameStart !== -1) {
-            rest = rest.slice(frameStart + 1);
-        }
-    }
-    rest = rest.replace(/^\r?\n/, '');
-    return rest.trim() ? rest : undefined;
-}
-
-function errorFields(error: unknown, prefix?: string): Pick<JobResult, 'error' | 'stack'> {
+function errorFields(error: unknown, prefix?: string): Pick<JobResult, 'error' | 'err'> {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-        error: prefix ? `${prefix}: ${message}` : message,
-        stack: error instanceof Error ? stackFrames(error) : undefined,
-    };
-}
-
-const MAX_LOG_ERROR_CHARS = 500;
-const MAX_LOG_STACK_CHARS = 700;
-const MAX_LOG_LINE_BYTES = 1_500;
-
-// RPC errors from viem quote the request URL, and dRPC URLs carry the API key in the path.
-function redactSecrets(text: string): string {
-    return env.DRPC_API_KEY ? text.split(env.DRPC_API_KEY).join('***') : text;
-}
-
-function capText(text: string, maxChars: number): string {
-    if (text.length <= maxChars) {
-        return text;
+    const fullMessage = prefix ? `${prefix}: ${message}` : message;
+    if (!prefix) {
+        return { error: fullMessage, err: error };
     }
-    let end = maxChars;
-    if (end > 0) {
-        const code = text.charCodeAt(end - 1);
-        if (code >= 0xd800 && code <= 0xdbff) {
-            end -= 1;
-        }
+    const wrapped = new Error(fullMessage);
+    if (error instanceof Error) {
+        const frames = stackFrames(error);
+        wrapped.stack = frames ? `Error: ${fullMessage}\n${frames}` : undefined;
+    } else {
+        wrapped.stack = undefined;
     }
-    return `${text.slice(0, end)}…`;
-}
-
-function highestFittingLength(maxChars: number, fits: (len: number) => boolean): number {
-    let low = 0;
-    let high = maxChars;
-    while (low < high) {
-        const mid = Math.ceil((low + high) / 2);
-        if (fits(mid)) {
-            low = mid;
-        } else {
-            high = mid - 1;
-        }
-    }
-    return low;
+    return { error: fullMessage, err: wrapped };
 }
 
 /**
- * Logs one JSON line per job so Better Stack can filter and alert on name, chain and status.
- * Indexing fields come first and error/stack are capped so DigitalOcean's 2 KB syslog limit
- * never truncates the JSON object. Failures go to stderr.
+ * Logs one canonical JSON line per job execution so Better Stack can compute durations,
+ * stall heartbeats, and error alerts per name and chain.
  */
-function logJobResult(name: string, chain: Chain, { stack, ...outcome }: JobResult): JobOutcome {
+function logJobResult(name: string, chain: Chain, { err, ...outcome }: JobResult): JobOutcome {
     if (outcome.error) {
         outcome.error = redactSecrets(outcome.error);
     }
-    const rawError = outcome.error;
-    const rawStack = stack ? redactSecrets(stack) : undefined;
-    const serialize = (error?: string, stackTrace?: string) =>
-        JSON.stringify({
-            level: outcome.status === 'failed' ? 'error' : 'info',
-            job: outcome.job,
-            name,
-            chain,
-            status: outcome.status,
-            durationSeconds: outcome.durationSeconds,
-            reason: outcome.reason,
-            error,
-            stack: stackTrace,
-        });
-
-    let cappedError = rawError && capText(rawError, MAX_LOG_ERROR_CHARS);
-    let cappedStack = rawStack && capText(rawStack, MAX_LOG_STACK_CHARS);
-    let line = serialize(cappedError, cappedStack);
-
-    if (Buffer.byteLength(line, 'utf8') > MAX_LOG_LINE_BYTES) {
-        if (rawStack && Buffer.byteLength(serialize(cappedError, undefined), 'utf8') <= MAX_LOG_LINE_BYTES) {
-            const len = highestFittingLength(
-                Math.max(0, Math.min(rawStack.length, MAX_LOG_STACK_CHARS) - 1),
-                (candidate) =>
-                    Buffer.byteLength(serialize(cappedError, capText(rawStack, candidate)), 'utf8') <=
-                    MAX_LOG_LINE_BYTES,
-            );
-            cappedStack = len > 0 ? capText(rawStack, len) : undefined;
-        } else {
-            cappedStack = undefined;
-            if (rawError) {
-                const len = highestFittingLength(
-                    Math.max(0, Math.min(rawError.length, MAX_LOG_ERROR_CHARS) - 1),
-                    (candidate) =>
-                        Buffer.byteLength(serialize(capText(rawError, candidate), undefined), 'utf8') <=
-                        MAX_LOG_LINE_BYTES,
-                );
-                cappedError = capText(rawError, len);
-            }
-        }
-        line = serialize(cappedError, cappedStack);
-    }
-
+    const fields = {
+        job: outcome.job,
+        name,
+        chain,
+        status: outcome.status,
+        durationSeconds: outcome.durationSeconds,
+        reason: outcome.reason,
+    };
     if (outcome.status === 'failed') {
-        console.error(line);
+        logger.error('Worker job failed', { ...fields, err: err ?? outcome.error });
+    } else if (outcome.status === 'skipped') {
+        logger.info('Worker job skipped', fields);
     } else {
-        console.log(line);
+        logger.info('Worker job finished', fields);
     }
     return outcome;
 }
@@ -190,7 +106,7 @@ export async function acquirePostgresAdvisoryLock(
         try {
             await client.$executeRaw`SELECT pg_advisory_unlock(${lockKey}::bigint)`;
         } catch (error) {
-            console.error(`Failed to release advisory lock for ${jobId}:`, error);
+            logger.error('Failed to release advisory lock', { jobId, err: error });
         }
     };
 }
@@ -203,7 +119,7 @@ async function updateTokenPricesForAllChains(): Promise<void> {
         try {
             await service.updatePrices(chain);
         } catch (error) {
-            console.error(`Error updating prices for chain ${chain}:`, error);
+            logger.error('Failed to update token prices for chain', { chain, err: error });
             errors.push(error instanceof Error ? error : new Error(`Unknown error: ${error}`));
         }
     }
@@ -338,7 +254,7 @@ export function configureWorkerRoutes(
             !Object.hasOwn(handlers, name) ||
             !Object.hasOwn(chainIdToChain, chainId)
         ) {
-            console.error(`Unhandled job ${String(name)} for chain ${String(chainId)}`);
+            logger.warn('Rejected unhandled worker job request', { name: String(name), chain: String(chainId) });
             res.sendStatus(400);
             return;
         }

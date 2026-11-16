@@ -110,7 +110,8 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
     });
 
     it('retries pools it could not update on a later run, across a restart, while advancing the checkpoint', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
         mockGetLastSyncedBlock.mockResolvedValue(rpcHead - 15);
 
         // Run 1: both pools changed, the read for 0xpoolb fails.
@@ -160,6 +161,8 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
 
         expect(await PoolController().syncPoolsV3('BASE')).toEqual([]);
         expect(mockSyncPools).not.toHaveBeenCalled();
+        stderr.mockRestore();
+        stdout.mockRestore();
     });
 });
 
@@ -168,20 +171,44 @@ describe('logPoolSyncSourceChange', () => {
         // A fresh module, so the syncPoolsV3 runs above have not recorded a source yet.
         vi.resetModules();
         const { logPoolSyncSourceChange } = await import('./pool-controller');
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
         logPoolSyncSourceChange('BASE', 'rpc', { lag: 75, acceptableSGLag: 30 });
         logPoolSyncSourceChange('BASE', 'rpc', { lag: 80, acceptableSGLag: 30 });
         logPoolSyncSourceChange('SEPOLIA', 'subgraph', { lag: 2, acceptableSGLag: 100 });
         logPoolSyncSourceChange('BASE', 'subgraph', { lag: 20, acceptableSGLag: 30 });
 
-        expect(log.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
-            { event: 'pool-sync-source', chain: 'BASE', source: 'rpc', lag: 75, acceptableSGLag: 30 },
-            { event: 'pool-sync-source', chain: 'SEPOLIA', source: 'subgraph', lag: 2, acceptableSGLag: 100 },
-            { event: 'pool-sync-source', chain: 'BASE', source: 'subgraph', lag: 20, acceptableSGLag: 30 },
+        expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            {
+                level: 'info',
+                message: 'Pool sync source changed',
+                event: 'pool-sync-source',
+                chain: 'BASE',
+                source: 'rpc',
+                lag: 75,
+                acceptableSGLag: 30,
+            },
+            {
+                level: 'info',
+                message: 'Pool sync source changed',
+                event: 'pool-sync-source',
+                chain: 'SEPOLIA',
+                source: 'subgraph',
+                lag: 2,
+                acceptableSGLag: 100,
+            },
+            {
+                level: 'info',
+                message: 'Pool sync source changed',
+                event: 'pool-sync-source',
+                chain: 'BASE',
+                source: 'subgraph',
+                lag: 20,
+                acceptableSGLag: 30,
+            },
         ]);
 
-        log.mockRestore();
+        stdout.mockRestore();
     });
 });
 
@@ -189,8 +216,8 @@ describe('logPoolPendingResyncChange', () => {
     it('logs warn JSON when the failing pool set changes, caps listed IDs, and logs info JSON on recovery', async () => {
         vi.resetModules();
         const { logPoolPendingResyncChange } = await import('./pool-controller');
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
         logPoolPendingResyncChange('BASE', []);
         logPoolPendingResyncChange('BASE', ['0xpoolb', '0xpoola']);
@@ -200,44 +227,44 @@ describe('logPoolPendingResyncChange', () => {
         logPoolPendingResyncChange('BASE', []);
         logPoolPendingResyncChange('BASE', []);
 
-        expect(warn.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+        expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
             {
                 level: 'warn',
+                message: 'Pools pending resync on next run',
                 event: 'pool-sync-retry',
                 chain: 'BASE',
                 failedPools: 2,
                 poolIds: ['0xpoola', '0xpoolb'],
-                message: 'syncPoolsV3 on BASE could not update 2 pools (0xpoola, 0xpoolb), retrying next run',
             },
             {
                 level: 'warn',
+                message: 'Pools pending resync on next run',
                 event: 'pool-sync-retry',
                 chain: 'BASE',
                 failedPools: 2,
                 poolIds: ['0xpoolb', '0xpoolc'],
-                message: 'syncPoolsV3 on BASE could not update 2 pools (0xpoolb, 0xpoolc), retrying next run',
             },
             {
                 level: 'warn',
+                message: 'Pools pending resync on next run',
                 event: 'pool-sync-retry',
                 chain: 'BASE',
                 failedPools: 7,
                 poolIds: ['0xp1', '0xp2', '0xp3', '0xp4', '0xp5'],
-                message:
-                    'syncPoolsV3 on BASE could not update 7 pools (0xp1, 0xp2, 0xp3, 0xp4, 0xp5, +2 more), retrying next run',
+                omittedPools: 2,
             },
         ]);
-        expect(log.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+        expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
             {
                 level: 'info',
+                message: 'Recovered all pools pending resync',
                 event: 'pool-sync-retry',
                 chain: 'BASE',
                 failedPools: 0,
-                message: 'syncPoolsV3 on BASE recovered all pending pools',
             },
         ]);
 
-        warn.mockRestore();
-        log.mockRestore();
+        stderr.mockRestore();
+        stdout.mockRestore();
     });
 });

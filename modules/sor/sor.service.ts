@@ -18,6 +18,7 @@ import {
 import { PathWithAmount } from './lib/path';
 import { getInputAmount, getOutputAmount } from './lib/utils';
 import { Chain } from '@prisma/client';
+import { logger } from '../common/logger';
 
 export class SorService {
     async getSorSwapPaths(args: QuerySorGetSwapPathsArgs, signal?: AbortSignal): Promise<GqlSorGetSwapPaths> {
@@ -146,17 +147,14 @@ export class SorService {
     }
 
     private logSwapPathError(err: any, input: GetSwapPathsInput): void {
-        console.error(
-            `SOR swap path error: ${err?.message ?? err}`,
-            {
-                tokenIn: input.tokenIn,
-                tokenOut: input.tokenOut,
-                swapAmount: input.swapAmount.amount.toString(),
-                swapType: input.swapType,
-                chain: input.chain,
-            },
+        logger.error('SOR swap path calculation failed', {
+            chain: input.chain,
+            tokenIn: input.tokenIn,
+            tokenOut: input.tokenOut,
+            swapAmount: input.swapAmount.amount.toString(),
+            swapType: input.swapType,
             err,
-        );
+        });
     }
 }
 

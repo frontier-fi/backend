@@ -2,6 +2,7 @@ import { poolService } from '../../../../modules/pool/pool.service';
 import { PoolAggregatorLoader } from '../../../../modules/pool/lib/pool-aggregator-loader';
 import { GqlChain, Resolvers } from '../generated-schema';
 import { isAdminRoute } from '../../../../modules/auth/auth-context';
+import { logger } from '../../../../modules/common/logger';
 import {
     EventsQueryController,
     SnapshotsController,
@@ -101,7 +102,7 @@ const balancerResolvers: Resolvers = {
                     result.push({ type: 'v3', chain, success: true, error: undefined });
                 } catch (e) {
                     result.push({ type: 'v3', chain, success: false, error: `${e}` });
-                    console.log(`Could not sync v3 pools for chain ${chain}: ${e}`);
+                    logger.error('Admin v3 pool sync failed', { chain, err: e });
                 }
             }
             return result;
@@ -118,7 +119,7 @@ const balancerResolvers: Resolvers = {
                     result.push({ type: 'v3', chain, success: true, error: undefined });
                 } catch (e) {
                     result.push({ type: 'v3', chain, success: false, error: `${e}` });
-                    console.log(`Could not reload v3 pools for chain ${chain}: ${e}`);
+                    logger.error('Admin v3 pool reload failed', { chain, err: e });
                 }
             }
 

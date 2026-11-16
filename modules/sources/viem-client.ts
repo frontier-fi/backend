@@ -2,6 +2,7 @@ import { Chain as ViemChain, createPublicClient, http, PublicClient } from 'viem
 import { base, mainnet, sepolia } from 'viem/chains';
 import { Chain } from '@prisma/client';
 import config from '../../config';
+import { logger } from '../common/logger';
 
 export type ViemClient = ReturnType<typeof getViemClient>;
 
@@ -48,11 +49,12 @@ export const getViemClient = (chain: Chain, options?: { multicallBatch?: boolean
                                     .map((code) => String.fromCharCode(parseInt(code, 10)))
                                     .join(''),
                             );
-                            try {
-                                console.log(json['id'], json['method'], body.length, json['params'][0]['to']);
-                            } catch (e) {
-                                console.log(json['id'], json['method'], body.length);
-                            }
+                            logger.debug('Viem RPC request', {
+                                id: json['id'],
+                                method: json['method'],
+                                bytes: body.length,
+                                to: json['params']?.[0]?.['to'],
+                            });
                         });
                 }
             },

@@ -30,8 +30,7 @@ export async function validateTokens(tokenIn: string, tokenOut: string, chain: C
         await getToken(tokenIn, chain);
         await getToken(tokenOut, chain);
         return true;
-    } catch (e) {
-        console.log('Missing token for SOR request', `in: ${tokenIn}`, `out: ${tokenOut}`, chain);
+    } catch {
         return false;
     }
 }

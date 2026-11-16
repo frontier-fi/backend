@@ -20,6 +20,7 @@ vi.mock('../../../../prisma/prisma-client', () => ({
 }));
 
 import { syncPools } from './sync-pools';
+import { logger } from '../../../common/logger';
 
 describe('syncPools', () => {
     const pool = (id: string) => ({ id, type: 'WEIGHTED' as const, version: 1, typeData: {} });
@@ -29,8 +30,8 @@ describe('syncPools', () => {
     });
 
     it('returns only the pools it updated, leaving out failed reads and failed writes', async () => {
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
         mockFetchPoolSyncData.mockResolvedValue({
             '0xupdated': { poolToken: [] },
             '0xwritefails': { poolToken: [] },
@@ -48,17 +49,25 @@ describe('syncPools', () => {
         );
 
         expect(ids).toEqual(['0xupdated']);
-        expect(log).toHaveBeenCalledTimes(1);
-        expect(log).toHaveBeenCalledWith('syncPools skipped 1 pools with no on-chain token data on BASE');
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith('Skipped pools missing on-chain token data', {
+            chain: 'BASE',
+            skippedCount: 1,
+            poolIds: ['0xreadfails'],
+        });
         expect(error).toHaveBeenCalledTimes(1);
-        expect(error).toHaveBeenCalledWith('Error: failed to upsert pool 0xwritefails on BASE', expect.any(Error));
-        log.mockRestore();
+        expect(error).toHaveBeenCalledWith('Pool sync upsert failed', {
+            chain: 'BASE',
+            poolId: '0xwritefails',
+            err: expect.any(Error),
+        });
+        warn.mockRestore();
         error.mockRestore();
     });
 
     it('suppresses per-pool failure logs for pools already marked pending resync', async () => {
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
         mockFetchPoolSyncData.mockResolvedValue({
             '0xwritefails': { poolToken: [] },
             '0xnewwritefails': { poolToken: [] },
@@ -77,15 +86,19 @@ describe('syncPools', () => {
         );
 
         expect(ids).toEqual([]);
-        expect(log).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
         expect(error).toHaveBeenCalledTimes(1);
-        expect(error).toHaveBeenCalledWith('Error: failed to upsert pool 0xnewwritefails on BASE', expect.any(Error));
+        expect(error).toHaveBeenCalledWith('Pool sync upsert failed', {
+            chain: 'BASE',
+            poolId: '0xnewwritefails',
+            err: expect.any(Error),
+        });
 
         mockFetchPoolSyncData.mockResolvedValueOnce({
             '0xwritefails': { poolToken: [] },
         });
         mockTransaction.mockRejectedValueOnce(new Error('still broken'));
-        log.mockClear();
+        warn.mockClear();
         error.mockClear();
 
         await syncPools(
@@ -97,9 +110,9 @@ describe('syncPools', () => {
             new Set(['0xreadfails', '0xwritefails']),
         );
 
-        expect(log).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
         expect(error).not.toHaveBeenCalled();
-        log.mockRestore();
+        warn.mockRestore();
         error.mockRestore();
     });
 });

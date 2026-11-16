@@ -17,6 +17,7 @@ import { apolloErrorLoggerPlugin } from './apollo/error-logger';
 import { apolloProtection } from './apollo/armor';
 import { apolloEdgePlugin } from './apollo/edge';
 import type { Stoppable } from '../shutdown';
+import { logger } from '../../modules/common/logger';
 
 const configureHelmet = (app: express.Express) => {
     app.use(helmet.dnsPrefetchControl());
@@ -93,7 +94,7 @@ export const startApiServer = async (): Promise<Stoppable> => {
     app.use(jsonErrorHandler);
 
     await new Promise<void>((resolve) => httpServer.listen({ port: env.PORT, host: '0.0.0.0' }, resolve));
-    console.log(`🚀 Server ready at http://localhost:${env.PORT}/graphql`);
+    logger.info('API server listening', { port: env.PORT, url: `http://localhost:${env.PORT}/graphql` });
 
     // The drain plugin closes the HTTP server and lets requests in flight finish first.
     return { stop: () => apollo.stop() };

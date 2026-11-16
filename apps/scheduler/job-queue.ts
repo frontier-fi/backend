@@ -1,4 +1,5 @@
 import { request } from 'node:http';
+import { logger } from '../../modules/common/logger';
 import type { ScheduledJob } from './schedule';
 
 export interface JobQueue {
@@ -74,14 +75,8 @@ export function scheduleJobs(schedule: ScheduledJob[], queue: JobQueue): Schedul
         try {
             await queue.send(json);
         } catch (error) {
-            console.error(
-                JSON.stringify({
-                    level: 'error',
-                    ...JSON.parse(json),
-                    status: 'send-failed',
-                    error: error instanceof Error ? error.message : String(error),
-                }),
-            );
+            const { name, chain } = JSON.parse(json) as { name: string; chain: string };
+            logger.error('Failed to dispatch job to worker', { name, chain, status: 'send-failed', err: error });
         }
         if (!stopped) {
             after(interval, () => run(json, interval));
@@ -90,8 +85,10 @@ export function scheduleJobs(schedule: ScheduledJob[], queue: JobQueue): Schedul
 
     for (const job of schedule) {
         const json = JSON.stringify({ name: job.name, chain: job.chainId });
-        console.log(`Initializing job ${job.name}-${job.chainId}-init, first run in ${job.initialDelay / 1000}s`);
         after(job.initialDelay, () => run(json, job.interval));
+    }
+    if (schedule.length > 0) {
+        logger.info('Scheduled worker jobs', { jobCount: schedule.length });
     }
 
     return {

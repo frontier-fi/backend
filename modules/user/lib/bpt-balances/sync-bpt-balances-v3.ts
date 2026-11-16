@@ -4,10 +4,10 @@ import { getViemClient } from '../../../sources/viem-client';
 import { prisma } from '../../../../prisma/prisma-client';
 import { syncBptBalancesFromSubgraph } from './helpers/sync-bpt-balances-from-subgraph';
 import { syncBptBalancesFromRpc } from './helpers/sync-bpt-balances-from-rpc';
+import { logger } from '../../../common/logger';
 
 export const syncBptBalancesV3 = async (chain: Chain, subgraphUrl?: string) => {
     if (!subgraphUrl) {
-        console.log(`syncBptBalancesV3 on ${chain} missing subgraphUrl`);
         return;
     }
 
@@ -30,7 +30,11 @@ export const syncBptBalancesV3 = async (chain: Chain, subgraphUrl?: string) => {
     try {
         syncedRange = await syncBptBalancesFromSubgraph(poolIds, subgraphClient, chain, 'BPT_BALANCES_V3');
     } catch (e: any) {
-        console.log(`syncBptBalancesFromSubgraph BPT_BALANCES_V3 on ${chain} failed, trying RPC`, e.message);
+        logger.warn('BPT balance subgraph sync failed; falling back to RPC', {
+            chain,
+            syncCategory: 'BPT_BALANCES_V3',
+            err: e,
+        });
         syncedRange = await syncBptBalancesFromRpc(poolIds, viemClient, chain, 'BPT_BALANCES_V3');
     }
 

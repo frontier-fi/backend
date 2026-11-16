@@ -9,6 +9,7 @@ import { formatEther, parseAbi, zeroAddress } from 'viem';
 import { multicallViem } from '../../../../web3/multicaller-viem';
 import { balancesToDb } from './balances-to-db';
 import { getLastSyncedBlock } from '../../../../actions/last-synced-block';
+import { logger } from '../../../../common/logger';
 
 const rpcMaxBlockRange = (chain: Chain) => config[chain].rpcMaxBlockRange;
 
@@ -30,7 +31,6 @@ export const syncBptBalancesFromRpc = async (
 
     // Don't use RPC when balances weren't synced at all
     if (startBlock === 1) {
-        console.log(`syncBptBalancesFromRpc ${syncCategory} on ${chain} no start block provided`);
         return 0;
     }
 
@@ -97,17 +97,11 @@ export const syncBptBalancesFromRpc = async (
         };
     });
 
-    if (poolShares.length > 0) {
-        console.log(
-            `syncBptBalancesFromRpc ${syncCategory} on ${chain} blocks ${fromBlock}-${toBlock}: updated ${poolShares.length} balances`,
-        );
-    }
-
     const operations = balancesToDb(poolShares, chain, toBlock, syncCategory);
     try {
         await prisma.$transaction(operations);
     } catch (e: any) {
-        console.error(`syncBptBalancesFromRpc ${syncCategory} on ${chain}`, e.message);
+        logger.error('Failed to persist BPT balances from RPC', { chain, syncCategory, err: e });
     }
 
     return toBlock - startBlock;

@@ -6,6 +6,7 @@ import _ from 'lodash';
 import { fetchPoolSyncData } from '../../../sources/contracts/v3/fetch-pool-sync-data';
 import { ViemClient } from '../../../sources/viem-client';
 import { mergeArraysById } from '../../../helper/merge-arrays-by-id';
+import { logger } from '../../../common/logger';
 
 /**
  * Gets and syncs all the pools state with the database
@@ -34,7 +35,11 @@ export const syncPools = async (
     const skipped = dbPools.filter((pool) => !Array.isArray(onchainData[pool.id]?.poolToken));
     const newlySkipped = skipped.filter((pool) => !alreadyPendingIds.has(pool.id.toLowerCase()));
     if (newlySkipped.length > 0) {
-        console.log(`syncPools skipped ${newlySkipped.length} pools with no on-chain token data on ${chain}`);
+        logger.warn('Skipped pools missing on-chain token data', {
+            chain,
+            skippedCount: newlySkipped.length,
+            poolIds: newlySkipped.slice(0, 5).map((pool) => pool.id),
+        });
     }
 
     const upserts = dbPools
@@ -92,7 +97,7 @@ export const syncPools = async (
             updatedIds.push(pool.id);
         } catch (e) {
             if (!alreadyPendingIds.has(pool.id.toLowerCase())) {
-                console.error(`Error: failed to upsert pool ${pool.id} on ${chain}`, e);
+                logger.error('Pool sync upsert failed', { chain, poolId: pool.id, err: e });
             }
         }
     }

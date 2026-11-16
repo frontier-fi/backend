@@ -2,6 +2,7 @@ import { Chain } from '@prisma/client';
 import { TokenYieldRepository } from './repository';
 import { TokenYieldAprHandlers } from './handlers';
 import { TokenYieldConfig, TokenApr } from './types';
+import { logger } from '../common/logger';
 
 export class TokenYieldsService {
     constructor(private tokenYieldRepository = new TokenYieldRepository()) {}
@@ -23,7 +24,11 @@ export class TokenYieldsService {
             const validTokenAprs = tokenAprs.filter((t) => Number.isFinite(t.apr));
             const invalidAprs = tokenAprs.filter((t) => !Number.isFinite(t.apr));
             for (const invalidApr of invalidAprs) {
-                console.warn(`Invalid APR for token ${invalidApr.address} on chain ${chain}: ${invalidApr.apr}`);
+                logger.warn('Skipped non-finite token yield APR', {
+                    chain,
+                    tokenAddress: invalidApr.address,
+                    apr: String(invalidApr.apr),
+                });
             }
 
             // Group by source (we'll need to track which handler provided which data)

@@ -2,6 +2,7 @@ import { PrismaToken } from '@prisma/client';
 import { Multicaller3Viem } from '../../../web3/multicaller-viem';
 import MinimalErc4626Abi from '../abis/MinimalERC4626';
 import { formatEther, parseUnits } from 'viem';
+import { logger } from '../../../common/logger';
 
 /**
  * Fetches convertToAssets rates for a list of ERC4626 tokens and returns them as strings
@@ -32,10 +33,9 @@ export const fetchUnwrapRates = async (
     }
 
     if (missingTokens.length) {
-        console.log(
-            'Missing underlying token in ERC4626 tokens',
-            missingTokens.map(({ address, chain }) => [address, chain]),
-        );
+        logger.warn('ERC4626 tokens missing underlying token in DB', {
+            tokens: missingTokens.map(({ address, chain }) => ({ address, chain })),
+        });
     }
     if (validTokens.length === 0) {
         return {};

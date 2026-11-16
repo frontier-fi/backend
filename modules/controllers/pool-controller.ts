@@ -20,6 +20,7 @@ import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
 import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-reviews';
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
 import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
+import { logger } from '../common/logger';
 
 const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
 const pendingResyncByChain = new Map<Chain, string>();
@@ -38,7 +39,7 @@ export function logPoolSyncSourceChange(
         return;
     }
     poolSyncSources.set(chain, source);
-    console.log(JSON.stringify({ event: 'pool-sync-source', chain, source, ...details }));
+    logger.info('Pool sync source changed', { event: 'pool-sync-source', chain, source, ...details });
 }
 
 /**
@@ -57,28 +58,16 @@ export function logPoolPendingResyncChange(chain: Chain, failedPoolIds: readonly
     if (sortedIds.length > 0) {
         const failedPools = sortedIds.length;
         const poolIds = sortedIds.slice(0, MAX_LOGGED_POOL_IDS);
-        const preview =
-            poolIds.join(', ') + (failedPools > poolIds.length ? `, +${failedPools - poolIds.length} more` : '');
-        console.warn(
-            JSON.stringify({
-                level: 'warn',
-                event: 'pool-sync-retry',
-                chain,
-                failedPools,
-                poolIds,
-                message: `syncPoolsV3 on ${chain} could not update ${failedPools} pools (${preview}), retrying next run`,
-            }),
-        );
+        const omittedPools = failedPools - poolIds.length;
+        logger.warn('Pools pending resync on next run', {
+            event: 'pool-sync-retry',
+            chain,
+            failedPools,
+            poolIds,
+            ...(omittedPools > 0 ? { omittedPools } : {}),
+        });
     } else {
-        console.log(
-            JSON.stringify({
-                level: 'info',
-                event: 'pool-sync-retry',
-                chain,
-                failedPools: 0,
-                message: `syncPoolsV3 on ${chain} recovered all pending pools`,
-            }),
-        );
+        logger.info('Recovered all pools pending resync', { event: 'pool-sync-retry', chain, failedPools: 0 });
     }
 }
 

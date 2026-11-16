@@ -8,6 +8,7 @@ import _ from 'lodash';
 import { formatEther } from 'viem';
 import { prismaBulkExecuteOperations } from '../../../prisma/prisma-util';
 import { syncErc4626Tokens } from './sync-erc4626-tokens';
+import { logger } from '../../common/logger';
 
 /**
  * Syncs onchain data for ERC4626 tokens and stores them in the database
@@ -136,10 +137,8 @@ export const syncErc4626OnchainData = async (vaultExplorerAddress: string, viemC
         });
 
         await prismaBulkExecuteOperations(operations);
-
-        console.log(`[ERC4626 ${chain}] Successfully updated ERC4626 data for ${erc4626Tokens.length} tokens`);
     } catch (error) {
-        console.error(`[ERC4626 ${chain}] Error syncing ERC4626 data:`, error);
+        logger.error('Failed to sync ERC4626 on-chain data', { chain, err: error });
         throw error;
     }
 };

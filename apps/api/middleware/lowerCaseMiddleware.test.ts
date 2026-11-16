@@ -6,6 +6,7 @@ import { expressMiddleware } from '@as-integrations/express5';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { jsonErrorHandler } from './errorHandler';
 import { lowerCaseMiddleware } from './lowerCaseMiddleware';
+import { logger } from '../../../modules/common/logger';
 
 const VALID_CHECKSUM = '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14';
 const BAD_CHECKSUM = '0xfff9976782d46CC05630D1f6eBAb18b2324d6B14';
@@ -59,7 +60,7 @@ describe('lowerCaseMiddleware with the JSON error handler', () => {
             const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
         });
         baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     });
 
     afterAll(async () => {

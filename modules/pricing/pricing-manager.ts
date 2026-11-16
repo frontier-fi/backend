@@ -1,4 +1,5 @@
 import { PriceHandler, PriceItem, TokenPriceData } from './types';
+import { logger } from '../common/logger';
 
 export class PricingManager {
     constructor(private readonly handlers: PriceHandler[]) {}
@@ -40,7 +41,7 @@ export class PricingManager {
                 const pricedAddresses = new Set(priceItems.map((item) => item.address));
                 remainingTokens = remainingTokens.filter((token) => !pricedAddresses.has(token.address));
             } catch (error) {
-                console.error(`Price handler ${handler.id} failed:`, error);
+                logger.error('Price handler failed', { handler: handler.id, err: error });
 
                 if (handler.exitIfFails) {
                     throw error;

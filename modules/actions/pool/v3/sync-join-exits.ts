@@ -24,8 +24,6 @@ export const syncJoinExits = async (
     const dbEntries = await joinExitV3Transformer(addRemoves, chain);
     if (dbEntries.length === 0) return [];
 
-    console.log(`Syncing ${dbEntries.length} join/exit events`);
-
     // Enrich with USD values
     const dbEntriesWithUsd = await joinExitsUsd(dbEntries, chain);
 

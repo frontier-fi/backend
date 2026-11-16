@@ -85,10 +85,18 @@ describe('worker route', () => {
         }
     });
 
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
     beforeEach(() => {
         for (const name of Object.keys(handlers)) delete handlers[name];
-        vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+        stdoutSpy.mockRestore();
+        stderrSpy.mockRestore();
     });
 
     it('answers the health check', async () => {
@@ -122,8 +130,10 @@ describe('worker route', () => {
 
         await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
 
-        expect(console.log).toHaveBeenCalledTimes(1);
-        expect(JSON.parse(vi.mocked(console.log).mock.calls[0][0])).toMatchObject({
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(stdoutSpy.mock.calls[0][0]))).toMatchObject({
+            level: 'info',
+            message: 'Worker job finished',
             job: `sync-pools-v3-${SEPOLIA_ID}`,
             name: 'sync-pools-v3',
             chain: 'SEPOLIA',
@@ -147,11 +157,12 @@ describe('worker route', () => {
         try {
             const result = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
 
-            const line = vi.mocked(console.error).mock.calls[0][0] as string;
+            const line = String(stderrSpy.mock.calls[0][0]).trimEnd();
             expect(line).not.toContain('secret-drpc-key');
             const parsed = JSON.parse(line);
             expect(parsed).toMatchObject({
                 level: 'error',
+                message: 'Worker job failed',
                 name: 'sync-pools-v3',
                 chain: 'SEPOLIA',
                 status: 'failed',
@@ -175,11 +186,12 @@ describe('worker route', () => {
 
         await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
 
-        const line = vi.mocked(console.error).mock.calls[0][0] as string;
-        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_500);
+        const line = String(stderrSpy.mock.calls[0][0]).trimEnd();
+        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_600);
         const parsed = JSON.parse(line);
         expect(parsed).toMatchObject({
             level: 'error',
+            message: 'Worker job failed',
             job: `sync-pools-v3-${SEPOLIA_ID}`,
             name: 'sync-pools-v3',
             chain: 'SEPOLIA',
@@ -201,12 +213,13 @@ describe('worker route', () => {
 
         await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
 
-        const line = vi.mocked(console.error).mock.calls[0][0] as string;
-        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_500);
-        expect(line).toBe((line as string & { toWellFormed(): string }).toWellFormed());
+        const line = String(stderrSpy.mock.calls[0][0]).trimEnd();
+        expect(Buffer.byteLength(line, 'utf8')).toBeLessThanOrEqual(1_600);
+        expect(Buffer.from(line, 'utf8').toString('utf8')).toBe(line);
         const parsed = JSON.parse(line);
         expect(parsed).toMatchObject({
             level: 'error',
+            message: 'Worker job failed',
             job: `sync-pools-v3-${SEPOLIA_ID}`,
             name: 'sync-pools-v3',
             chain: 'SEPOLIA',
@@ -250,13 +263,19 @@ describe('worker drain', () => {
     let url: string;
     let routes: WorkerRoutes;
 
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
     beforeEach(async () => {
         for (const name of Object.keys(handlers)) delete handlers[name];
-        vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
         ({ server, url, routes } = await serve(handlers));
     });
 
     afterEach(async () => {
+        stdoutSpy.mockRestore();
+        stderrSpy.mockRestore();
         if (server?.listening) {
             server.closeAllConnections();
             await new Promise((resolve) => server.close(resolve));

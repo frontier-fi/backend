@@ -168,3 +168,12 @@ Dependabot proposes updates to the pinned GitHub Actions and Docker base images 
 ## Caching and rate limits
 
 `apps/api/apollo/edge.ts` caches query responses (`maxAge` + stale-while-revalidate `swr`) and rate-limits clients per IP (`600` requests/min and `120` `sorGetSwapPaths` root fields/min) directly in the `api` service. Every query in the schema needs a cache rule in `CACHE_RULES`; a unit test in `apps/api/apollo/edge.test.ts` checks that.
+
+## Logging (Better Stack)
+
+DigitalOcean forwards container `stdout`/`stderr` over Syslog (2 KB line limit, `stderr` severity is not preserved).
+
+1. **Never use `console.*` in app code** (enforced in CI) — import `logger` (`logger.info`, `logger.warn`, `logger.error`, `logger.debug`).
+2. **Keep `message` static, put variables in `fields`**: `logger.error('Pool sync failed', { chain, poolId, err })` (enables Better Stack `_pattern` grouping and field filtering).
+3. **Pass `Error` objects via `{ err }`** rather than stringifying them; `logger` caps stack traces to fit the 1,600-byte Syslog budget and redacts RPC keys.
+4. **Log state transitions and failures, not healthy per-tick progress** (3-day retention; high-frequency cron ticks drown out real signals). The worker runner (`apps/worker/job-handlers.ts`) emits one canonical summary line per job execution (`name`, `chain`, `status`, `durationSeconds`) to feed Better Stack metrics and stall alerts. Individual handlers and services under `modules/` must stay silent on healthy runs — log only state transitions (e.g. `subgraph` <-> `rpc` fallback), warnings, or errors.

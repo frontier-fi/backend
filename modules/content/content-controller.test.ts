@@ -16,17 +16,18 @@ vi.mock('./lib/sync-token-data', () => ({
 }));
 
 import { ContentController } from './content-controller';
+import { logger } from '../common/logger';
 
 describe('ContentController.syncTokenContentData', () => {
     it('still syncs the token list and blocklist when the CoinGecko id sync fails', async () => {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
         mockSyncCoingeckoIds.mockRejectedValueOnce(new Error('429 Too Many Requests'));
 
         await ContentController().syncTokenContentData();
 
         expect(mockSyncTokenContentData).toHaveBeenCalledWith(expect.arrayContaining(['SEPOLIA', 'BASE']));
-        expect(consoleError).toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledWith('Failed to sync CoinGecko IDs', { err: expect.any(Error) });
 
-        consoleError.mockRestore();
+        errorSpy.mockRestore();
     });
 });

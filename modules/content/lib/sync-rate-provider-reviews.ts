@@ -3,6 +3,7 @@ import { prisma } from '../../../prisma/prisma-client';
 import { normalizeAddress } from '../../web3/addresses';
 import { githubChainToChain } from './github-helper';
 import { contentSources } from '../../../config/content-sources';
+import { logger } from '../../common/logger';
 
 const knownChains = new Set<string>(Object.values(Chain));
 
@@ -37,7 +38,7 @@ export const syncRateProviderReviews = async (): Promise<void> => {
     }
 
     if (malformed > 0) {
-        console.warn(`syncRateProviderReviews skipped ${malformed} malformed rows on configured chains`);
+        logger.warn('Skipped malformed rate provider review rows', { malformedCount: malformed });
     }
 
     await prisma.$transaction([
