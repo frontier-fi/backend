@@ -89,7 +89,7 @@ export const syncPools = async (
             ]);
             updatedIds.push(pool.id);
         } catch (e) {
-            console.error('Error upserting pool', e);
+            console.error(`Error: failed to upsert pool ${pool.id} on ${chain}`, e);
         }
     }
 

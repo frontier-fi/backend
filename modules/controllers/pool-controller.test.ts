@@ -168,3 +168,48 @@ describe('logPoolSyncSourceChange', () => {
         log.mockRestore();
     });
 });
+
+describe('logPoolPendingResyncChange', () => {
+    it('logs warn JSON when pending resync count changes and info JSON on recovery', async () => {
+        vi.resetModules();
+        const { logPoolPendingResyncChange } = await import('./pool-controller');
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        logPoolPendingResyncChange('BASE', 0);
+        logPoolPendingResyncChange('BASE', 2);
+        logPoolPendingResyncChange('BASE', 2);
+        logPoolPendingResyncChange('BASE', 1);
+        logPoolPendingResyncChange('BASE', 0);
+        logPoolPendingResyncChange('BASE', 0);
+
+        expect(warn.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+            {
+                level: 'warn',
+                event: 'pool-sync-retry',
+                chain: 'BASE',
+                failedPools: 2,
+                message: 'syncPoolsV3 on BASE could not update 2 pools, retrying next run',
+            },
+            {
+                level: 'warn',
+                event: 'pool-sync-retry',
+                chain: 'BASE',
+                failedPools: 1,
+                message: 'syncPoolsV3 on BASE could not update 1 pools, retrying next run',
+            },
+        ]);
+        expect(log.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+            {
+                level: 'info',
+                event: 'pool-sync-retry',
+                chain: 'BASE',
+                failedPools: 0,
+                message: 'syncPoolsV3 on BASE recovered all pending pools',
+            },
+        ]);
+
+        warn.mockRestore();
+        log.mockRestore();
+    });
+});

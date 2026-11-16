@@ -22,6 +22,7 @@ import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
 import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 
 const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
+const pendingResyncCounts = new Map<Chain, number>();
 
 /**
  * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
@@ -37,6 +38,39 @@ export function logPoolSyncSourceChange(
     }
     poolSyncSources.set(chain, source);
     console.log(JSON.stringify({ event: 'pool-sync-source', chain, source, ...details }));
+}
+
+/**
+ * Pending pool resyncs retry every 5s run by design. Log only when the failing pool count changes
+ * (and when it recovers back to 0) as warn/info JSON so one stuck pool cannot flood error alerts.
+ */
+export function logPoolPendingResyncChange(chain: Chain, failedPools: number) {
+    const previous = pendingResyncCounts.get(chain) ?? 0;
+    if (previous === failedPools) {
+        return;
+    }
+    pendingResyncCounts.set(chain, failedPools);
+    if (failedPools > 0) {
+        console.warn(
+            JSON.stringify({
+                level: 'warn',
+                event: 'pool-sync-retry',
+                chain,
+                failedPools,
+                message: `syncPoolsV3 on ${chain} could not update ${failedPools} pools, retrying next run`,
+            }),
+        );
+    } else {
+        console.log(
+            JSON.stringify({
+                level: 'info',
+                event: 'pool-sync-retry',
+                chain,
+                failedPools: 0,
+                message: `syncPoolsV3 on ${chain} recovered all pending pools`,
+            }),
+        );
+    }
 }
 
 export function PoolController(tracer?: any) {
@@ -322,9 +356,7 @@ export function PoolController(tracer?: any) {
                     data: { pendingResync: false },
                 }),
             ]);
-            if (failed.length > 0) {
-                console.error(`syncPoolsV3 on ${chain} could not update ${failed.length} pools, retrying next run`);
-            }
+            logPoolPendingResyncChange(chain, failed.length);
 
             await syncTokenPairs(ids, viemClient, routerAddress, chain);
             await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.POOLS_V3, latestBlock);

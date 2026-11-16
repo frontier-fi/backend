@@ -35,20 +35,38 @@ function errorFields(error: unknown, prefix?: string): Pick<JobResult, 'error' |
     };
 }
 
+const MAX_LOG_ERROR_CHARS = 500;
+const MAX_LOG_STACK_CHARS = 700;
+
 // RPC errors from viem quote the request URL, and dRPC URLs carry the API key in the path.
 function redactSecrets(text: string): string {
     return env.DRPC_API_KEY ? text.split(env.DRPC_API_KEY).join('***') : text;
 }
 
+function capText(text: string, maxChars: number): string {
+    return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+}
+
 /**
  * Logs one JSON line per job so Better Stack can filter and alert on name, chain and status.
- * Failures go to stderr.
+ * Indexing fields come first and error/stack are capped so DigitalOcean's 2 KB syslog limit
+ * never truncates the JSON object. Failures go to stderr.
  */
 function logJobResult(name: string, chain: Chain, { stack, ...outcome }: JobResult): JobOutcome {
     if (outcome.error) {
         outcome.error = redactSecrets(outcome.error);
     }
-    const line = JSON.stringify({ ...outcome, name, chain, stack: stack && redactSecrets(stack) });
+    const line = JSON.stringify({
+        level: outcome.status === 'failed' ? 'error' : 'info',
+        job: outcome.job,
+        name,
+        chain,
+        status: outcome.status,
+        durationSeconds: outcome.durationSeconds,
+        reason: outcome.reason,
+        error: outcome.error && capText(outcome.error, MAX_LOG_ERROR_CHARS),
+        stack: stack && capText(redactSecrets(stack), MAX_LOG_STACK_CHARS),
+    });
     if (outcome.status === 'failed') {
         console.error(line);
     } else {

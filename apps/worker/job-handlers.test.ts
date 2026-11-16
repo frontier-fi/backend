@@ -145,6 +145,7 @@ describe('worker route', () => {
             const line = vi.mocked(console.error).mock.calls[0][0] as string;
             expect(line).not.toContain('secret-drpc-key');
             expect(JSON.parse(line)).toMatchObject({
+                level: 'error',
                 name: 'sync-pools-v3',
                 chain: 'SEPOLIA',
                 status: 'failed',
@@ -155,6 +156,29 @@ describe('worker route', () => {
         } finally {
             env.DRPC_API_KEY = previousKey;
         }
+    });
+
+    it('keeps oversized failure logs valid JSON under DigitalOcean 2 KB syslog limit', async () => {
+        handlers['sync-pools-v3'] = async () => {
+            const err = new Error('x'.repeat(4_000));
+            err.stack = `Error: ${'x'.repeat(4_000)}\n${'    at frame (/app/index.js:1:1)\n'.repeat(40)}`;
+            throw err;
+        };
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+
+        const line = vi.mocked(console.error).mock.calls[0][0] as string;
+        expect(Buffer.byteLength(line, 'utf8')).toBeLessThan(1_600);
+        const parsed = JSON.parse(line);
+        expect(parsed).toMatchObject({
+            level: 'error',
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'failed',
+        });
+        expect(parsed.error.endsWith('…')).toBe(true);
+        expect(parsed.stack.endsWith('…')).toBe(true);
     });
 
     it('skips a job that is still running', async () => {

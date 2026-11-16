@@ -22,6 +22,7 @@ export const syncJoinExits = async (
 
     // Prepare DB entries
     const dbEntries = await joinExitV3Transformer(addRemoves, chain);
+    if (dbEntries.length === 0) return [];
 
     console.log(`Syncing ${dbEntries.length} join/exit events`);
 
