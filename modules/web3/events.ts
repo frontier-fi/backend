@@ -1,5 +1,6 @@
 import { Interface, LogDescription } from 'ethers';
 import { chunk } from 'lodash';
+import { logger } from '../common/logger';
 
 export type DecodedEventLog = {
     address: string;
@@ -33,8 +34,6 @@ export const getEvents = async (
             return fragment.topicHash;
         });
     }
-
-    console.log(topics);
 
     const range = toBlock - fromBlock;
     const numBatches = Math.ceil(range / rpcMaxBlockRange);
@@ -103,7 +102,11 @@ export const getEvents = async (
 
                 // Handle missing block in the RPC logs by retrying the request after 1s
                 if (e.includes && (e.includes('unknown block') || e.includes('after last accepted block'))) {
-                    console.log(`Retrying getEvents for block ${from}-${to} on ${rpcUrl}`);
+                    // rpcUrl carries the RPC API key, so it stays out of the log.
+                    logger.warn('Retrying getEvents after transient missing block', {
+                        fromBlock: from,
+                        toBlock: to,
+                    });
                     return new Promise<DecodedEventLog[]>((resolve) => {
                         setTimeout(() => {
                             resolve(getEvents(from, to, addressChunk, topics, rpcUrl, rpcMaxBlockRange));

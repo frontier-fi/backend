@@ -1,4 +1,5 @@
 import { GqlSorGetSwapPaths, QuerySorGetSwapPathsArgs, Resolvers } from '../generated-schema';
+import { logger } from '../../../../modules/common/logger';
 import { sorService } from '../../../../modules/sor/sor.service';
 import {
     ArgumentNode,
@@ -56,7 +57,10 @@ export function sorProxyUrl(settings: {
     const target = new URL(SOR_SERVICE_URL);
     const port = Number(target.port || (target.protocol === 'https:' ? 443 : 80));
     if (LOOPBACK_HOSTS.has(target.hostname) && port === PORT) {
-        console.warn(`SOR_SERVICE_URL ${SOR_SERVICE_URL} points at this API. Quoting swaps in this process.`);
+        logger.warn('SOR_SERVICE_URL points at this API; quoting swaps in process', {
+            sorServiceUrl: SOR_SERVICE_URL,
+            port: PORT,
+        });
         return undefined;
     }
 

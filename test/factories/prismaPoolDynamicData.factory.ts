@@ -13,6 +13,7 @@ export const prismaPoolDynamicDataFactory = PrismaPoolDynamicDataFactory.define(
         poolId,
         blockNumber: 1,
         updatedAt: new Date(),
+        pendingResync: false,
         swapFee: '0.01',
         aggregateSwapFee: '0',
         aggregateYieldFee: '0',

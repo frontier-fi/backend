@@ -20,7 +20,7 @@ interface WhitelistedToken {
     decimals: number;
     logoURI: string;
     extensions?: {
-        coingeckoId?: string;
+        coingeckoId?: string | null;
     };
 }
 
@@ -44,9 +44,19 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
             const chain = chainIdToChain[token.chainId];
             const address = token.address.toLowerCase();
             const isConfiguredWeth = address === config[chain]?.weth.address.toLowerCase();
-            const coingeckoTokenId =
-                token.extensions?.coingeckoId ??
-                (isConfiguredWeth ? config[chain]?.coingecko.nativeAssetId : undefined);
+            const hasExplicitNullCoingeckoId =
+                token.extensions !== undefined &&
+                Object.hasOwn(token.extensions, 'coingeckoId') &&
+                token.extensions.coingeckoId === null;
+            const coingeckoTokenId = hasExplicitNullCoingeckoId
+                ? null
+                : (token.extensions?.coingeckoId ??
+                  (isConfiguredWeth ? config[chain]?.coingecko.nativeAssetId : undefined));
+            const excludedFromCoingecko = hasExplicitNullCoingeckoId
+                ? true
+                : typeof token.extensions?.coingeckoId === 'string'
+                  ? false
+                  : undefined;
 
             return {
                 address,
@@ -56,6 +66,7 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
                 decimals: token.decimals,
                 logoURI: token.logoURI,
                 coingeckoTokenId,
+                ...(excludedFromCoingecko !== undefined ? { excludedFromCoingecko } : {}),
                 types: {
                     connectOrCreate: {
                         where: {

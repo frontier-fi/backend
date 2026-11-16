@@ -2,6 +2,7 @@ import { Chain, PrismaPoolAprItem } from '@prisma/client';
 import { AprHandler } from './types';
 import { AprRepository } from './apr-repository';
 import _ from 'lodash';
+import { logger } from '../common/logger';
 
 export class AprManager {
     constructor(
@@ -24,20 +25,14 @@ export class AprManager {
 
         // Get all APR items from all handlers
         const allAprItems: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[] = [];
-        const failedHandlers: string[] = [];
 
         for (const handler of this.aprHandlers) {
             try {
                 const items = await handler.calculateAprForPools(pools);
                 allAprItems.push(...items);
             } catch (e: any) {
-                console.error(e);
-                failedHandlers.push(handler.getAprServiceName());
+                logger.error('APR handler failed', { handler: handler.getAprServiceName(), err: e });
             }
-        }
-
-        if (failedHandlers.length > 0) {
-            console.error(`The following APR handlers failed: ${failedHandlers.join(', ')}`);
         }
 
         return allAprItems;

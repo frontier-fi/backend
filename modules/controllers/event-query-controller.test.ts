@@ -17,6 +17,20 @@ describe('EventsQueryController', () => {
         getEventsSpy.mockRestore();
     });
 
+    it('rejects requests for more than one chain without querying the database', async () => {
+        const getEventsSpy = vi.spyOn(eventsRepository, 'getEvents').mockResolvedValue([]);
+
+        await expect(
+            EventsQueryController().getEvents({ where: { chainIn: ['SEPOLIA', 'BASE'] } }),
+        ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+        expect(getEventsSpy).not.toHaveBeenCalled();
+
+        await EventsQueryController().getEvents({ where: { chainIn: ['BASE', 'BASE'] } });
+        expect(getEventsSpy).toHaveBeenCalledWith(expect.objectContaining({ chain: 'BASE' }));
+
+        getEventsSpy.mockRestore();
+    });
+
     it('forwards multi-element typeIn and poolIdIn along with userAddress to eventsRepository.getEvents', async () => {
         const getEventsSpy = vi.spyOn(eventsRepository, 'getEvents').mockResolvedValue([]);
 

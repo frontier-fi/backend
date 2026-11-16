@@ -1,6 +1,7 @@
 import { GqlChain, GqlHistoricalTokenPrice, Resolvers } from '../generated-schema';
 import _ from 'lodash';
 import { isAdminRoute } from '../../../../modules/auth/auth-context';
+import { logger } from '../../../../modules/common/logger';
 import { tokenService } from '../../../../modules/token/token.service';
 import moment from 'moment';
 import { TokenController } from '../../../../modules/controllers/token-controller';
@@ -120,7 +121,7 @@ const resolvers: Resolvers = {
                     result.push({ type: 'v3', chain, success: true, error: undefined });
                 } catch (e) {
                     result.push({ type: 'v3', chain, success: false, error: `${e}` });
-                    console.log(`Could not reload v3 pools for chain ${chain}: ${e}`);
+                    logger.error('Admin token type reload failed', { chain, err: e });
                 }
             }
 

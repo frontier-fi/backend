@@ -7,6 +7,7 @@ import _ from 'lodash';
 import { fetchPoolSyncData } from '../../../sources/contracts/v3/fetch-pool-sync-data';
 import { fetchErc20Headers } from '../../../sources/contracts/fetch-erc20-headers';
 import { mergeArraysById } from '../../../helper/merge-arrays-by-id';
+import { logger } from '../../../common/logger';
 
 export const addPools = async (
     subgraphPools: V3JoinedSubgraphPool[],
@@ -184,7 +185,7 @@ export const addPools = async (
                     []),
             ]);
         } catch (e) {
-            console.error('Error upserting pool', e);
+            logger.error('Failed to add pool', { chain, poolId: pool.id, err: e });
         }
     }
 

@@ -2,6 +2,7 @@ import { Chain } from '@prisma/client';
 import { TokenYieldRepository } from './repository';
 import { TokenYieldAprHandlers } from './handlers';
 import { TokenYieldConfig, TokenApr } from './types';
+import { logger } from '../common/logger';
 
 export class TokenYieldsService {
     constructor(private tokenYieldRepository = new TokenYieldRepository()) {}
@@ -13,31 +14,31 @@ export class TokenYieldsService {
         const tokenYieldAprHandlers = new TokenYieldAprHandlers(aprConfig, chain);
 
         try {
-            console.log(`Fetching yields for chain ${chain}...`);
-
             // Fetch APRs/yield from all handlers
             const tokenAprs = await tokenYieldAprHandlers.fetchAprsFromAllHandlers();
 
             if (tokenAprs.length === 0) {
-                console.log(`No token yields fetched for chain ${chain}`);
                 return;
             }
-
-            console.log(`Fetched ${tokenAprs.length} token yields for chain ${chain}`);
 
             const validTokenAprs = tokenAprs.filter((t) => Number.isFinite(t.apr));
             const invalidAprs = tokenAprs.filter((t) => !Number.isFinite(t.apr));
             for (const invalidApr of invalidAprs) {
-                console.log(`Invalid APR for token ${invalidApr.address} on chain ${chain}: ${invalidApr.apr}`);
+                logger.warn('Skipped non-finite token yield APR', {
+                    chain,
+                    tokenAddress: invalidApr.address,
+                    apr: String(invalidApr.apr),
+                });
             }
 
             // Group by source (we'll need to track which handler provided which data)
             // For now, we'll store all as 'yb-handlers' source
             await this.tokenYieldRepository.storeTokenYields(chain, validTokenAprs);
-
-            console.log(`Successfully stored ${validTokenAprs.length} token yields for chain ${chain}`);
         } catch (error) {
-            throw `Failed to fetch and store yields for chain ${chain}: ${error}`;
+            throw new Error(
+                `Failed to fetch and store yields for chain ${chain}: ${error instanceof Error ? error.message : String(error)}`,
+                { cause: error },
+            );
         }
     }
 

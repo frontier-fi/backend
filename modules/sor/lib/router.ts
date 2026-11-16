@@ -108,13 +108,7 @@ export class Router {
                     if (calculatedAmount.amount > 0n) {
                         quotePathsByRatio[i].push(pathWithAmount);
                     }
-                } catch (error) {
-                    // const pathString =
-                    //     path.tokens[0].address +
-                    //     ' ' +
-                    //     path.pools.map((pool, index) => `[${pool.id}] ${path.tokens[index + 1].address}`).join(' ');
-                    // console.log('Invalid path: ' + pathString);
-                    // console.log(error);
+                } catch {
                     return;
                 }
             });
@@ -180,8 +174,8 @@ export class Router {
                         recordSplitPair(path25, path75);
                         paired = true;
                         break;
-                    } catch (error) {
-                        console.log('Error splitting paths 25/75: ', error);
+                    } catch {
+                        // Candidate split pair could not split at 25/75; keep scanning remaining pairs.
                     }
                 }
                 if (paired) {
@@ -205,8 +199,8 @@ export class Router {
                         recordSplitPair(path25, path75);
                         paired = true;
                         break;
-                    } catch (error) {
-                        console.log('Error splitting paths 25/75: ', error);
+                    } catch {
+                        // Candidate split pair could not split at 25/75; keep scanning remaining pairs.
                     }
                 }
                 if (paired) {
@@ -227,8 +221,8 @@ export class Router {
                         recordSplitPair(quotePaths50[i], quotePaths50[j]);
                         paired = true;
                         break;
-                    } catch (error) {
-                        console.log('Error splitting paths 50/50: ', error);
+                    } catch {
+                        // Candidate split pair could not split at 50/50; keep scanning remaining pairs.
                     }
                 }
                 if (paired) {
@@ -311,7 +305,6 @@ export class Router {
             if (multiPathSplit) {
                 return multiPathSplit;
             }
-            // console.log('No valid paths found');
             return null;
         }
 

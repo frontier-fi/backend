@@ -6,6 +6,7 @@ import {
     GqlPoolEventType,
 } from '../../apps/api/gql/generated-schema';
 import { Chain, PoolEventType } from '@prisma/client';
+import { GraphQLError } from 'graphql';
 import { JoinExitEvent, SwapEvent } from '../../prisma/prisma-types';
 import { eventsRepository } from '../repositories/events';
 
@@ -55,26 +56,6 @@ const GqlTypeToDbType: Record<GqlPoolEventType, PoolEventType> = {
     REMOVE: 'EXIT',
 };
 
-const getMultichainEvents = async (chainIn: Chain[], limit: number = 100) => {
-    const results = await Promise.all(
-        chainIn.map(async (chain) => {
-            return (await eventsRepository.getEvents({ chain, limit: Math.min(100, limit) })).map((event) =>
-                event.type === 'SWAP' ? parseSwap(event as SwapEvent) : parseJoinExit(event as JoinExitEvent),
-            );
-        }),
-    );
-
-    return results.flat().sort((a, b) => {
-        if (a.blockTimestamp === b.blockTimestamp) {
-            if (a.blockNumber === b.blockNumber) {
-                return a.logIndex - b.logIndex;
-            }
-            return a.blockNumber - b.blockNumber;
-        }
-        return a.blockTimestamp - b.blockTimestamp;
-    });
-};
-
 export function EventsQueryController(env = process.env) {
     return {
         /**
@@ -99,21 +80,12 @@ export function EventsQueryController(env = process.env) {
                 return [];
             }
 
-            // Table is partitioned by chain, so querying by many chains is extermenly inefficient.
-            if (chainIn && chainIn.length > 1) {
-                console.error(
-                    `Querying events for multiple chains at once is not supported. Params: ${JSON.stringify({
-                        chainIn,
-                        poolIdIn,
-                        poolId,
-                        type,
-                        typeIn,
-                        userAddress,
-                        first,
-                        skip,
-                    })}`,
-                );
-                // return getMultichainEvents(chainIn as Chain[], first);
+            // Table is partitioned by chain, so querying by many chains is extremely inefficient.
+            // Reject instead of silently returning events for the first chain only.
+            if (new Set(chainIn).size > 1) {
+                throw new GraphQLError('poolEvents supports one chain per request. Query each chain separately.', {
+                    extensions: { code: 'BAD_USER_INPUT' },
+                });
             }
 
             const mappedTypeIn = typeIn?.filter((t): t is GqlPoolEventType => !!t).map((t) => GqlTypeToDbType[t]);

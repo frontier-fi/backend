@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
+import { logger } from '../../../modules/common/logger';
 
 function httpStatus(error: unknown): number {
     const { status, statusCode } = (error ?? {}) as { status?: unknown; statusCode?: unknown };
@@ -17,7 +18,7 @@ export function jsonErrorHandler(error: unknown, _req: Request, res: Response, n
 
     const status = httpStatus(error);
     if (status >= 500) {
-        console.error(error);
+        logger.error('Unhandled HTTP error', { status, err: error });
     }
 
     const clientError = status < 500 && error instanceof Error;

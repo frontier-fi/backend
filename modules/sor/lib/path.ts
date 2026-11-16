@@ -1,6 +1,7 @@
 import { SwapKind, Token, TokenAmount } from '@frontier-fi/maths';
 import { BasePool } from './basePool';
 import { BufferPool } from './poolsV3/buffer/bufferPool';
+import { logger } from '../../common/logger';
 
 export class PathLocal {
     public readonly pools: BasePool[];
@@ -157,6 +158,6 @@ export class PathWithAmount extends PathLocal {
     }
 
     public print(): void {
-        console.table(this.printPath);
+        logger.debug('SOR swap path', { steps: this.printPath });
     }
 }

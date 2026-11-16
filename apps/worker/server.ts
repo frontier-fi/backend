@@ -1,5 +1,6 @@
 import express from 'express';
 import type { Server } from 'node:http';
+import { logger } from '../../modules/common/logger';
 import { env } from '../env';
 import type { Stoppable } from '../shutdown';
 import { configureWorkerRoutes } from './job-handlers';
@@ -15,7 +16,7 @@ export async function startWorkerServer(): Promise<Stoppable> {
     const routes = configureWorkerRoutes(app);
 
     app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-        console.error(err);
+        logger.error('Unhandled worker HTTP error', { err });
         if (!res.headersSent) {
             res.sendStatus(500);
         }
@@ -25,13 +26,13 @@ export async function startWorkerServer(): Promise<Stoppable> {
     const server = await new Promise<Server>((resolve) => {
         const listening = app.listen(env.PORT, host, () => resolve(listening));
     });
-    console.log(`Worker listening on ${host}:${env.PORT}`);
+    logger.info('Worker server listening', { host, port: env.PORT });
 
     return {
         async stop() {
             const unfinished = await routes.drain(JOB_DRAIN_TIMEOUT_MS);
             if (unfinished.length > 0) {
-                console.warn(`Stopping the worker while these jobs still run: ${unfinished.join(', ')}`);
+                logger.warn('Stopping worker with jobs still running', { jobs: unfinished });
             }
             const closed = new Promise((resolve) => server.close(resolve));
             server.closeAllConnections();

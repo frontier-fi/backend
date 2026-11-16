@@ -1,3 +1,5 @@
+import { logger } from '../modules/common/logger';
+
 export interface Stoppable {
     stop(): Promise<void> | void;
 }
@@ -27,10 +29,10 @@ export function createShutdown(
             return;
         }
         started = true;
-        console.log(`${signal} received, shutting down`);
+        logger.info('Shutdown signal received', { signal });
 
         const deadline = setTimeout(() => {
-            console.error(`Shutdown did not finish within ${deadlineMs / 1000}s`);
+            logger.error('Shutdown timed out', { deadlineSeconds: deadlineMs / 1000 });
             exit(1);
         }, deadlineMs);
 
@@ -39,14 +41,14 @@ export function createShutdown(
             try {
                 await part.stop();
             } catch (error) {
-                console.error('Shutdown step failed:', error);
+                logger.error('Shutdown step failed', { err: error });
                 code = 1;
             }
         }
         try {
             await cleanup();
         } catch (error) {
-            console.error('Shutdown cleanup failed:', error);
+            logger.error('Shutdown cleanup failed', { err: error });
             code = 1;
         }
 

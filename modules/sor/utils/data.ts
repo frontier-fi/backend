@@ -9,6 +9,7 @@ import { chainToChainId } from '../../../config/chain-id-to-chain';
 import { poolsToIgnore } from './constants';
 import { tokenService } from '../../token/token.service';
 import { env } from '../../../apps/env';
+import { logger } from '../../common/logger';
 
 export type BufferPoolData = {
     poolId: string;
@@ -159,11 +160,7 @@ async function getPools(chain: Chain, poolIds?: string[]): Promise<SORDbPool[]> 
         if (!pool.hook || Object.keys(pool.hook).length === 0) return true;
         const hook = pool.hook as HookData;
         // UNKNOWN means the address is stored, but this deployment has no math for it yet.
-        const isSupportedHookType = hook.type !== undefined && hook.type !== 'UNKNOWN';
-        if (!isSupportedHookType) {
-            console.log('Pool has unsupported hook type', pool.id, hook.type);
-        }
-        return isSupportedHookType;
+        return hook.type !== undefined && hook.type !== 'UNKNOWN';
     });
 
     return pools;
@@ -193,7 +190,7 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
     const tokens = await tokenService.getTokens(chain);
     const tokensMap = Object.fromEntries(tokens.map((token) => [token.address.toLowerCase(), token]));
 
-    logMissingTokens(tokens, underlyingTokenAddresses);
+    logMissingTokens(tokens, underlyingTokenAddresses, chain);
 
     // instead of an actual buffer pool, I'd like to return an object that can be used to build a buffer pool
     const bufferPools: BufferPoolData[] = [];
@@ -241,11 +238,11 @@ export async function getBufferPoolsFromDBPools(pools: SORDbPool[], chain: Chain
     return bufferPools;
 }
 
-function logMissingTokens(underlyingTokens: PrismaToken[], underlyingTokenAddresses: string[]) {
+function logMissingTokens(underlyingTokens: PrismaToken[], underlyingTokenAddresses: string[], chain: Chain) {
     if (underlyingTokens.length !== underlyingTokenAddresses.length) {
         underlyingTokenAddresses.forEach((address) => {
             if (!underlyingTokens.find((token) => token.address === address)) {
-                console.error(`Underlying prisma token not found for ${address}`);
+                logger.warn('Underlying Prisma token missing for buffer pool', { chain, tokenAddress: address });
             }
         });
     }

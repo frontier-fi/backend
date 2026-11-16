@@ -11,6 +11,7 @@ import { formatUnits } from 'viem';
 import { DAYS_OF_HOURLY_PRICES } from '../../../config';
 import _ from 'lodash';
 import vaultV3 from '../../sources/contracts/abis/VaultV3';
+import { logger } from '../../common/logger';
 
 const v3VaultAbi = vaultV3.filter((item) => item.type === 'function' && item.name === 'getPoolTokenInfo');
 
@@ -30,7 +31,7 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
     const blockNumber = await blockNumbers().getBlock(chain, ts);
 
     if (!blockNumber) {
-        console.log('No block found for timestamp', ts, chain);
+        logger.warn('No block found for 24h liquidity timestamp', { chain, timestamp: ts });
         return [];
     }
 
@@ -121,7 +122,11 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
             const decimals = decimalsMap.get(address);
 
             if (decimals === undefined || decimals === null) {
-                console.error(`Decimals not found for ${address} in TVL 24h ago calculation`);
+                logger.error('Token decimals missing for 24h TVL calculation', {
+                    chain,
+                    poolId,
+                    tokenAddress: address,
+                });
                 continue;
             }
 
@@ -137,7 +142,7 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
     const updates = Object.entries(data)
         .map(([id, { tvl }]) => {
             if (tvl && tvl < 0) {
-                console.error('Negative Tvl24h ago', id, chain, tvl);
+                logger.error('Computed negative 24h TVL for pool', { chain, poolId: id, tvl });
                 return;
             }
 
@@ -164,9 +169,11 @@ export const updateLiquidity24hAgo = async (ids: string[], chain: Chain, client:
         } catch (e) {
             // TODO: Some V2 pools are missing dynamic data on creation. Should be fixed when creating new pool records.
             // https://github.com/balancer/backend/issues/288
-            console.error(
-                `Error updating liquidity 24h ago for pool ${update.where.poolId_chain.poolId} ${update.where.poolId_chain.chain} with error: ${e}`,
-            );
+            logger.error('Failed to update 24h liquidity for pool', {
+                chain: update.where.poolId_chain.chain,
+                poolId: update.where.poolId_chain.poolId,
+                err: e,
+            });
         }
     }
 
@@ -205,11 +212,12 @@ export const updateLiquidityValuesForPools = async (chain: Chain, poolIds?: stri
 
         for (const item of balanceUSDs) {
             if (!isSupportedInt(item.balanceUSD)) {
-                console.error(`Skipping unsupported int size for prismaPoolToken.balanceUSD: ${item.balanceUSD}`, {
-                    tokenId: item.id,
+                logger.error('Unsupported int size for pool token balanceUSD', {
+                    chain: pool.chain,
                     poolId: pool.id,
                     poolName: pool.name,
-                    chain: pool.chain,
+                    tokenId: item.id,
+                    balanceUSD: item.balanceUSD,
                 });
                 continue;
             }
@@ -228,10 +236,11 @@ export const updateLiquidityValuesForPools = async (chain: Chain, poolIds?: stri
             }
         }
         if (!isSupportedInt(totalLiquidity)) {
-            console.error(`Skipping unsupported int size for prismaPoolDynamicData.totalLiquidity: ${totalLiquidity}`, {
+            logger.error('Unsupported int size for pool totalLiquidity', {
+                chain: pool.chain,
                 poolId: pool.id,
                 poolName: pool.name,
-                chain: pool.chain,
+                totalLiquidity,
             });
             continue;
         }

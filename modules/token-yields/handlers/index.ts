@@ -1,6 +1,7 @@
 import * as sources from './sources';
 import { TokenYieldConfig, YieldToken } from '../types';
 import { Chain } from '@prisma/client';
+import { logger } from '../../common/logger';
 
 const sourceToHandler = {
     aave: sources.aaveOnchainHandler,
@@ -36,18 +37,12 @@ export class TokenYieldAprHandlers {
             }),
         );
 
-        const failedReasons: string[] = [];
-
         for (const result of results) {
             if (result.status === 'fulfilled' && result.value !== null) {
                 aprs = aprs.concat(result.value);
             } else if (result.status === 'rejected') {
-                failedReasons.push(String(result.reason));
+                logger.error('Yield APR handler failed', { chain: this.chain, err: result.reason });
             }
-        }
-
-        if (failedReasons.length > 0) {
-            console.error(`Failed to fetch APRs from some YB handlers: ${failedReasons.join(', ')}`);
         }
 
         return aprs;

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '../modules/common/logger';
 import { createShutdown, Stoppable } from './shutdown';
 
 describe('createShutdown', () => {
     beforeEach(() => {
-        vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+        vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     });
 
     afterEach(() => {

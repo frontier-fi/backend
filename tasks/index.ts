@@ -60,7 +60,7 @@ async function run(job: string = process.argv[2], chainId: string = process.argv
     } else if (job === 'add-pools-v3') {
         return PoolController().addPoolsV3(chain);
     } else if (job === 'sync-token-content-data') {
-        await ContentController().syncTokenContentData();
+        return ContentController().syncTokenContentData();
     } else if (job === 'sync-pools-v3') {
         return PoolController().syncPoolsV3(chain);
     } else if (job === 'update-liquidity-for-inactive-pools') {

@@ -1,5 +1,6 @@
 import { Chain } from '@prisma/client';
 import { PriceHandler, TokenPriceData, PriceItem } from '../types';
+import { logger } from '../../common/logger';
 
 interface BptDB {
     prismaPool: {
@@ -72,7 +73,7 @@ export class BptPriceHandler implements PriceHandler {
 
             return priceItems;
         } catch (error) {
-            console.error('BptPriceHandler: Error calculating prices:', error);
+            logger.error('BPT price calculation failed', { handler: this.id, err: error });
             return [];
         }
     }
