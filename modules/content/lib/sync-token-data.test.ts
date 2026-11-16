@@ -174,4 +174,68 @@ describe('syncTokenContentData', () => {
             }),
         );
     });
+
+    it('marks tokens with extensions.coingeckoId: null as excludedFromCoingecko without affecting omitted extensions', async () => {
+        const excludedAddress = '0x0000000000000000000000000000000000000001';
+        const unannotatedAddress = '0x0000000000000000000000000000000000000002';
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) => {
+                if (url.includes('tokenlist')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            name: 'Test List',
+                            timestamp: '2026-10-28T00:00:00Z',
+                            tokens: [
+                                {
+                                    chainId: 11155111,
+                                    address: excludedAddress,
+                                    name: 'Excluded Token',
+                                    symbol: 'EXCL',
+                                    decimals: 18,
+                                    logoURI: '',
+                                    extensions: { coingeckoId: null },
+                                },
+                                {
+                                    chainId: 11155111,
+                                    address: unannotatedAddress,
+                                    name: 'Plain Token',
+                                    symbol: 'PLAIN',
+                                    decimals: 18,
+                                    logoURI: '',
+                                },
+                            ],
+                        }),
+                    };
+                }
+                return {
+                    ok: true,
+                    text: async () => '',
+                };
+            }),
+        );
+        mockTokenFindMany
+            .mockResolvedValueOnce([
+                { address: excludedAddress, chain: Chain.SEPOLIA },
+                { address: unannotatedAddress, chain: Chain.SEPOLIA },
+            ])
+            .mockResolvedValueOnce([]);
+
+        await syncTokenContentData([Chain.SEPOLIA]);
+
+        expect(mockTokenUpsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                update: expect.objectContaining({
+                    address: excludedAddress,
+                    coingeckoTokenId: null,
+                    excludedFromCoingecko: true,
+                }),
+            }),
+        );
+        const plainUpsert = mockTokenUpsert.mock.calls.find(
+            ([call]) => (call as { create: { address: string } }).create.address === unannotatedAddress,
+        )?.[0] as { create: Record<string, unknown> };
+        expect(plainUpsert.create).not.toHaveProperty('excludedFromCoingecko');
+    });
 });
