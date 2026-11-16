@@ -1,6 +1,6 @@
 import { Chain } from '@prisma/client';
 import config from '../../config';
-import { CoingeckoDataService } from '../token/lib/coingecko-data.service';
+import { coingeckoDataService } from '../token/lib/coingecko-data.service';
 import { syncBlockedBuffers } from './lib/sync-erc4626-blocked-buffers';
 import { syncErc4626Reviews } from './lib/sync-erc4626-reviews';
 import { syncRateProviderReviews } from './lib/sync-rate-provider-reviews';
@@ -28,14 +28,14 @@ export function ContentController() {
         async syncTokenContentData() {
             const chains = Object.keys(config) as Chain[];
 
-            //sync coingecko Ids first, then override Ids from the content service
-            // A CoinGecko failure must not block the token list and blocklist sync.
+            // Sync tokenlist (including explicit coingeckoId overrides and BPT tags) first,
+            // then fill missing CoinGecko IDs for any remaining unmapped tokens.
+            await syncTokenContentData(chains);
             try {
-                await new CoingeckoDataService().syncCoingeckoIds();
+                await coingeckoDataService.syncCoingeckoIds();
             } catch (error) {
                 logger.error('Failed to sync CoinGecko IDs', { err: error });
             }
-            await syncTokenContentData(chains);
         },
         async reloadAllTokenTypes(chain: Chain) {
             await prisma.prismaTokenType.deleteMany({
