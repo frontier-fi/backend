@@ -7,8 +7,7 @@ WORKDIR /app
 # codegen imports the Sepolia config, which loads apps/env.ts at import time.
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public" \
     PORT=4000 \
-    NODE_ENV=staging \
-    DEPLOYMENT_ENV=staging
+    NODE_ENV=development
 
 COPY package.json bun.lock ./
 COPY prisma ./prisma

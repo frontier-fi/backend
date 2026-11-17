@@ -27,11 +27,11 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  title="Release $(date -u +%F): staging → production"
-                  prs=$(gh api "repos/$GITHUB_REPOSITORY/compare/production...staging" --jq '.commits[].commit.message' \
+                  title="Release $(date -u +%F): main → production"
+                  prs=$(gh api "repos/$GITHUB_REPOSITORY/compare/production...main" --jq '.commits[].commit.message' \
                       | grep -oE '^Merge pull request #[0-9]+' | grep -oE '[0-9]+$' | sort -un || true)
                   {
-                      echo "Merging this deploys \`staging\` to production."
+                      echo "Merging this deploys \`main\` to production."
                       if [ -n "$prs" ]; then
                           printf '\n## Pull requests\n\n'
                           for number in $prs; do
@@ -40,9 +40,9 @@ jobs:
                       fi
                   } > body.md
 
-                  open=$(gh pr list --repo "$GITHUB_REPOSITORY" --base production --head staging --state open --json number --jq '.[0].number // empty')
+                  open=$(gh pr list --repo "$GITHUB_REPOSITORY" --base production --head main --state open --json number --jq '.[0].number // empty')
                   if [ -n "$open" ]; then
                       gh pr edit "$open" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
                   else
-                      gh pr create --repo "$GITHUB_REPOSITORY" --base production --head staging --title "$title" --body-file body.md
+                      gh pr create --repo "$GITHUB_REPOSITORY" --base production --head main --title "$title" --body-file body.md
                   fi

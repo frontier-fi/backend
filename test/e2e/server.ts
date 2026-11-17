@@ -74,8 +74,7 @@ async function start(app: AppProcess): Promise<void> {
         env: {
             ...process.env,
             PORT: String(app.port),
-            NODE_ENV: 'staging',
-            DEPLOYMENT_ENV: 'staging',
+            NODE_ENV: 'test',
             ADMIN_API_KEY,
             DATABASE_URL,
             APOLLO_SCHEMA_REPORTING: 'false',

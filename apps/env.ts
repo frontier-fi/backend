@@ -7,7 +7,6 @@ type Env = EnvType<typeof schema>;
 export const schema = {
     PORT: Number,
     NODE_ENV: String,
-    DEPLOYMENT_ENV: String,
     ADMIN_API_KEY: String,
     DATABASE_URL: String,
     DRPC_API_KEY: { type: String, optional: true },
