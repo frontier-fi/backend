@@ -83,9 +83,7 @@ const resolvers: Resolvers = {
             isAdminRoute(context);
 
             const service = new PricingService(chains);
-            for (const chain of chains) {
-                await service.updatePrices(chain);
-            }
+            await service.updatePricesForChains(chains);
 
             return true;
         },

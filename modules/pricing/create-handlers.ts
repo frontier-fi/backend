@@ -10,12 +10,12 @@ import {
 import { prisma } from '../../prisma/prisma-client';
 import config from '../../config';
 
-export function createHandlers(chains: Chain[]): PriceHandler[] {
-    // Add CoinGecko handler for all chains
-    const coingeckoConfig = getCoingeckoConfigForChains(chains);
+export function createCoingeckoHandler(chains: Chain[]): PriceHandler {
+    return new CoingeckoPriceHandler(getCoingeckoConfigForChains(chains));
+}
 
-    const handlers: PriceHandler[] = [
-        new CoingeckoPriceHandler(coingeckoConfig),
+export function createDownstreamHandlers(): PriceHandler[] {
+    return [
         new ERC4626PriceHandler(),
         new BptPriceHandler({
             prismaPool: prisma.prismaPool,
@@ -23,8 +23,10 @@ export function createHandlers(chains: Chain[]): PriceHandler[] {
         new SwapsPriceHandler(),
         new FallbackPriceHandler(),
     ];
+}
 
-    return handlers;
+export function createHandlers(chains: Chain[]): PriceHandler[] {
+    return [createCoingeckoHandler(chains), ...createDownstreamHandlers()];
 }
 
 function getCoingeckoConfigForChains(chains: Chain[]) {

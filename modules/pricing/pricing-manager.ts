@@ -4,7 +4,10 @@ import { logger } from '../common/logger';
 export class PricingManager {
     constructor(private readonly handlers: PriceHandler[]) {}
 
-    async calculatePricesForTokens(tokens: TokenPriceData[]): Promise<PriceItem[]> {
+    async calculatePricesForTokens(
+        tokens: TokenPriceData[],
+        initialPriceItems: PriceItem[] = [],
+    ): Promise<PriceItem[]> {
         if (tokens.length === 0) {
             return [];
         }
@@ -20,8 +23,13 @@ export class PricingManager {
             }
         });
 
-        let remainingTokens = [...tokens];
-        const allPriceItems: PriceItem[] = [];
+        const allPriceItems: PriceItem[] = [...initialPriceItems];
+        initialPriceItems.forEach((item) => {
+            allPrices.set(item.address, { price: item.price, updatedBy: item.updatedBy });
+        });
+
+        const initiallyPricedAddresses = new Set(initialPriceItems.map((item) => item.address));
+        let remainingTokens = tokens.filter((token) => !initiallyPricedAddresses.has(token.address));
 
         for (const handler of this.handlers) {
             if (remainingTokens.length === 0) {

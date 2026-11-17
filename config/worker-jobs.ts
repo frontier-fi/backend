@@ -64,7 +64,7 @@ export const activeChainWorkerJobsGeneric: WorkerJob[] = [
 export const globalWorkerJobs: WorkerJob[] = [
     {
         name: 'update-token-prices',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(10, 'minutes') : every(3, 'minutes'),
+        interval: every(15, 'minutes'),
     },
     {
         name: 'global-purge-old-tokenprices',
