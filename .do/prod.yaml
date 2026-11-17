@@ -58,6 +58,10 @@ envs:
       scope: RUN_TIME
       type: SECRET
       value: '${COINGECKO_API_KEY}'
+    - key: MERKL_API_KEY
+      scope: RUN_TIME
+      type: SECRET
+      value: '${MERKL_API_KEY}'
 
 services:
     - name: api
