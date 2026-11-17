@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '../../../../apps/env';
 import type { PoolAPRData } from '../../types';
 import { MerklAprHandler } from './merkl-apr-handler';
+import { createHandlers } from '../create-handlers';
 
 const fetchMock = vi.fn();
 
@@ -32,6 +33,12 @@ vi.mock('../../../../config', () => ({
                         ],
                     },
                 },
+            },
+        },
+        BASE: {
+            chain: { id: 8453, prismaId: 'BASE' },
+            aprHandlers: {
+                merklAprHandler: true,
             },
         },
     },
@@ -75,8 +82,8 @@ function pool(overrides: Record<string, unknown> = {}): PoolAPRData {
     } as unknown as PoolAPRData;
 }
 
-function json(body: unknown) {
-    return Promise.resolve(new Response(JSON.stringify(body)));
+function json(body: unknown, init?: ResponseInit) {
+    return Promise.resolve(new Response(JSON.stringify(body), init));
 }
 
 describe('MerklAprHandler', () => {
@@ -101,7 +108,7 @@ describe('MerklAprHandler', () => {
     it('turns a live pool opportunity into an APR fraction and sends the API key', async () => {
         env.MERKL_API_KEY = 'merkl-test-key';
         fetchMock.mockImplementation((url: string) => {
-            if (String(url).includes('mainProtocolId=balancer')) return json([opportunity({ apr: 12.5 })]);
+            if (String(url).includes('mainProtocolId=frontier')) return json([opportunity({ apr: 12.5 })]);
             return json([]);
         });
 
@@ -117,14 +124,17 @@ describe('MerklAprHandler', () => {
                 apr: 0.125,
             }),
         ]);
-        expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('api.merkl.xyz'), {
-            headers: { 'X-API-Key': 'merkl-test-key' },
-        });
+        expect(fetchMock).toHaveBeenCalledWith(
+            expect.stringContaining('mainProtocolId=frontier&chainId=11155111&page=0&items=100'),
+            {
+                headers: { 'X-API-Key': 'merkl-test-key' },
+            },
+        );
     });
 
     it('drops whitelisted campaigns, other chains, and pools with no liquidity', async () => {
         fetchMock.mockImplementation((url: string) => {
-            if (!String(url).includes('mainProtocolId=balancer')) return json([]);
+            if (!String(url).includes('mainProtocolId=frontier')) return json([]);
             return json([
                 opportunity({ campaigns: [{ params: { whitelist: ['0xabc'] } }] }),
                 opportunity({ chainId: 1, identifier: POOL }),
@@ -147,7 +157,7 @@ describe('MerklAprHandler', () => {
 
     it('sums pool and token opportunities that land on the same pool', async () => {
         fetchMock.mockImplementation((url: string) => {
-            if (String(url).includes('mainProtocolId=balancer')) return json([opportunity({ apr: 10 })]);
+            if (String(url).includes('mainProtocolId=frontier')) return json([opportunity({ apr: 10 })]);
             return json([
                 opportunity({
                     explorerAddress: A_TOKEN,
@@ -199,8 +209,42 @@ describe('MerklAprHandler', () => {
         expect(fetchMock).toHaveBeenCalledTimes(12);
     }, 10_000);
 
+    it('paginates through opportunities when a page returns 100 items and stops on a short page', async () => {
+        const fullPage = Array.from({ length: 100 }, (_, i) =>
+            opportunity({ identifier: `0x${i.toString(16).padStart(40, '0')}`, apr: 1 }),
+        );
+        fetchMock.mockImplementation((url: string) => {
+            const urlStr = String(url);
+            if (urlStr.includes('page=0')) return json(fullPage);
+            if (urlStr.includes('page=1')) return json([opportunity({ apr: 15 })]);
+            return json([]);
+        });
+
+        const items = await handler.calculateAprForPools([pool()]);
+
+        expect(items).toEqual([expect.objectContaining({ poolId: 'pool-1', apr: 0.15 })]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(String(fetchMock.mock.calls[0][0])).toContain('page=0&items=100');
+        expect(String(fetchMock.mock.calls[1][0])).toContain('page=1&items=100');
+    });
+
+    it('throws when Merkl responds with a non-OK HTTP status', async () => {
+        fetchMock.mockImplementationOnce(() =>
+            json({ message: 'rate limited' }, { status: 429, statusText: 'Too Many Requests' }),
+        );
+
+        await expect(handler.calculateAprForPools([pool()])).rejects.toThrow('Merkl API error: 429 Too Many Requests');
+    });
+
     it('rejects an empty pool list', async () => {
         fetchMock.mockImplementation(() => json([]));
         await expect(handler.calculateAprForPools([])).rejects.toThrow();
+    });
+});
+
+describe('APR handler chain gating', () => {
+    it('enables MerklAprHandler only on chains with aprHandlers.merklAprHandler set', () => {
+        expect(createHandlers(Chain.SEPOLIA).map((h) => h.getAprServiceName())).not.toContain('MerklAprHandler');
+        expect(createHandlers(Chain.BASE).map((h) => h.getAprServiceName())).toContain('MerklAprHandler');
     });
 });

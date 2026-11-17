@@ -5,10 +5,12 @@ import { chainIdToChain } from '../../../../config/chain-id-to-chain';
 import { env } from '../../../../apps/env';
 import { addressesMatch } from '../../../web3/addresses';
 
-// Merkl has no protocol id for Frontier yet, so pool campaigns are looked up under Balancer's.
-// Token campaigns below do not depend on the protocol.
-const opportunityUrl =
-    'https://api.merkl.xyz/v4/opportunities/?test=false&status=LIVE&campaigns=true&mainProtocolId=balancer&page=0&items=100';
+const PAGE_SIZE = 100;
+const MAX_PAGES = 10;
+
+// Merkl uses mainProtocolId='frontier' for Frontier pool campaigns; token campaigns below do not depend on the protocol.
+const opportunityUrl = (chainId: number, page: number) =>
+    `https://api.merkl.xyz/v4/opportunities/?test=false&status=LIVE&campaigns=true&mainProtocolId=frontier&chainId=${chainId}&page=${page}&items=${PAGE_SIZE}`;
 
 const tokenOpportunityUrlBase = `https://api.merkl.xyz/v4/opportunities/?status=LIVE&explorerAddress=`;
 
@@ -30,16 +32,21 @@ export class MerklAprHandler implements AprHandler {
         return 'MerklAprHandler';
     }
 
-    private async fetchMerklOpportunities() {
-        const response = await this.merklFetch(opportunityUrl);
-        const data = (await response.json()) as MerklOpportunity[];
+    private async fetchMerklOpportunities(chainId: number) {
+        const data: MerklOpportunity[] = [];
+        for (let page = 0; page < MAX_PAGES; page++) {
+            const response = await this.merklFetch(opportunityUrl(chainId, page));
+            const pageData = (await response.json()) as MerklOpportunity[];
+            data.push(...pageData);
+            if (pageData.length < PAGE_SIZE) {
+                break;
+            }
+        }
 
         // remove opportunities with whitelist
-        const opportunities = data.filter((opportunity) =>
+        return data.filter((opportunity) =>
             opportunity.campaigns.every((campaign) => campaign.params.whitelist.length === 0),
         );
-
-        return opportunities;
     }
 
     public async calculateAprForPools(
@@ -90,7 +97,8 @@ export class MerklAprHandler implements AprHandler {
     }
 
     private async findPoolOpportunities(pools: PoolAPRData[]) {
-        const opportunities = await this.fetchMerklOpportunities();
+        const chain = pools[0].chain;
+        const opportunities = await this.fetchMerklOpportunities(config[chain].chain.id);
 
         const allAffectedPoolAddresses = opportunities.map((campaign) => campaign.identifier.toLowerCase());
 
@@ -282,6 +290,10 @@ export class MerklAprHandler implements AprHandler {
     private async merklFetch(url: string): Promise<Response> {
         const apiKey = env.MERKL_API_KEY;
         const headers: Record<string, string> = apiKey ? { 'X-API-Key': apiKey } : {};
-        return fetch(url, { headers });
+        const response = await fetch(url, { headers });
+        if (!response.ok) {
+            throw new Error(`Merkl API error: ${response.status} ${response.statusText}`);
+        }
+        return response;
     }
 }
