@@ -7,8 +7,6 @@ export interface WorkerJob {
     interval: number;
 }
 
-export type DeploymentEnv = 'staging' | 'production';
-
 export interface NetworkData {
     chain: {
         slug: string;

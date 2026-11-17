@@ -50,7 +50,7 @@ export function logPoolSyncSourceChange(
 }
 
 /**
- * Pending pool resyncs retry on every run by design (30s in production, 5m on staging).
+ * Pending pool resyncs retry on every run by design (every 30s).
  * Logs when the failing set changes, every 3m while non-empty (feeding Better Stack's
  * stuck-pool metric/alert), and once on recovery back to empty; silent while healthy.
  */
