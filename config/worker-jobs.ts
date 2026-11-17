@@ -1,62 +1,61 @@
-import { env } from '../apps/env';
 import { every } from '../apps/scheduler/intervals';
-import { DeploymentEnv, WorkerJob } from './types';
+import { WorkerJob } from './types';
 
 export const activeChainWorkerJobsV3: WorkerJob[] = [
     {
         name: 'add-pools-v3',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(5, 'minutes') : every(30, 'seconds'),
+        interval: every(30, 'seconds'),
     },
     {
         name: 'sync-pools-v3',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(5, 'minutes') : every(30, 'seconds'),
+        interval: every(30, 'seconds'),
     },
     {
         name: 'sync-join-exits-v3',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(15, 'minutes') : every(1, 'minutes'),
+        interval: every(1, 'minutes'),
     },
     {
         name: 'sync-swaps-v3',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(15, 'minutes') : every(1, 'minutes'),
+        interval: every(1, 'minutes'),
     },
     {
         name: 'sync-hook-data',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(20, 'minutes') : every(1, 'hours'),
+        interval: every(1, 'hours'),
     },
     {
         name: 'update-liquidity-24h-ago-v3',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(20, 'minutes') : every(5, 'minutes'),
+        interval: every(5, 'minutes'),
     },
 ];
 
 export const activeChainWorkerJobsGeneric: WorkerJob[] = [
     {
         name: 'update-liquidity-for-inactive-pools',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(20, 'minutes') : every(10, 'minutes'),
+        interval: every(10, 'minutes'),
     },
     {
         name: 'sync-snapshots',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(45, 'minutes') : every(15, 'minutes'),
+        interval: every(15, 'minutes'),
     },
     {
         name: 'user-sync-wallet-balances-for-all-pools',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(5, 'minutes') : every(20, 'seconds'),
+        interval: every(20, 'seconds'),
     },
     {
         name: 'update-fee-volume-yield-all-pools',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(60, 'minutes') : every(30, 'minutes'),
+        interval: every(30, 'minutes'),
     },
     {
         name: 'update-pool-apr',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(10, 'minutes') : every(2, 'minutes'),
+        interval: every(2, 'minutes'),
     },
     {
         name: 'sync-erc4626-onchain-data',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(60, 'minutes') : every(20, 'minutes'),
+        interval: every(20, 'minutes'),
     },
     {
         name: 'update-lifetime-values',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(120, 'minutes') : every(60, 'minutes'),
+        interval: every(60, 'minutes'),
     },
 ];
 
@@ -64,7 +63,7 @@ export const activeChainWorkerJobsGeneric: WorkerJob[] = [
 export const globalWorkerJobs: WorkerJob[] = [
     {
         name: 'update-token-prices',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(10, 'minutes') : every(3, 'minutes'),
+        interval: every(15, 'minutes'),
     },
     {
         name: 'global-purge-old-tokenprices',
@@ -72,26 +71,26 @@ export const globalWorkerJobs: WorkerJob[] = [
     },
     {
         name: 'sync-rate-provider-reviews',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(30, 'minutes') : every(15, 'minutes'),
+        interval: every(15, 'minutes'),
     },
     {
         name: 'sync-erc4626-data',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(30, 'minutes') : every(15, 'minutes'),
+        interval: every(15, 'minutes'),
     },
     {
         name: 'fetch-token-yields',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(40, 'minutes') : every(20, 'minutes'),
+        interval: every(20, 'minutes'),
     },
     {
         name: 'sync-categories',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(30, 'minutes') : every(10, 'minutes'),
+        interval: every(10, 'minutes'),
     },
     {
         name: 'sync-token-tvl',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(60, 'minutes') : every(30, 'minutes'),
+        interval: every(30, 'minutes'),
     },
     {
         name: 'sync-token-content-data',
-        interval: (env.DEPLOYMENT_ENV as DeploymentEnv) === 'staging' ? every(10, 'minutes') : every(5, 'minutes'),
+        interval: every(5, 'minutes'),
     },
 ];

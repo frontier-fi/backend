@@ -4,7 +4,6 @@
 # built, the others with the GitHub secrets of the same name.
 #
 # Requires Managed Postgres cluster `frontier-db` in fra.
-# DEPLOYMENT_ENV=production uses the fast worker intervals. staging is slower.
 
 name: frontier-backend
 region: fra
@@ -44,9 +43,6 @@ envs:
     - key: NODE_ENV
       scope: RUN_TIME
       value: production
-    - key: DEPLOYMENT_ENV
-      scope: RUN_TIME
-      value: production
     - key: DATABASE_URL
       scope: RUN_TIME
       value: ${db.DATABASE_PRIVATE_URL}
@@ -62,6 +58,10 @@ envs:
       scope: RUN_TIME
       type: SECRET
       value: '${COINGECKO_API_KEY}'
+    - key: MERKL_API_KEY
+      scope: RUN_TIME
+      type: SECRET
+      value: '${MERKL_API_KEY}'
 
 services:
     - name: api

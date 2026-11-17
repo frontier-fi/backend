@@ -148,7 +148,7 @@ curl http://localhost:4000/graphql \
 
 # Deployment
 
-Work merges into `staging`. The Release workflow opens a pull request from `staging` to `production`, and the `production` ruleset requires the Checks workflow and one approval before it merges. Merging runs the Deploy workflow:
+Work merges into `main`. The Release workflow opens a pull request from `main` to `production`, and the `production` ruleset requires the Checks workflow and one approval before it merges. Merging runs the Deploy workflow:
 
 1. It builds the Docker image once and pushes it to `ghcr.io/frontier-fi/backend`, tagged with the commit. The package is public, so App Platform pulls it without credentials.
 2. It applies `.do/prod.yaml` to the `frontier-backend` app on DigitalOcean App Platform with `digitalocean/app_action`, pinned to that image's digest, and waits for the deployment. If the app does not exist yet, the action creates it.

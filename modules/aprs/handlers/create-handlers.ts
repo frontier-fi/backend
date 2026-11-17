@@ -12,7 +12,10 @@ export function createHandlers(chain: Chain): AprHandler[] {
 
     // Default handlers for all of the chains
     handlerList.push(new handlers.SwapFeeAprHandler());
-    handlerList.push(new handlers.MerklAprHandler());
+
+    if (config[chain].aprHandlers.merklAprHandler) {
+        handlerList.push(new handlers.MerklAprHandler());
+    }
 
     if (config[chain].aprHandlers.ybAprHandler) {
         handlerList.push(new handlers.YbTokensAprHandler());

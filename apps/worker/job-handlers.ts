@@ -114,18 +114,7 @@ export async function acquirePostgresAdvisoryLock(
 async function updateTokenPricesForAllChains(): Promise<void> {
     const chains = Object.keys(config) as Chain[];
     const service = new PricingService(chains);
-    const errors: Error[] = [];
-    for (const chain of chains) {
-        try {
-            await service.updatePrices(chain);
-        } catch (error) {
-            logger.error('Failed to update token prices for chain', { chain, err: error });
-            errors.push(error instanceof Error ? error : new Error(`Unknown error: ${error}`));
-        }
-    }
-    if (errors.length > 0) {
-        throw new Error(errors.map((e) => e.message).join(', '));
-    }
+    await service.updatePricesForChains(chains);
 }
 
 export const jobHandlers: Record<string, JobHandler> = {
