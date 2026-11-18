@@ -20,7 +20,6 @@ const {
     mockPoolTokenUpsert,
     mockPoolExpandedTokensUpsert,
     mockPoolSnapshotGroupBy,
-    mockUserWalletBalanceGroupBy,
     mockTransaction,
     mockMulticallViem,
     mockGetBlock,
@@ -45,7 +44,6 @@ const {
     mockPoolTokenUpsert: vi.fn((args: unknown) => Promise.resolve(args)),
     mockPoolExpandedTokensUpsert: vi.fn((args: unknown) => Promise.resolve(args)),
     mockPoolSnapshotGroupBy: vi.fn(),
-    mockUserWalletBalanceGroupBy: vi.fn(),
     mockTransaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
     mockMulticallViem: vi.fn(),
     mockGetBlock: vi.fn(),
@@ -92,9 +90,6 @@ vi.mock('../../../prisma/prisma-client', () => ({
         },
         prismaPoolSnapshot: {
             groupBy: mockPoolSnapshotGroupBy,
-        },
-        prismaUserWalletBalance: {
-            groupBy: mockUserWalletBalanceGroupBy,
         },
         $transaction: mockTransaction,
     },
@@ -345,15 +340,20 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
         );
     });
 
-    it('aggregates swapsCount alongside lifetimeSwapFees and lifetimeVolume in updateLifetimeValues and ProtocolService', async () => {
-        mockUserWalletBalanceGroupBy.mockResolvedValue([
-            { poolId: '0xpool1', chain: Chain.SEPOLIA, _count: { userAddress: 2 } },
-        ]);
+    it('aggregates swapsCount alongside lifetimeSwapFees and lifetimeVolume in updateLifetimeValues without holdersCount and skips unchanged rows', async () => {
         mockPoolSnapshotGroupBy.mockResolvedValue([
             {
                 poolId: '0xpool1',
                 chain: Chain.SEPOLIA,
                 _sum: { fees24h: 0.02, volume24h: 3.05, swapsCount: 3 },
+            },
+        ]);
+        mockPoolDynamicDataFindMany.mockResolvedValueOnce([
+            {
+                poolId: '0xpool1',
+                lifetimeSwapFees: 0.01,
+                lifetimeVolume: 1.5,
+                swapsCount: 1,
             },
         ]);
 
@@ -362,12 +362,30 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
         expect(mockPoolDynamicDataUpdate).toHaveBeenCalledWith({
             where: { poolId_chain: { poolId: '0xpool1', chain: Chain.SEPOLIA } },
             data: {
-                holdersCount: 2,
                 lifetimeSwapFees: 0.02,
                 lifetimeVolume: 3.05,
                 swapsCount: 3,
             },
         });
+        const updateCall = mockPoolDynamicDataUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+        expect(updateCall.data).not.toHaveProperty('holdersCount');
+
+        // Re-running when DB already matches computed lifetime totals emits 0 updates and skips $transaction
+        mockPoolDynamicDataUpdate.mockClear();
+        mockTransaction.mockClear();
+        mockPoolDynamicDataFindMany.mockResolvedValueOnce([
+            {
+                poolId: '0xpool1',
+                lifetimeSwapFees: 0.02,
+                lifetimeVolume: 3.05,
+                swapsCount: 3,
+            },
+        ]);
+
+        const skipped = await updateLifetimeValues(Chain.SEPOLIA);
+        expect(skipped).toEqual([]);
+        expect(mockPoolDynamicDataUpdate).not.toHaveBeenCalled();
+        expect(mockTransaction).not.toHaveBeenCalled();
 
         mockPoolFindMany.mockResolvedValue([{ id: '0xpool1', chain: Chain.SEPOLIA }]);
         mockPoolDynamicDataFindMany.mockResolvedValue([
@@ -497,6 +515,7 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
                     symbol: 'BPT-TEST',
                     swapFee: '0.003',
                     totalShares: '100',
+                    holdersCount: '4',
                     isPaused: false,
                     isInRecoveryMode: false,
                     blockTimestamp: '1700000000',
@@ -562,5 +581,12 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
                 chain: Chain.SEPOLIA,
             },
         });
+        expect(mockPoolDynamicDataUpsert).toHaveBeenCalledTimes(1);
+        const dynamicDataUpsertCall = mockPoolDynamicDataUpsert.mock.calls[0][0] as {
+            create: { holdersCount?: number };
+            update: Record<string, unknown>;
+        };
+        expect(dynamicDataUpsertCall.create.holdersCount).toBe(4);
+        expect('holdersCount' in dynamicDataUpsertCall.update).toBe(false);
     });
 });

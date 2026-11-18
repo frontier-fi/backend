@@ -73,45 +73,45 @@ export const addPools = async (
     // Upsert pools to the database
     for (const { pool, tokens, poolToken, poolDynamicData, poolExpandedTokens } of withUsd) {
         try {
+            const buildDynamicDataUpsert = (dynamicData: NonNullable<typeof poolDynamicData>) => {
+                // Omit holdersCount on update so pool reloads never clobber transactional BPT holder counts with lagging subgraph state
+                const { holdersCount: _holdersCount, ...dynamicDataForUpdate } = dynamicData;
+                const protocolFees = {
+                    ...(dynamicData.aggregateSwapFee != null ? { protocolSwapFee: dynamicData.aggregateSwapFee } : {}),
+                    ...(dynamicData.aggregateYieldFee != null
+                        ? { protocolYieldFee: dynamicData.aggregateYieldFee }
+                        : {}),
+                };
+
+                return prisma.prismaPoolDynamicData.upsert({
+                    where: { poolId_chain: { poolId: pool.id, chain: pool.chain } },
+                    create: {
+                        ...dynamicData,
+                        ...protocolFees,
+                        id: pool.id,
+                        pool: {
+                            connect: {
+                                id_chain: {
+                                    id: pool.id,
+                                    chain: pool.chain,
+                                },
+                            },
+                        },
+                    },
+                    update: {
+                        ...dynamicDataForUpdate,
+                        ...protocolFees,
+                    },
+                });
+            };
+
             await prisma.$transaction([
                 prisma.prismaPool.upsert({
                     where: { id_chain: { id: pool.id, chain: pool.chain } },
                     create: pool,
                     update: pool,
                 }),
-                ...((poolDynamicData && [
-                    prisma.prismaPoolDynamicData.upsert({
-                        where: { poolId_chain: { poolId: pool.id, chain: pool.chain } },
-                        create: {
-                            ...poolDynamicData,
-                            ...(poolDynamicData.aggregateSwapFee != null
-                                ? { protocolSwapFee: poolDynamicData.aggregateSwapFee }
-                                : {}),
-                            ...(poolDynamicData.aggregateYieldFee != null
-                                ? { protocolYieldFee: poolDynamicData.aggregateYieldFee }
-                                : {}),
-                            id: pool.id,
-                            pool: {
-                                connect: {
-                                    id_chain: {
-                                        id: pool.id,
-                                        chain: pool.chain,
-                                    },
-                                },
-                            },
-                        },
-                        update: {
-                            ...poolDynamicData,
-                            ...(poolDynamicData.aggregateSwapFee != null
-                                ? { protocolSwapFee: poolDynamicData.aggregateSwapFee }
-                                : {}),
-                            ...(poolDynamicData.aggregateYieldFee != null
-                                ? { protocolYieldFee: poolDynamicData.aggregateYieldFee }
-                                : {}),
-                        },
-                    }),
-                ]) ||
-                    []),
+                ...((poolDynamicData && [buildDynamicDataUpsert(poolDynamicData)]) || []),
                 ...((tokens &&
                     tokens.map((token) =>
                         prisma.prismaToken.upsert({
