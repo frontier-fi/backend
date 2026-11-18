@@ -133,11 +133,16 @@ export const syncTags = async (): Promise<void> => {
         });
     }
 
-    await prisma.$transaction(queries);
+    if (queries.length > 0) {
+        await prisma.$transaction(queries);
+    }
 };
 
 const getPoolMetadataTags = async (existingTags: Record<string, Set<string>>): Promise<Record<string, Set<string>>> => {
     const response = await fetch(contentSources.poolTags);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch pool tags: ${response.status} ${response.statusText}`);
+    }
     const tagsList = (await response.json()) as TagItem[];
 
     for (const tag of tagsList) {
@@ -184,6 +189,9 @@ type HooksMetadata = {
 
 const getPoolHookTags = async (existingTags: Record<string, Set<string>>): Promise<Record<string, Set<string>>> => {
     const response = await fetch(contentSources.hookTags);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch hook tags: ${response.status} ${response.statusText}`);
+    }
     const hooksMetadataList = (await response.json()) as HooksMetadata[];
 
     // Get hook addresses from the database
@@ -214,6 +222,9 @@ const getPoolHookTags = async (existingTags: Record<string, Set<string>>): Promi
 
 const getErc4626Tags = async (existingTags: Record<string, Set<string>>): Promise<Record<string, Set<string>>> => {
     const response = await fetch(contentSources.erc4626Tags);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch ERC4626 tags: ${response.status} ${response.statusText}`);
+    }
     const erc4626MetadataList = (await response.json()) as ERC4626Metadata[];
 
     for (const erc4626Metadata of erc4626MetadataList) {

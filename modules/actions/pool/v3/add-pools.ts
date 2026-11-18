@@ -155,6 +155,26 @@ export const addPools = async (
                             }),
                         )) ||
                     []),
+                prisma.prismaTokenType.upsert({
+                    where: {
+                        id_chain: {
+                            id: `${pool.id}-bpt`,
+                            chain,
+                        },
+                    },
+                    create: {
+                        id: `${pool.id}-bpt`,
+                        chain,
+                        tokenAddress: pool.id,
+                        type: 'BPT',
+                    },
+                    update: {
+                        id: `${pool.id}-bpt`,
+                        chain,
+                        tokenAddress: pool.id,
+                        type: 'BPT',
+                    },
+                }),
                 ...((poolToken &&
                     poolToken.map((token) =>
                         prisma.prismaPoolToken.upsert({

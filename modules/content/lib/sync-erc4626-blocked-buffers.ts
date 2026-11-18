@@ -47,6 +47,9 @@ type BufferBlocklist = {
 
 const getBlockedBuffers = async (): Promise<BufferBlocklist> => {
     const response = await fetch(contentSources.erc4626BufferBlocklist);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch ERC4626 buffer blocklist: ${response.status} ${response.statusText}`);
+    }
     const bufferBlocklist = (await response.json()) as BufferBlocklist;
 
     return bufferBlocklist;

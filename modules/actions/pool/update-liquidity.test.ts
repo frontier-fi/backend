@@ -9,6 +9,7 @@ const {
     mockTokenDynamicDataUpsert,
     mockTokenFindMany,
     mockTokenUpsert,
+    mockTokenTypeUpsert,
     mockPoolFindMany,
     mockPoolUpsert,
     mockPoolDynamicDataFindMany,
@@ -33,6 +34,7 @@ const {
     mockTokenDynamicDataUpsert: vi.fn((args: unknown) => Promise.resolve(args)),
     mockTokenFindMany: vi.fn(),
     mockTokenUpsert: vi.fn((args: unknown) => Promise.resolve(args)),
+    mockTokenTypeUpsert: vi.fn((args: unknown) => Promise.resolve(args)),
     mockPoolFindMany: vi.fn(),
     mockPoolUpsert: vi.fn((args: unknown) => Promise.resolve(args)),
     mockPoolDynamicDataFindMany: vi.fn(),
@@ -67,6 +69,9 @@ vi.mock('../../../prisma/prisma-client', () => ({
         prismaToken: {
             findMany: mockTokenFindMany,
             upsert: mockTokenUpsert,
+        },
+        prismaTokenType: {
+            upsert: mockTokenTypeUpsert,
         },
         prismaPool: {
             findMany: mockPoolFindMany,
@@ -588,5 +593,25 @@ describe('updateVolumeAndFees, updateLifetimeValues, ProtocolService, and USD en
         };
         expect(dynamicDataUpsertCall.create.holdersCount).toBe(4);
         expect('holdersCount' in dynamicDataUpsertCall.update).toBe(false);
+        expect(mockTokenTypeUpsert).toHaveBeenCalledWith({
+            where: {
+                id_chain: {
+                    id: `${poolAddress}-bpt`,
+                    chain: Chain.SEPOLIA,
+                },
+            },
+            create: {
+                id: `${poolAddress}-bpt`,
+                chain: Chain.SEPOLIA,
+                tokenAddress: poolAddress,
+                type: 'BPT',
+            },
+            update: {
+                id: `${poolAddress}-bpt`,
+                chain: Chain.SEPOLIA,
+                tokenAddress: poolAddress,
+                type: 'BPT',
+            },
+        });
     });
 });

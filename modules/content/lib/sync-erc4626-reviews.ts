@@ -44,6 +44,9 @@ interface Erc4626Review {
 
 const getErc4626Reviews = async () => {
     const response = await fetch(contentSources.erc4626Reviews);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch ERC4626 reviews: ${response.status} ${response.statusText}`);
+    }
     const list = (await response.json()) as Erc4626Review;
 
     // Flatten the list by adding the chain and erc4626 address to the object

@@ -7,22 +7,53 @@ const {
     mockGetChangedPoolsV3,
     mockSyncPools,
     mockSyncTokenPairs,
+    mockGetAllInitializedPools,
+    mockAddPoolsV3,
+    mockSyncBptBalancesFromSubgraph,
+    mockSyncErc4626Tokens,
+    mockBlockedBuffers,
+    mockSyncErc4626Reviews,
+    mockSyncErc4626OnchainData,
+    mockSyncTokenContentData,
+    mockSyncRateProviderReviews,
+    mockUpdateDerivedPrices,
+    mockUpdateLiquidityValuesForPools,
+    mockUpdateAprs,
+    mockSyncTags,
+    mockViemClient,
     pendingResync,
     rpcHead,
     subgraphHead,
-} = vi.hoisted(() => ({
-    mockPoolFindMany: vi.fn(),
-    mockGetLastSyncedBlock: vi.fn(),
-    mockUpsertLastSyncedBlock: vi.fn(),
-    mockGetChangedPoolsV3: vi.fn(),
-    mockSyncPools: vi.fn(),
-    mockSyncTokenPairs: vi.fn(),
-    // Stands in for the pendingResync column, which outlives a worker restart.
-    pendingResync: new Set<string>(),
-    rpcHead: 1_000_000,
-    // Further behind than Base's acceptableSGLag, so syncPoolsV3 takes the RPC path.
-    subgraphHead: 1_000_000 - 100,
-}));
+} = vi.hoisted(() => {
+    const rpcHead = 1_000_000;
+    return {
+        mockPoolFindMany: vi.fn(),
+        mockGetLastSyncedBlock: vi.fn(),
+        mockUpsertLastSyncedBlock: vi.fn(),
+        mockGetChangedPoolsV3: vi.fn(),
+        mockSyncPools: vi.fn(),
+        mockSyncTokenPairs: vi.fn(),
+        mockGetAllInitializedPools: vi.fn(),
+        mockAddPoolsV3: vi.fn(),
+        mockSyncBptBalancesFromSubgraph: vi.fn(),
+        mockSyncErc4626Tokens: vi.fn(),
+        mockBlockedBuffers: vi.fn(),
+        mockSyncErc4626Reviews: vi.fn(),
+        mockSyncErc4626OnchainData: vi.fn(),
+        mockSyncTokenContentData: vi.fn(),
+        mockSyncRateProviderReviews: vi.fn(),
+        mockUpdateDerivedPrices: vi.fn(),
+        mockUpdateLiquidityValuesForPools: vi.fn(),
+        mockUpdateAprs: vi.fn(),
+        mockSyncTags: vi.fn(),
+        mockViemClient: { getBlockNumber: async () => BigInt(rpcHead) },
+        // Stands in for the pendingResync column, which outlives a worker restart.
+        pendingResync: new Set<string>(),
+        rpcHead,
+        // Further behind than Base's acceptableSGLag, so syncPoolsV3 takes the RPC path.
+        subgraphHead: rpcHead - 100,
+    };
+});
 
 vi.mock('../../prisma/prisma-client', () => ({
     prisma: {
@@ -52,18 +83,45 @@ vi.mock('../actions/last-synced-block', () => ({
 }));
 
 vi.mock('../sources/viem-client', () => ({
-    getViemClient: () => ({ getBlockNumber: async () => BigInt(rpcHead) }),
+    getViemClient: () => mockViemClient,
 }));
 
 vi.mock('../sources/subgraphs', () => ({
     getVaultSubgraphClient: () => ({ lastSyncedBlock: async () => subgraphHead }),
     getPoolsSubgraphClient: () => ({ lastSyncedBlock: async () => subgraphHead }),
-    getV3JoinedSubgraphClient: vi.fn(),
+    getV3JoinedSubgraphClient: () => ({ getAllInitializedPools: mockGetAllInitializedPools }),
 }));
 
 vi.mock('../sources/logs', () => ({ getChangedPoolsV3: mockGetChangedPoolsV3 }));
 vi.mock('../actions/pool/v3/sync-pools', () => ({ syncPools: mockSyncPools }));
 vi.mock('../actions/pool/v3/sync-tokenpairs', () => ({ syncTokenPairs: mockSyncTokenPairs }));
+vi.mock('../actions/pool/v3/add-pools', () => ({ addPools: mockAddPoolsV3 }));
+vi.mock('../actions/pool/update-liquidity', () => ({
+    updateLiquidity24hAgo: vi.fn(),
+    updateLiquidityValuesForPools: mockUpdateLiquidityValuesForPools,
+}));
+vi.mock('../user/lib/bpt-balances/helpers/sync-bpt-balances-from-subgraph', () => ({
+    syncBptBalancesFromSubgraph: mockSyncBptBalancesFromSubgraph,
+}));
+vi.mock('../actions/token/sync-erc4626-tokens', () => ({ syncErc4626Tokens: mockSyncErc4626Tokens }));
+vi.mock('../actions/token/sync-erc4626-onchain-data', () => ({ syncErc4626OnchainData: mockSyncErc4626OnchainData }));
+vi.mock('../content/lib/sync-erc4626-blocked-buffers', () => ({ syncBlockedBuffers: mockBlockedBuffers }));
+vi.mock('../content/lib/sync-erc4626-reviews', () => ({ syncErc4626Reviews: mockSyncErc4626Reviews }));
+vi.mock('../content/lib/sync-rate-provider-reviews', () => ({
+    syncRateProviderReviews: mockSyncRateProviderReviews,
+}));
+vi.mock('../content/lib/sync-token-data', () => ({ syncTokenContentData: mockSyncTokenContentData }));
+vi.mock('../content/lib/sync-tags', () => ({ syncTags: mockSyncTags }));
+vi.mock('../pricing/pricing-service', () => ({
+    PricingService: vi.fn(function () {
+        return { updateDerivedPrices: mockUpdateDerivedPrices };
+    }),
+}));
+vi.mock('../aprs', () => ({
+    AprService: vi.fn(function () {
+        return { updateAprs: mockUpdateAprs };
+    }),
+}));
 
 import { PoolController } from './pool-controller';
 
@@ -284,5 +342,204 @@ describe('logPoolPendingResyncChange', () => {
 
         stderr.mockRestore();
         stdout.mockRestore();
+    });
+});
+
+describe('PoolController.addPoolsV3 bootstrap sequence', () => {
+    const poolId = '0x1bfd9e31b5e9cc758484bb6b0789a270dfe04d9f';
+    const wrapperAddress = '0xe298b938631f750dd409fb18227c4a23dcdaab9b';
+    const underlyingAddress = '0x4200000000000000000000000000000000000006';
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockPoolFindMany.mockResolvedValue([]);
+        mockGetLastSyncedBlock.mockResolvedValue(100);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValue(0);
+        mockSyncErc4626Tokens.mockResolvedValue([]);
+        mockBlockedBuffers.mockResolvedValue(undefined);
+        mockSyncErc4626Reviews.mockResolvedValue(undefined);
+        mockSyncErc4626OnchainData.mockResolvedValue(undefined);
+        mockSyncTokenContentData.mockResolvedValue(undefined);
+        mockSyncRateProviderReviews.mockResolvedValue(undefined);
+        mockUpdateDerivedPrices.mockResolvedValue([]);
+        mockUpdateLiquidityValuesForPools.mockResolvedValue([]);
+        mockUpdateAprs.mockResolvedValue([poolId]);
+        mockSyncTags.mockResolvedValue(undefined);
+    });
+
+    it('bootstraps ERC4626 reviews, onchain data, token metadata, derived prices, liquidity, APRs, and tags on new boosted pool init', async () => {
+        const callOrder: string[] = [];
+        mockBlockedBuffers.mockImplementation(async () => {
+            callOrder.push('syncBlockedBuffers');
+        });
+        mockSyncErc4626Reviews.mockImplementation(async () => {
+            callOrder.push('syncErc4626Reviews');
+        });
+        mockSyncErc4626OnchainData.mockImplementation(async () => {
+            callOrder.push('syncErc4626OnchainData');
+        });
+        mockSyncTokenContentData.mockImplementation(async () => {
+            callOrder.push('syncTokenContentData');
+        });
+        mockSyncRateProviderReviews.mockImplementation(async () => {
+            callOrder.push('syncRateProviderReviews');
+        });
+        mockUpdateDerivedPrices.mockImplementation(async () => {
+            callOrder.push('updateDerivedPrices');
+            return [wrapperAddress];
+        });
+        mockUpdateLiquidityValuesForPools.mockImplementation(async () => {
+            callOrder.push('updateLiquidityValuesForPools');
+            return [];
+        });
+        mockUpdateAprs.mockImplementation(async () => {
+            callOrder.push('updateAprs');
+            return [poolId];
+        });
+        mockSyncTags.mockImplementation(async () => {
+            callOrder.push('syncTags');
+        });
+
+        mockGetAllInitializedPools.mockResolvedValue([
+            {
+                id: poolId,
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        token: { isErc4626: true, underlyingToken: { address: underlyingAddress } },
+                    },
+                ],
+            },
+        ]);
+        mockAddPoolsV3.mockResolvedValue([
+            {
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        decimals: 18,
+                        name: 'waBasWETH',
+                        symbol: 'waBasWETH',
+                        underlyingTokenAddress: underlyingAddress,
+                    },
+                    { address: underlyingAddress, decimals: 18, name: 'WETH', symbol: 'WETH' },
+                    { address: poolId, decimals: 18, name: 'ETH LST 4Pool', symbol: '0xFF-waBasWETH' },
+                ],
+            },
+        ]);
+
+        const added = await PoolController().addPoolsV3('BASE');
+
+        expect(added).toEqual([poolId]);
+        expect(mockSyncErc4626Tokens).toHaveBeenCalledWith(mockViemClient, 'BASE', [
+            expect.objectContaining({ address: wrapperAddress }),
+        ]);
+        expect(mockSyncTokenContentData).toHaveBeenCalledWith(['BASE'], [wrapperAddress, underlyingAddress, poolId]);
+        expect(mockUpdateDerivedPrices).toHaveBeenCalledWith('BASE', [wrapperAddress, underlyingAddress, poolId]);
+        expect(mockUpdateLiquidityValuesForPools).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(callOrder).toEqual([
+            'syncBlockedBuffers',
+            'syncErc4626Reviews',
+            'syncErc4626OnchainData',
+            'syncTokenContentData',
+            'syncRateProviderReviews',
+            'updateDerivedPrices',
+            'updateLiquidityValuesForPools',
+            'updateAprs',
+            'syncTags',
+        ]);
+        expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+    });
+
+    it('skips ERC4626-specific syncs for plain pools while still syncing content, APRs, and tags', async () => {
+        const tokenA = '0x1111111111111111111111111111111111111111';
+        mockGetAllInitializedPools.mockResolvedValue([
+            {
+                id: poolId,
+                tokens: [{ address: tokenA, token: { isErc4626: false } }],
+            },
+        ]);
+        mockAddPoolsV3.mockResolvedValue([
+            {
+                tokens: [
+                    { address: tokenA, decimals: 18, name: 'Token A', symbol: 'TKA' },
+                    { address: poolId, decimals: 18, name: 'Plain Pool', symbol: 'PLAIN' },
+                ],
+            },
+        ]);
+
+        await PoolController().addPoolsV3('BASE');
+
+        expect(mockSyncErc4626Tokens).not.toHaveBeenCalled();
+        expect(mockBlockedBuffers).not.toHaveBeenCalled();
+        expect(mockSyncErc4626Reviews).not.toHaveBeenCalled();
+        expect(mockSyncErc4626OnchainData).not.toHaveBeenCalled();
+        expect(mockSyncTokenContentData).toHaveBeenCalledWith(['BASE'], [tokenA, poolId]);
+        expect(mockSyncRateProviderReviews).toHaveBeenCalledTimes(1);
+        expect(mockUpdateDerivedPrices).toHaveBeenCalledWith('BASE', [tokenA, poolId]);
+        expect(mockUpdateLiquidityValuesForPools).not.toHaveBeenCalled();
+        expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockSyncTags).toHaveBeenCalledTimes(1);
+        expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+    });
+
+    it('logs failures from individual enrichment steps without aborting remaining bootstrap steps or ADD_POOLS_V3 checkpoint', async () => {
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        mockSyncErc4626Reviews.mockRejectedValueOnce(new Error('GitHub 503'));
+        mockSyncTags.mockRejectedValueOnce(new Error('Tags 500'));
+        mockGetAllInitializedPools.mockResolvedValue([
+            {
+                id: poolId,
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        token: { isErc4626: true, underlyingToken: { address: underlyingAddress } },
+                    },
+                ],
+            },
+        ]);
+        mockAddPoolsV3.mockResolvedValue([
+            {
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        decimals: 18,
+                        name: 'waBasWETH',
+                        symbol: 'waBasWETH',
+                        underlyingTokenAddress: underlyingAddress,
+                    },
+                    { address: poolId, decimals: 18, name: 'ETH LST 4Pool', symbol: '0xFF-waBasWETH' },
+                ],
+            },
+        ]);
+
+        await expect(PoolController().addPoolsV3('BASE')).resolves.toEqual([poolId]);
+
+        expect(mockSyncErc4626OnchainData).toHaveBeenCalledTimes(1);
+        expect(mockSyncTokenContentData).toHaveBeenCalledTimes(1);
+        expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+
+        const loggedErrors = stderr.mock.calls.map(([line]) => JSON.parse(String(line)));
+        expect(loggedErrors).toEqual([
+            expect.objectContaining({
+                level: 'error',
+                message: 'Pool init enrichment step failed',
+                chain: 'BASE',
+                step: 'sync-erc4626-data',
+                poolIds: [poolId],
+                error: 'GitHub 503',
+            }),
+            expect.objectContaining({
+                level: 'error',
+                message: 'Pool init enrichment step failed',
+                chain: 'BASE',
+                step: 'sync-tags',
+                poolIds: [poolId],
+                error: 'Tags 500',
+            }),
+        ]);
+
+        stderr.mockRestore();
     });
 });

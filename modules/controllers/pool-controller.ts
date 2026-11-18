@@ -17,7 +17,14 @@ import { getLastSyncedBlock, upsertLastSyncedBlock } from '../actions/last-synce
 import { getChangedPoolsV3 } from '../sources/logs';
 import { syncBptBalancesFromSubgraph } from '../user/lib/bpt-balances/helpers/sync-bpt-balances-from-subgraph';
 import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
+import { syncErc4626OnchainData } from '../actions/token/sync-erc4626-onchain-data';
+import { syncBlockedBuffers } from '../content/lib/sync-erc4626-blocked-buffers';
+import { syncErc4626Reviews } from '../content/lib/sync-erc4626-reviews';
 import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-reviews';
+import { syncTags } from '../content/lib/sync-tags';
+import { syncTokenContentData } from '../content/lib/sync-token-data';
+import { PricingService } from '../pricing/pricing-service';
+import { AprService } from '../aprs';
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
 import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 import { logger } from '../common/logger';
@@ -182,11 +189,53 @@ export function PoolController(tracer?: any) {
                 .flatMap(({ tokens }) => tokens)
                 .filter((t) => !nonErc4626Addresses.has(t.address.toLowerCase()));
 
-            if (candidateErc4626Tokens.length > 0) {
-                await syncErc4626Tokens(getViemClient(chain), chain, candidateErc4626Tokens);
+            const newPoolIds = [...new Set(poolsToSync.map((pool) => pool.id.toLowerCase()))];
+            const newTokenAddresses = [
+                ...new Set(inserts.flatMap(({ tokens }) => tokens.map((token) => token.address.toLowerCase()))),
+            ];
+            const runInitStep = async <T>(step: string, fn: () => Promise<T>): Promise<T | undefined> => {
+                try {
+                    return await fn();
+                } catch (err) {
+                    logger.error('Pool init enrichment step failed', { chain, step, poolIds: newPoolIds, err });
+                    return undefined;
+                }
+            };
+
+            const enrichedErc4626 =
+                candidateErc4626Tokens.length > 0
+                    ? await runInitStep('sync-erc4626-tokens', () =>
+                          syncErc4626Tokens(viemClient, chain, candidateErc4626Tokens),
+                      )
+                    : [];
+
+            const hasErc4626 =
+                inserts.some(({ tokens }) => tokens.some((token) => Boolean(token.underlyingTokenAddress))) ||
+                Boolean(enrichedErc4626?.some((token) => Boolean(token.underlyingTokenAddress)));
+
+            if (hasErc4626) {
+                await runInitStep('sync-erc4626-data', async () => {
+                    await syncBlockedBuffers();
+                    await syncErc4626Reviews();
+                });
+
+                if (vaultAddress) {
+                    await runInitStep('sync-erc4626-onchain-data', () =>
+                        syncErc4626OnchainData(vaultAddress, viemClient, chain),
+                    );
+                }
             }
 
-            await syncRateProviderReviews();
+            await runInitStep('sync-token-content', () => syncTokenContentData([chain], newTokenAddresses));
+            await runInitStep('sync-rate-provider-reviews', () => syncRateProviderReviews());
+            await runInitStep('update-derived-prices-and-liquidity', async () => {
+                const updated = await new PricingService([chain]).updateDerivedPrices(chain, newTokenAddresses);
+                if (updated.length > 0) {
+                    await updateLiquidityValuesForPools(chain, newPoolIds);
+                }
+            });
+            await runInitStep('update-pool-aprs', () => new AprService().updateAprs(chain, newPoolIds));
+            await runInitStep('sync-tags', () => syncTags());
 
             await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3, latestBlock);
 
