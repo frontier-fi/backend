@@ -40,6 +40,8 @@ interface PendingResyncLogState {
 
 const pendingResyncByChain = new Map<Chain, PendingResyncLogState>();
 const MAX_LOGGED_POOL_IDS = 5;
+// Matches the 5-block overlap used by syncBptBalancesFromRpc when falling back from a lagging subgraph.
+const INIT_BPT_RPC_CATCHUP_LAG_THRESHOLD = 5;
 
 /**
  * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
@@ -180,13 +182,14 @@ export function PoolController(tracer?: any) {
             };
 
             await runInitStep('sync-bpt-balances', async () => {
+                const maxRpcBackfillRange = 5 * network.rpcMaxBlockRange;
+                let subgraphEndBlock: number;
                 try {
-                    await syncBptBalancesFromSubgraph(newPoolIds, vaultSubgraphClient, chain);
+                    subgraphEndBlock = await syncBptBalancesFromSubgraph(newPoolIds, vaultSubgraphClient, chain);
                 } catch (subgraphErr) {
                     const minCreationBlock = Math.min(
                         ...poolsToSync.map((pool) => Math.max(1, (Number(pool.blockNumber) || latestBlock) - 1)),
                     );
-                    const maxRpcBackfillRange = 5 * network.rpcMaxBlockRange;
                     if (latestBlock - minCreationBlock > maxRpcBackfillRange) {
                         throw subgraphErr;
                     }
@@ -198,6 +201,27 @@ export function PoolController(tracer?: any) {
                         err: subgraphErr,
                     });
                     await syncBptBalancesFromRpc(newPoolIds, viemClient, chain, undefined, minCreationBlock);
+                    return;
+                }
+
+                // Cover any transfer gap between the subgraph's indexed block and chain head so early LPs
+                // aren't missed if the regular BPT balance sync is running on its RPC fallback near head.
+                const currentBlock = Number(await viemClient.getBlockNumber());
+                const lag = currentBlock - subgraphEndBlock;
+                if (subgraphEndBlock > 0 && lag > INIT_BPT_RPC_CATCHUP_LAG_THRESHOLD) {
+                    if (lag > maxRpcBackfillRange) {
+                        throw new Error(
+                            `Pool init BPT balance subgraph lag (${lag} blocks) exceeds RPC catch-up limit (${maxRpcBackfillRange})`,
+                        );
+                    }
+                    logger.warn('Pool init BPT balance subgraph lagged behind head; catching up via RPC', {
+                        chain,
+                        poolIds: newPoolIds,
+                        fromBlock: subgraphEndBlock,
+                        toBlock: currentBlock,
+                        lag,
+                    });
+                    await syncBptBalancesFromRpc(newPoolIds, viemClient, chain, undefined, subgraphEndBlock);
                 }
             });
 

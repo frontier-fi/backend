@@ -359,7 +359,7 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
         vi.clearAllMocks();
         mockPoolFindMany.mockResolvedValue([]);
         mockGetLastSyncedBlock.mockResolvedValue(100);
-        mockSyncBptBalancesFromSubgraph.mockResolvedValue(0);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValue(rpcHead);
         mockSyncBptBalancesFromRpc.mockResolvedValue(0);
         mockSyncErc4626Tokens.mockResolvedValue([]);
         mockBlockedBuffers.mockResolvedValue(undefined);
@@ -661,6 +661,118 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
                 step: 'sync-bpt-balances',
                 poolIds: [poolId],
                 error: 'RPC timeout',
+            }),
+        ]);
+
+        stderr.mockRestore();
+    });
+
+    it('catches up BPT balances via RPC when subgraph backfill lags more than 5 blocks behind head', async () => {
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const tokenA = '0x1111111111111111111111111111111111111111';
+        const mockPool = [
+            {
+                id: poolId,
+                blockNumber: String(rpcHead - 120),
+                tokens: [{ address: tokenA, token: { isErc4626: false } }],
+            },
+        ];
+        const mockInsert = [
+            {
+                tokens: [
+                    { address: tokenA, decimals: 18, name: 'Token A', symbol: 'TKA' },
+                    { address: poolId, decimals: 18, name: 'Plain Pool', symbol: 'PLAIN' },
+                ],
+            },
+        ];
+
+        // Within 5 blocks of head: no extra RPC catch-up scan
+        mockGetAllInitializedPools.mockResolvedValue(mockPool);
+        mockAddPoolsV3.mockResolvedValue(mockInsert);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValueOnce(rpcHead - 5);
+
+        await PoolController().addPoolsV3('BASE');
+        expect(mockSyncBptBalancesFromRpc).not.toHaveBeenCalled();
+        expect(stderr).not.toHaveBeenCalled();
+
+        // Beyond 5 blocks behind head: scans [E, head] via RPC without mutating checkpoint
+        vi.clearAllMocks();
+        mockPoolFindMany.mockResolvedValue([]);
+        mockGetLastSyncedBlock.mockResolvedValue(100);
+        mockGetAllInitializedPools.mockResolvedValue(mockPool);
+        mockAddPoolsV3.mockResolvedValue(mockInsert);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValueOnce(rpcHead - 80);
+        mockSyncBptBalancesFromRpc.mockResolvedValueOnce(80);
+
+        await expect(PoolController().addPoolsV3('BASE')).resolves.toEqual([poolId]);
+
+        expect(mockSyncBptBalancesFromRpc).toHaveBeenCalledTimes(1);
+        expect(mockSyncBptBalancesFromRpc).toHaveBeenCalledWith(
+            [poolId],
+            mockViemClient,
+            'BASE',
+            undefined,
+            rpcHead - 80,
+        );
+        expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            expect.objectContaining({
+                level: 'warn',
+                message: 'Pool init BPT balance subgraph lagged behind head; catching up via RPC',
+                chain: 'BASE',
+                poolIds: [poolId],
+                fromBlock: rpcHead - 80,
+                toBlock: rpcHead,
+                lag: 80,
+            }),
+        ]);
+
+        // If RPC catch-up throws, runInitStep isolates it without re-running fallback from pool creation
+        vi.clearAllMocks();
+        stderr.mockClear();
+        mockPoolFindMany.mockResolvedValue([]);
+        mockGetLastSyncedBlock.mockResolvedValue(100);
+        mockGetAllInitializedPools.mockResolvedValue(mockPool);
+        mockAddPoolsV3.mockResolvedValue(mockInsert);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValueOnce(rpcHead - 80);
+        mockSyncBptBalancesFromRpc.mockRejectedValueOnce(new Error('RPC rate limited'));
+
+        await expect(PoolController().addPoolsV3('BASE')).resolves.toEqual([poolId]);
+
+        expect(mockSyncBptBalancesFromRpc).toHaveBeenCalledTimes(1);
+        expect(mockSyncBptBalancesFromRpc).toHaveBeenCalledWith(
+            [poolId],
+            mockViemClient,
+            'BASE',
+            undefined,
+            rpcHead - 80,
+        );
+        expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockSyncTags).toHaveBeenCalledTimes(1);
+        expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+
+        // If lag exceeds 5 * rpcMaxBlockRange (50,000 on Base), skip unbounded RPC scan and keep bootstrapping
+        vi.clearAllMocks();
+        stderr.mockClear();
+        mockPoolFindMany.mockResolvedValue([]);
+        mockGetLastSyncedBlock.mockResolvedValue(100);
+        mockGetAllInitializedPools.mockResolvedValue(mockPool);
+        mockAddPoolsV3.mockResolvedValue(mockInsert);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValueOnce(rpcHead - 60_000);
+
+        await expect(PoolController().addPoolsV3('BASE')).resolves.toEqual([poolId]);
+
+        expect(mockSyncBptBalancesFromRpc).not.toHaveBeenCalled();
+        expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockSyncTags).toHaveBeenCalledTimes(1);
+        expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+        expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            expect.objectContaining({
+                level: 'error',
+                message: 'Pool init enrichment step failed',
+                chain: 'BASE',
+                step: 'sync-bpt-balances',
+                poolIds: [poolId],
+                error: expect.stringContaining('exceeds RPC catch-up limit'),
             }),
         ]);
 

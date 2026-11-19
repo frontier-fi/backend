@@ -15,7 +15,7 @@ import { logger } from '../../../../common/logger';
  * @param subgraphClient implementing lastSyncedBlock and getAllPoolSharesWithBalance
  * @param chain
  * @param syncCategory used to store the last synced block in the DB based on the category, skipping the sync block when not provided
- * @returns the number of blocks synced
+ * @returns the number of blocks synced (or the subgraph's last indexed block when syncCategory is omitted; 0 if skipped or persistence failed)
  */
 export const syncBptBalancesFromSubgraph = async (
     poolIds: string[],
