@@ -23,6 +23,8 @@ vi.mock('../../../prisma/prisma-client', () => ({
 
 import { syncTags } from './sync-tags';
 
+const UNCONFIGURED_CHAIN_ID = '999999';
+
 describe('syncTags', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -43,7 +45,7 @@ describe('syncTags', () => {
                                 id: 'test_tag',
                                 pools: [],
                                 tokens: {
-                                    '1': ['0x1111111111111111111111111111111111111111'],
+                                    [UNCONFIGURED_CHAIN_ID]: ['0x1111111111111111111111111111111111111111'],
                                     '11155111': ['0x2222222222222222222222222222222222222222'],
                                 },
                             },
@@ -57,7 +59,7 @@ describe('syncTags', () => {
                             {
                                 id: 'erc4626_aave',
                                 addresses: {
-                                    '1': ['0x3333333333333333333333333333333333333333'],
+                                    [UNCONFIGURED_CHAIN_ID]: ['0x3333333333333333333333333333333333333333'],
                                     '11155111': ['0xde46e43f46ff74a23a65ebb0580cbe3dfe684a17'],
                                 },
                             },
@@ -70,7 +72,7 @@ describe('syncTags', () => {
                         {
                             id: 'hooks_stablesurge',
                             addresses: {
-                                '1': ['0x4444444444444444444444444444444444444444'],
+                                [UNCONFIGURED_CHAIN_ID]: ['0x4444444444444444444444444444444444444444'],
                                 '11155111': ['0x5555555555555555555555555555555555555555'],
                             },
                         },
