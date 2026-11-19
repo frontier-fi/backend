@@ -69,13 +69,16 @@ export default <NetworkData>{
             },
             http: [
                 {
-                    url: 'https://www.ether.fi/api/dapp/protocol/protocol-detail',
-                    scale: 100,
+                    url: 'https://blue-api.morpho.org/graphql',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: `{ assetByAddress(address: "0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee", chainId: 1) { yield { apr } } }`,
+                    }),
                     extractors: [
                         {
                             type: 'path',
                             token: '0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee', // weETH
-                            path: '$.7_day_apr',
+                            path: '$.data.assetByAddress.yield.apr',
                         },
                     ],
                 },
