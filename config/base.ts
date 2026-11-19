@@ -65,6 +65,41 @@ export default <NetworkData>{
             aave: {
                 markets: [AaveV3Base],
             },
+            http: [
+                {
+                    url: 'https://www.ether.fi/api/dapp/protocol/protocol-detail',
+                    scale: 100,
+                    extractors: [
+                        {
+                            type: 'path',
+                            token: '0x04c0599ae5a44757c0af6f9ec3b93da8976c150a', // weETH
+                            path: '$.7_day_apr',
+                        },
+                    ],
+                },
+                {
+                    url: 'https://api.exchange.coinbase.com/wrapped-assets/CBETH/',
+                    scale: 1,
+                    extractors: [
+                        {
+                            type: 'path',
+                            token: '0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22', // cbETH
+                            path: '$.apy',
+                        },
+                    ],
+                },
+                {
+                    url: 'https://eth-api.lido.fi/v1/protocol/steth/apr/sma',
+                    scale: 100,
+                    extractors: [
+                        {
+                            type: 'path',
+                            token: '0xc1cba3fcea344f92d9239c08c0568f6f2f0ee452', // wstETH
+                            path: '$.data.smaApr',
+                        },
+                    ],
+                },
+            ],
         },
     },
     workerJobs: [...activeChainWorkerJobsV3, ...activeChainWorkerJobsGeneric],
