@@ -10,6 +10,7 @@ const {
     mockGetAllInitializedPools,
     mockAddPoolsV3,
     mockSyncBptBalancesFromSubgraph,
+    mockSyncBptBalancesFromRpc,
     mockSyncErc4626Tokens,
     mockBlockedBuffers,
     mockSyncErc4626Reviews,
@@ -36,6 +37,7 @@ const {
         mockGetAllInitializedPools: vi.fn(),
         mockAddPoolsV3: vi.fn(),
         mockSyncBptBalancesFromSubgraph: vi.fn(),
+        mockSyncBptBalancesFromRpc: vi.fn(),
         mockSyncErc4626Tokens: vi.fn(),
         mockBlockedBuffers: vi.fn(),
         mockSyncErc4626Reviews: vi.fn(),
@@ -102,6 +104,9 @@ vi.mock('../actions/pool/update-liquidity', () => ({
 }));
 vi.mock('../user/lib/bpt-balances/helpers/sync-bpt-balances-from-subgraph', () => ({
     syncBptBalancesFromSubgraph: mockSyncBptBalancesFromSubgraph,
+}));
+vi.mock('../user/lib/bpt-balances/helpers/sync-bpt-balances-from-rpc', () => ({
+    syncBptBalancesFromRpc: mockSyncBptBalancesFromRpc,
 }));
 vi.mock('../actions/token/sync-erc4626-tokens', () => ({ syncErc4626Tokens: mockSyncErc4626Tokens }));
 vi.mock('../actions/token/sync-erc4626-onchain-data', () => ({ syncErc4626OnchainData: mockSyncErc4626OnchainData }));
@@ -355,6 +360,7 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
         mockPoolFindMany.mockResolvedValue([]);
         mockGetLastSyncedBlock.mockResolvedValue(100);
         mockSyncBptBalancesFromSubgraph.mockResolvedValue(0);
+        mockSyncBptBalancesFromRpc.mockResolvedValue(0);
         mockSyncErc4626Tokens.mockResolvedValue([]);
         mockBlockedBuffers.mockResolvedValue(undefined);
         mockSyncErc4626Reviews.mockResolvedValue(undefined);
@@ -537,6 +543,124 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
                 step: 'sync-tags',
                 poolIds: [poolId],
                 error: 'Tags 500',
+            }),
+        ]);
+
+        stderr.mockRestore();
+    });
+
+    it('falls back to RPC for initial BPT balances on subgraph error, and keeps running bootstrap if both fail', async () => {
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        mockSyncBptBalancesFromSubgraph.mockRejectedValueOnce(new Error('Subgraph 502'));
+        mockGetAllInitializedPools.mockResolvedValue([
+            {
+                id: poolId,
+                blockNumber: String(rpcHead - 10),
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        token: { isErc4626: true, underlyingToken: { address: underlyingAddress } },
+                    },
+                ],
+            },
+        ]);
+        mockAddPoolsV3.mockResolvedValue([
+            {
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        decimals: 18,
+                        name: 'waBasWETH',
+                        symbol: 'waBasWETH',
+                        underlyingTokenAddress: underlyingAddress,
+                    },
+                    { address: poolId, decimals: 18, name: 'ETH LST 4Pool', symbol: '0xFF-waBasWETH' },
+                ],
+            },
+        ]);
+
+        await expect(PoolController().addPoolsV3('BASE')).resolves.toEqual([poolId]);
+
+        expect(mockSyncBptBalancesFromRpc).toHaveBeenCalledWith(
+            [poolId],
+            mockViemClient,
+            'BASE',
+            undefined,
+            rpcHead - 11,
+        );
+        expect(mockSyncErc4626Reviews).toHaveBeenCalledTimes(1);
+        expect(mockSyncTokenContentData).toHaveBeenCalledTimes(1);
+        expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockSyncTags).toHaveBeenCalledTimes(1);
+        expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+        expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            expect.objectContaining({
+                level: 'warn',
+                message: 'Pool init BPT balance subgraph sync failed; falling back to RPC',
+                chain: 'BASE',
+                poolIds: [poolId],
+                fromBlock: rpcHead - 11,
+                toBlock: rpcHead,
+                error: 'Subgraph 502',
+            }),
+        ]);
+
+        // Even when both subgraph and RPC fallback fail, runInitStep isolates the error so downstream bootstrap still runs.
+        vi.clearAllMocks();
+        stderr.mockClear();
+        mockPoolFindMany.mockResolvedValue([]);
+        mockGetLastSyncedBlock.mockResolvedValue(100);
+        mockSyncBptBalancesFromSubgraph.mockRejectedValueOnce(new Error('Subgraph 502'));
+        mockSyncBptBalancesFromRpc.mockRejectedValueOnce(new Error('RPC timeout'));
+        mockGetAllInitializedPools.mockResolvedValue([
+            {
+                id: poolId,
+                blockNumber: String(rpcHead - 10),
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        token: { isErc4626: true, underlyingToken: { address: underlyingAddress } },
+                    },
+                ],
+            },
+        ]);
+        mockAddPoolsV3.mockResolvedValue([
+            {
+                tokens: [
+                    {
+                        address: wrapperAddress,
+                        decimals: 18,
+                        name: 'waBasWETH',
+                        symbol: 'waBasWETH',
+                        underlyingTokenAddress: underlyingAddress,
+                    },
+                    { address: poolId, decimals: 18, name: 'ETH LST 4Pool', symbol: '0xFF-waBasWETH' },
+                ],
+            },
+        ]);
+
+        await expect(PoolController().addPoolsV3('BASE')).resolves.toEqual([poolId]);
+
+        expect(mockSyncErc4626Reviews).toHaveBeenCalledTimes(1);
+        expect(mockSyncTokenContentData).toHaveBeenCalledTimes(1);
+        expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockSyncTags).toHaveBeenCalledTimes(1);
+        expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+
+        const entries = stderr.mock.calls.map(([line]) => JSON.parse(String(line)));
+        expect(entries).toEqual([
+            expect.objectContaining({
+                level: 'warn',
+                message: 'Pool init BPT balance subgraph sync failed; falling back to RPC',
+                error: 'Subgraph 502',
+            }),
+            expect.objectContaining({
+                level: 'error',
+                message: 'Pool init enrichment step failed',
+                chain: 'BASE',
+                step: 'sync-bpt-balances',
+                poolIds: [poolId],
+                error: 'RPC timeout',
             }),
         ]);
 

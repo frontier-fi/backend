@@ -16,6 +16,7 @@ import { syncHookData } from '../actions/pool/v3/sync-hook-data';
 import { getLastSyncedBlock, upsertLastSyncedBlock } from '../actions/last-synced-block';
 import { getChangedPoolsV3 } from '../sources/logs';
 import { syncBptBalancesFromSubgraph } from '../user/lib/bpt-balances/helpers/sync-bpt-balances-from-subgraph';
+import { syncBptBalancesFromRpc } from '../user/lib/bpt-balances/helpers/sync-bpt-balances-from-rpc';
 import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
 import { syncErc4626OnchainData } from '../actions/token/sync-erc4626-onchain-data';
 import { syncBlockedBuffers } from '../content/lib/sync-erc4626-blocked-buffers';
@@ -165,11 +166,40 @@ export function PoolController(tracer?: any) {
             }
 
             const inserts = await addPoolsV3(poolsToSync, viemClient, vaultAddress, chain, latestBlock);
-            await syncBptBalancesFromSubgraph(
-                poolsToSync.map((pool) => pool.id),
-                vaultSubgraphClient,
-                chain,
-            );
+            const newPoolIds = [...new Set(poolsToSync.map((pool) => pool.id.toLowerCase()))];
+            const newTokenAddresses = [
+                ...new Set(inserts.flatMap(({ tokens }) => tokens.map((token) => token.address.toLowerCase()))),
+            ];
+            const runInitStep = async <T>(step: string, fn: () => Promise<T>): Promise<T | undefined> => {
+                try {
+                    return await fn();
+                } catch (err) {
+                    logger.error('Pool init enrichment step failed', { chain, step, poolIds: newPoolIds, err });
+                    return undefined;
+                }
+            };
+
+            await runInitStep('sync-bpt-balances', async () => {
+                try {
+                    await syncBptBalancesFromSubgraph(newPoolIds, vaultSubgraphClient, chain);
+                } catch (subgraphErr) {
+                    const minCreationBlock = Math.min(
+                        ...poolsToSync.map((pool) => Math.max(1, (Number(pool.blockNumber) || latestBlock) - 1)),
+                    );
+                    const maxRpcBackfillRange = 5 * network.rpcMaxBlockRange;
+                    if (latestBlock - minCreationBlock > maxRpcBackfillRange) {
+                        throw subgraphErr;
+                    }
+                    logger.warn('Pool init BPT balance subgraph sync failed; falling back to RPC', {
+                        chain,
+                        poolIds: newPoolIds,
+                        fromBlock: minCreationBlock,
+                        toBlock: latestBlock,
+                        err: subgraphErr,
+                    });
+                    await syncBptBalancesFromRpc(newPoolIds, viemClient, chain, undefined, minCreationBlock);
+                }
+            });
 
             // Skip the 7-call ERC4626 RPC probe only for tokens already classified as non-ERC4626 by the vault subgraph;
             // tokens with isErc4626: true (or unclassified) still run syncErc4626Tokens to verify the 7-method interface.
@@ -188,19 +218,6 @@ export function PoolController(tracer?: any) {
             const candidateErc4626Tokens = inserts
                 .flatMap(({ tokens }) => tokens)
                 .filter((t) => !nonErc4626Addresses.has(t.address.toLowerCase()));
-
-            const newPoolIds = [...new Set(poolsToSync.map((pool) => pool.id.toLowerCase()))];
-            const newTokenAddresses = [
-                ...new Set(inserts.flatMap(({ tokens }) => tokens.map((token) => token.address.toLowerCase()))),
-            ];
-            const runInitStep = async <T>(step: string, fn: () => Promise<T>): Promise<T | undefined> => {
-                try {
-                    return await fn();
-                } catch (err) {
-                    logger.error('Pool init enrichment step failed', { chain, step, poolIds: newPoolIds, err });
-                    return undefined;
-                }
-            };
 
             const enrichedErc4626 =
                 candidateErc4626Tokens.length > 0

@@ -10,6 +10,8 @@ const {
     mockTransaction,
     mockGetLastSyncedBlock,
     mockGetBlockNumber,
+    mockGetEvents,
+    mockMulticallViem,
 } = vi.hoisted(() => {
     const mockUserCreateMany = vi.fn((args: unknown) => Promise.resolve({ op: 'user.createMany', args }));
     const mockWalletBalanceUpsert = vi.fn((args: unknown) => Promise.resolve({ op: 'walletBalance.upsert', args }));
@@ -30,6 +32,8 @@ const {
         mockTransaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
         mockGetLastSyncedBlock: vi.fn(),
         mockGetBlockNumber: vi.fn(),
+        mockGetEvents: vi.fn(),
+        mockMulticallViem: vi.fn(),
     };
 });
 
@@ -56,8 +60,17 @@ vi.mock('../../../../sources/viem-client', () => ({
     }),
 }));
 
+vi.mock('../../../../web3/events', () => ({
+    getEvents: mockGetEvents,
+}));
+
+vi.mock('../../../../web3/multicaller-viem', () => ({
+    multicallViem: mockMulticallViem,
+}));
+
 import { balancesToDb } from './balances-to-db';
 import { syncBptBalancesFromSubgraph } from './sync-bpt-balances-from-subgraph';
+import { syncBptBalancesFromRpc } from './sync-bpt-balances-from-rpc';
 
 describe('balancesToDb & syncBptBalancesFromSubgraph', () => {
     beforeEach(() => {
@@ -190,5 +203,42 @@ describe('balancesToDb & syncBptBalancesFromSubgraph', () => {
         expect(subgraphClient.getAllPoolSharesWithBalance).toHaveBeenCalledWith(['0xpool1'], [expect.any(String)], 1);
         expect(mockTransaction).toHaveBeenCalledTimes(1);
         expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it('syncBptBalancesFromRpc scans fromBlockOverride and updates balances and holdersCount without mutating BPT_BALANCES_V3 checkpoint when syncCategory is omitted', async () => {
+        const poolId = '0x0000000000000000000000000000000000000001';
+        const userAddress = '0x0000000000000000000000000000000000000002';
+        const viemClient = { getBlockNumber: vi.fn().mockResolvedValue(1000n) };
+
+        mockGetEvents.mockResolvedValue([
+            {
+                address: poolId,
+                args: {
+                    from: '0x0000000000000000000000000000000000000000',
+                    to: userAddress,
+                },
+            },
+        ]);
+        mockMulticallViem.mockResolvedValue({
+            [`${poolId}-${userAddress}`]: 2_000_000_000_000_000_000n,
+        });
+
+        const synced = await syncBptBalancesFromRpc([poolId], viemClient as any, Chain.BASE, undefined, 990);
+
+        expect(synced).toBe(10);
+        expect(mockGetLastSyncedBlock).not.toHaveBeenCalled();
+        expect(mockGetEvents).toHaveBeenCalledWith(
+            990,
+            1000,
+            [poolId],
+            ['Transfer'],
+            expect.any(String),
+            expect.any(Number),
+            expect.any(Array),
+        );
+        expect(mockWalletBalanceUpsert).toHaveBeenCalledTimes(1);
+        expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
+        expect(mockLastBlockSyncedUpsert).not.toHaveBeenCalled();
+        expect(mockTransaction).toHaveBeenCalledTimes(1);
     });
 });

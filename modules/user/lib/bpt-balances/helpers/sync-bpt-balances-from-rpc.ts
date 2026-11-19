@@ -1,4 +1,4 @@
-import { Chain } from '@prisma/client';
+import { Chain, PrismaLastBlockSyncedCategory } from '@prisma/client';
 import { ViemClient } from '../../../../sources/types';
 import { prisma } from '../../../../../prisma/prisma-client';
 import config from '../../../../../config';
@@ -17,7 +17,8 @@ export const syncBptBalancesFromRpc = async (
     poolIds: string[],
     client: ViemClient,
     chain: Chain,
-    syncCategory: 'BPT_BALANCES_V3',
+    syncCategory?: PrismaLastBlockSyncedCategory,
+    fromBlockOverride?: number,
 ) => {
     // Must have poolIds to sync
     if (poolIds.length === 0) {
@@ -26,15 +27,23 @@ export const syncBptBalancesFromRpc = async (
 
     const toBlock = await client.getBlockNumber().then(Number);
 
-    // Get the balances synced block from the DB
-    const startBlock = await getLastSyncedBlock(chain, syncCategory);
+    let startBlock: number;
+    let fromBlock: number;
+    if (fromBlockOverride !== undefined) {
+        startBlock = Math.max(1, fromBlockOverride);
+        fromBlock = startBlock;
+    } else if (syncCategory) {
+        startBlock = await getLastSyncedBlock(chain, syncCategory);
 
-    // Don't use RPC when balances weren't synced at all
-    if (startBlock === 1) {
+        // Don't use RPC when balances weren't synced at all
+        if (startBlock === 1) {
+            return 0;
+        }
+
+        fromBlock = startBlock - 5; // Using just 5 blocks here, because we rely on the subgraph 1st
+    } else {
         return 0;
     }
-
-    const fromBlock = startBlock - 5; // Using just 5 blocks here, because we rely on the subgraph 1st
 
     // no new blocks have been minted, needed for slow networks
     if (fromBlock > toBlock) {
@@ -42,7 +51,7 @@ export const syncBptBalancesFromRpc = async (
     }
 
     // Map the poolIds to poolAddresses
-    const poolsMap = Object.fromEntries(poolIds.map((id) => [id.slice(0, 42), id]));
+    const poolsMap = Object.fromEntries(poolIds.map((id) => [id.toLowerCase().slice(0, 42), id.toLowerCase()]));
     const poolAddresses = Object.keys(poolsMap);
 
     const range = rpcMaxBlockRange(chain);
@@ -63,23 +72,29 @@ export const syncBptBalancesFromRpc = async (
         events
             .filter((event) => poolAddresses.includes(event.address.toLowerCase()))
             .flatMap((event) => [
-                { poolAddress: event.address, userAddress: event.args?.from as string },
-                { poolAddress: event.address, userAddress: event.args?.to as string },
+                { poolAddress: event.address.toLowerCase(), userAddress: (event.args?.from as string)?.toLowerCase() },
+                { poolAddress: event.address.toLowerCase(), userAddress: (event.args?.to as string)?.toLowerCase() },
             ])
-            .filter((entry) => entry.userAddress !== zeroAddress),
+            .filter(
+                (entry): entry is { poolAddress: string; userAddress: string } =>
+                    Boolean(entry.userAddress) && entry.userAddress !== zeroAddress,
+            ),
         (entry) => entry.poolAddress + entry.userAddress,
     );
 
-    const balances = await multicallViem(
-        client,
-        balancesToFetch.map((entry) => ({
-            path: entry.poolAddress + '-' + entry.userAddress,
-            abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
-            address: entry.poolAddress as `0x${string}`,
-            functionName: 'balanceOf',
-            args: [entry.userAddress as `0x${string}`],
-        })),
-    );
+    const balances =
+        balancesToFetch.length > 0
+            ? await multicallViem(
+                  client,
+                  balancesToFetch.map((entry) => ({
+                      path: entry.poolAddress + '-' + entry.userAddress,
+                      abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+                      address: entry.poolAddress as `0x${string}`,
+                      functionName: 'balanceOf',
+                      args: [entry.userAddress as `0x${string}`],
+                  })),
+              )
+            : {};
 
     const poolShares = Object.keys(balances).map((id) => {
         const [tokenAddress, userAddress] = id.toLowerCase().split('-');
@@ -98,10 +113,12 @@ export const syncBptBalancesFromRpc = async (
     });
 
     const operations = balancesToDb(poolShares, chain, toBlock, syncCategory);
-    try {
-        await prisma.$transaction(operations);
-    } catch (e: any) {
-        logger.error('Failed to persist BPT balances from RPC', { chain, syncCategory, err: e });
+    if (operations.length > 0) {
+        try {
+            await prisma.$transaction(operations);
+        } catch (e: any) {
+            logger.error('Failed to persist BPT balances from RPC', { chain, syncCategory, err: e });
+        }
     }
 
     return toBlock - startBlock;
