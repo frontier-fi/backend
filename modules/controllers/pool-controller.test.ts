@@ -286,3 +286,73 @@ describe('logPoolPendingResyncChange', () => {
         stdout.mockRestore();
     });
 });
+
+describe('logSubgraphSyncStatus', () => {
+    it('logs per-chain RPC head and subgraph block/lag at most once per interval and clamps negative lag to 0', async () => {
+        vi.resetModules();
+        const { logSubgraphSyncStatus, SUBGRAPH_SYNC_LOG_INTERVAL_MS } = await import('./pool-controller');
+        const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+        // First call per chain logs immediately.
+        logSubgraphSyncStatus('BASE', { rpcBlock: 59_480_020, vaultBlock: 59_480_000, poolsBlock: 59_479_995 }, 1_000);
+        // Second call within the throttle window is skipped.
+        logSubgraphSyncStatus(
+            'BASE',
+            { rpcBlock: 59_480_035, vaultBlock: 59_480_010, poolsBlock: 59_480_010 },
+            1_000 + SUBGRAPH_SYNC_LOG_INTERVAL_MS - 1,
+        );
+        // Independent chain logs immediately even inside BASE's window; subgraph ahead of RPC clamps lag to 0.
+        logSubgraphSyncStatus(
+            'SEPOLIA',
+            { rpcBlock: 12_170_000, vaultBlock: 12_170_001, poolsBlock: 12_169_999 },
+            5_000,
+        );
+        // Next call at the interval boundary logs again.
+        logSubgraphSyncStatus(
+            'BASE',
+            { rpcBlock: 59_480_050, vaultBlock: 59_480_030, poolsBlock: 59_480_040 },
+            1_000 + SUBGRAPH_SYNC_LOG_INTERVAL_MS,
+        );
+
+        expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            {
+                level: 'info',
+                message: 'Subgraph sync status',
+                event: 'subgraph-sync-status',
+                chain: 'BASE',
+                rpcBlock: 59_480_020,
+                vaultBlock: 59_480_000,
+                poolsBlock: 59_479_995,
+                vaultLag: 20,
+                poolsLag: 25,
+                lag: 25,
+            },
+            {
+                level: 'info',
+                message: 'Subgraph sync status',
+                event: 'subgraph-sync-status',
+                chain: 'SEPOLIA',
+                rpcBlock: 12_170_000,
+                vaultBlock: 12_170_001,
+                poolsBlock: 12_169_999,
+                vaultLag: 0,
+                poolsLag: 1,
+                lag: 1,
+            },
+            {
+                level: 'info',
+                message: 'Subgraph sync status',
+                event: 'subgraph-sync-status',
+                chain: 'BASE',
+                rpcBlock: 59_480_050,
+                vaultBlock: 59_480_030,
+                poolsBlock: 59_480_040,
+                vaultLag: 20,
+                poolsLag: 10,
+                lag: 20,
+            },
+        ]);
+
+        stdout.mockRestore();
+    });
+});

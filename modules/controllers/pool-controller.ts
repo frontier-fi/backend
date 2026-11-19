@@ -23,6 +23,8 @@ import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 import { logger } from '../common/logger';
 
 const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
+export const SUBGRAPH_SYNC_LOG_INTERVAL_MS = 60_000;
+const subgraphSyncLastLoggedAt = new Map<Chain, number>();
 export const PENDING_RESYNC_REMINDER_MS = 3 * 60_000;
 
 interface PendingResyncLogState {
@@ -32,6 +34,34 @@ interface PendingResyncLogState {
 
 const pendingResyncByChain = new Map<Chain, PendingResyncLogState>();
 const MAX_LOGGED_POOL_IDS = 5;
+
+/**
+ * Emits a throttled per-chain snapshot of RPC head vs. Ormi vault/pools subgraph block heights and
+ * lag (once per minute per chain) to feed Better Stack block-lag/height metrics and status charts.
+ */
+export function logSubgraphSyncStatus(
+    chain: Chain,
+    details: { rpcBlock: number; vaultBlock: number; poolsBlock: number },
+    nowMs: number = Date.now(),
+): void {
+    const lastLoggedAt = subgraphSyncLastLoggedAt.get(chain);
+    if (lastLoggedAt !== undefined && nowMs - lastLoggedAt < SUBGRAPH_SYNC_LOG_INTERVAL_MS) {
+        return;
+    }
+    subgraphSyncLastLoggedAt.set(chain, nowMs);
+    const vaultLag = Math.max(0, details.rpcBlock - details.vaultBlock);
+    const poolsLag = Math.max(0, details.rpcBlock - details.poolsBlock);
+    logger.info('Subgraph sync status', {
+        event: 'subgraph-sync-status',
+        chain,
+        rpcBlock: details.rpcBlock,
+        vaultBlock: details.vaultBlock,
+        poolsBlock: details.poolsBlock,
+        vaultLag,
+        poolsLag,
+        lag: Math.max(vaultLag, poolsLag),
+    });
+}
 
 /**
  * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
@@ -224,6 +254,11 @@ export function PoolController(tracer?: any) {
                 subgraphClient.lastSyncedBlock(),
                 poolsSubgraphClient.lastSyncedBlock(),
             ]);
+            logSubgraphSyncStatus(chain, {
+                rpcBlock: rpcLatestBlock,
+                vaultBlock: vaultLastSyncedBlock,
+                poolsBlock: poolsLastSyncedBlock,
+            });
             const sgLastSyncedBlock = Math.min(vaultLastSyncedBlock, poolsLastSyncedBlock);
 
             // Guard against subgraph lag
