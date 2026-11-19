@@ -24,7 +24,7 @@ interface WhitelistedToken {
     };
 }
 
-export async function syncTokenContentData(chains: Chain[]): Promise<void> {
+export async function syncTokenContentData(chains: Chain[], filterAddresses?: string[]): Promise<void> {
     const response = await fetch(contentSources.tokenList);
     if (!response.ok) {
         throw new Error(`Failed to fetch token list: ${response.statusText}`);
@@ -34,11 +34,13 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
     // Validate results
     const requiredKeys = ['chainId', 'address', 'name', 'symbol', 'decimals'];
     const chainIds = chains.map((chain) => Number(chainToIdMap[chain]));
+    const allowedAddressSet = filterAddresses ? new Set(filterAddresses.map((addr) => addr.toLowerCase())) : null;
     const upsertTokens = tokens
         .filter(
             (token) =>
                 requiredKeys.every((key) => token?.[key as keyof WhitelistedToken] != null) &&
-                chainIds.includes(token.chainId),
+                chainIds.includes(token.chainId) &&
+                (!allowedAddressSet || allowedAddressSet.has(token.address.toLowerCase())),
         )
         .map((token) => {
             const chain = chainIdToChain[token.chainId];
@@ -86,7 +88,7 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
         });
 
     const existingTokens =
-        chains.length > 0
+        !allowedAddressSet && chains.length > 0
             ? await prisma.prismaToken.findMany({
                   where: { chain: { in: chains } },
                   select: { address: true, chain: true },
@@ -107,29 +109,30 @@ export async function syncTokenContentData(chains: Chain[]): Promise<void> {
         }),
     );
 
-    await prisma.$transaction(upserts);
+    if (upserts.length > 0) {
+        await prisma.$transaction(upserts);
+    }
 
-    const newTokens = upsertTokens.filter((token) => !existingTokenKeys.has(`${token.address}-${token.chain}`));
-    for (const chain of chains) {
-        const newTokensForChain = newTokens
-            .filter((token) => token.chain === chain)
-            .map(({ address, decimals, name, symbol, chain }) => ({
-                address,
-                decimals,
-                name,
-                symbol,
-                chain,
-            }));
+    if (!allowedAddressSet) {
+        const newTokens = upsertTokens.filter((token) => !existingTokenKeys.has(`${token.address}-${token.chain}`));
+        for (const chain of chains) {
+            const newTokensForChain = newTokens
+                .filter((token) => token.chain === chain)
+                .map(({ address, decimals, name, symbol, chain }) => ({
+                    address,
+                    decimals,
+                    name,
+                    symbol,
+                    chain,
+                }));
 
-        if (newTokensForChain.length > 0) {
-            await syncErc4626Tokens(getViemClient(chain), chain, newTokensForChain);
+            if (newTokensForChain.length > 0) {
+                await syncErc4626Tokens(getViemClient(chain), chain, newTokensForChain);
+            }
         }
     }
 
     await syncBlockedTokens();
-
-    // TODO: This should be removed and moved to pool creation, it doesn't ever change
-    await syncBPTTypes();
 }
 
 async function syncBlockedTokens() {
@@ -159,20 +162,22 @@ async function syncBlockedTokens() {
         })
         .filter((token) => token.tokenAddress && token.chain && token.protocolVersion === 3);
 
-    const existingTokensInDB = await prisma.prismaToken.findMany({
-        where: {
-            OR: githubBlockedTokens.map((token) => ({
-                address: token.tokenAddress,
-                chain: token.chain,
-            })),
-        },
-        select: { address: true, chain: true },
-    });
+    const existingTokensInDB =
+        githubBlockedTokens.length > 0
+            ? await prisma.prismaToken.findMany({
+                  where: {
+                      OR: githubBlockedTokens.map((token) => ({
+                          address: token.tokenAddress,
+                          chain: token.chain,
+                      })),
+                  },
+                  select: { address: true, chain: true },
+              })
+            : [];
 
     const tokenExistsInDB = new Set(existingTokensInDB.map((token) => `${token.address}-${token.chain}`));
 
-    const { tokensToAdd: v3TokensToAdd, tokensToRemove: v3TokensToRemove } = getTokensToSync(
-        3,
+    const { tokensToAdd, tokensToRemove } = getTokensToSync(
         PrismaTokenTypeOption.BLOCKED_V3,
         githubBlockedTokens,
         existingBlockedTypes,
@@ -181,22 +186,19 @@ async function syncBlockedTokens() {
 
     const operations = [];
 
-    const allTokensToAdd = v3TokensToAdd;
-    const allTokensToRemove = v3TokensToRemove;
-
-    if (allTokensToAdd.length > 0) {
+    if (tokensToAdd.length > 0) {
         operations.push(
             prisma.prismaTokenType.createMany({
                 skipDuplicates: true,
-                data: allTokensToAdd,
+                data: tokensToAdd,
             }),
         );
     }
 
-    if (allTokensToRemove.length > 0) {
+    if (tokensToRemove.length > 0) {
         operations.push(
             prisma.prismaTokenType.deleteMany({
-                where: { id: { in: allTokensToRemove } },
+                where: { id: { in: tokensToRemove } },
             }),
         );
     }
@@ -206,28 +208,11 @@ async function syncBlockedTokens() {
     }
 }
 
-async function syncBPTTypes() {
-    const pools = await prisma.prismaPool.findMany({
-        select: { address: true, type: true, chain: true },
-    });
-
-    const bptTypes = pools.map((pool) => ({
-        id: `${pool.address}-bpt`,
-        chain: pool.chain,
-        type: PrismaTokenTypeOption.BPT,
-        tokenAddress: pool.address,
-    }));
-
-    await prisma.prismaTokenType.createMany({ skipDuplicates: true, data: bptTypes });
-}
-
 function getTokensToSync(
-    protocolVersion: number,
     blockType: PrismaTokenTypeOption,
     githubBlockedTokens: {
         tokenAddress: string;
         chain: Chain;
-        protocolVersion: number;
     }[],
     existingBlockedTypes: {
         id: string;
@@ -240,7 +225,6 @@ function getTokensToSync(
     const tokensToAdd = githubBlockedTokens
         .filter(
             (token) =>
-                token.protocolVersion === protocolVersion &&
                 tokenExistsInDB.has(`${token.tokenAddress}-${token.chain}`) &&
                 !existingBlockedTypes.some(
                     (dbToken) =>
@@ -262,9 +246,7 @@ function getTokensToSync(
                 dbToken.type === blockType &&
                 !githubBlockedTokens.some(
                     (githubToken) =>
-                        githubToken.tokenAddress === dbToken.tokenAddress &&
-                        githubToken.chain === dbToken.chain &&
-                        githubToken.protocolVersion === protocolVersion,
+                        githubToken.tokenAddress === dbToken.tokenAddress && githubToken.chain === dbToken.chain,
                 ),
         )
         .map((dbToken) => dbToken.id);

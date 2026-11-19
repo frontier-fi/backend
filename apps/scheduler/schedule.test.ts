@@ -6,7 +6,7 @@ import { buildSchedule, configuredSchedule, STARTUP_STAGGER_MS } from './schedul
 const networks = Object.values(config);
 const [primary] = networks;
 const primaryChainId = String(primary.chain.id);
-const otherNetwork = { ...primary, chain: { ...primary.chain, id: 1 } };
+const otherNetwork = { ...primary, chain: { ...primary.chain, id: 999999 } };
 
 describe('configuredSchedule', () => {
     const schedule = configuredSchedule();
@@ -66,7 +66,7 @@ describe('buildSchedule', () => {
         for (const job of primary.workerJobs) {
             expect(schedule.filter((entry) => entry.name === job.name).map((entry) => entry.chainId)).toEqual([
                 primaryChainId,
-                '1',
+                '999999',
             ]);
         }
     });

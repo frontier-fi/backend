@@ -10,6 +10,8 @@ const fetchMock = vi.fn();
 const WRAPPER = '0x1111111111111111111111111111111111111111';
 const STATA = '0x2222222222222222222222222222222222222222';
 const A_TOKEN = '0x3333333333333333333333333333333333333333';
+const SECOND_MARKET_WRAPPER = '0x4444444444444444444444444444444444444444';
+const SECOND_MARKET_A_TOKEN = '0x5555555555555555555555555555555555555555';
 const POOL = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 vi.mock('../../../../config', () => ({
@@ -30,6 +32,15 @@ vi.mock('../../../../config', () => ({
                                     },
                                 },
                             },
+                            {
+                                CHAIN_ID: 11155111,
+                                ASSETS: {
+                                    WETH: {
+                                        STATIC_A_TOKEN: '0x4444444444444444444444444444444444444444',
+                                        A_TOKEN: '0x5555555555555555555555555555555555555555',
+                                    },
+                                },
+                            },
                         ],
                     },
                 },
@@ -37,6 +48,12 @@ vi.mock('../../../../config', () => ({
         },
         BASE: {
             chain: { id: 8453, prismaId: 'BASE' },
+            aprHandlers: {
+                merklAprHandler: true,
+            },
+        },
+        MAINNET: {
+            chain: { id: 1, prismaId: 'MAINNET' },
             aprHandlers: {
                 merklAprHandler: true,
             },
@@ -236,6 +253,35 @@ describe('MerklAprHandler', () => {
         await expect(handler.calculateAprForPools([pool()])).rejects.toThrow('Merkl API error: 429 Too Many Requests');
     });
 
+    it('maps wrappers across all configured Aave markets on the same chain', async () => {
+        fetchMock.mockImplementation((url: string) => {
+            if (String(url).includes('mainProtocolId=frontier')) return json([]);
+            return json([
+                opportunity({
+                    explorerAddress: SECOND_MARKET_A_TOKEN,
+                    apr: 8,
+                    campaigns: [{ params: { whitelist: [] } }],
+                }),
+            ]);
+        });
+
+        const items = await handler.calculateAprForPools([
+            pool({
+                tokens: [
+                    {
+                        address: SECOND_MARKET_WRAPPER,
+                        balanceUSD: 100,
+                        token: { underlyingTokenAddress: '0xunderlying' },
+                    },
+                ],
+            }),
+        ]);
+
+        expect(items).toEqual([expect.objectContaining({ poolId: 'pool-1', apr: 0.08 })]);
+        expect(String(fetchMock.mock.calls[1][0])).toContain(SECOND_MARKET_A_TOKEN);
+        expect(String(fetchMock.mock.calls[1][0])).not.toContain(SECOND_MARKET_WRAPPER);
+    });
+
     it('rejects an empty pool list', async () => {
         fetchMock.mockImplementation(() => json([]));
         await expect(handler.calculateAprForPools([])).rejects.toThrow();
@@ -246,5 +292,6 @@ describe('APR handler chain gating', () => {
     it('enables MerklAprHandler only on chains with aprHandlers.merklAprHandler set', () => {
         expect(createHandlers(Chain.SEPOLIA).map((h) => h.getAprServiceName())).not.toContain('MerklAprHandler');
         expect(createHandlers(Chain.BASE).map((h) => h.getAprServiceName())).toContain('MerklAprHandler');
+        expect(createHandlers(Chain.MAINNET).map((h) => h.getAprServiceName())).toContain('MerklAprHandler');
     });
 });

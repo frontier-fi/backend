@@ -420,8 +420,12 @@ describe('poolUpsertTransformerV3', () => {
         expect(boosted?.poolDynamicData.protocolSwapFee).toBe('0.5');
         expect(boosted?.poolDynamicData.aggregateYieldFee).toBe('0.25');
         expect(boosted?.poolDynamicData.protocolYieldFee).toBe('0.25');
+        expect(boosted?.poolDynamicData.holdersCount).toBe(0);
         expect(boosted?.poolToken[0].priceRateProvider).toBe(waUsdcRateProvider);
         expect(boosted?.poolToken[1].priceRateProvider).toBe(ZERO);
+
+        const seededHolders = poolUpsertTransformerV3(pool(PoolType.Stable, { holdersCount: '3' }), Chain.SEPOLIA, 42);
+        expect(seededHolders?.poolDynamicData.holdersCount).toBe(3);
 
         const waTokenRow = boosted?.tokens.find((t) => t.address === waUsdc);
         expect(waTokenRow).toMatchObject({

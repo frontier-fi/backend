@@ -173,6 +173,7 @@ export const poolUpsertTransformerV3 = (
                 : {}),
             totalShares: String(parseEther(poolData.totalShares)),
             totalSharesNum: Number(poolData.totalShares),
+            holdersCount: Number(poolData.holdersCount) || 0,
             isPaused: poolData.isPaused,
             isInRecoveryMode: poolData.isInRecoveryMode,
             blockNumber,

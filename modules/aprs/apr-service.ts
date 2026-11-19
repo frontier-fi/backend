@@ -30,9 +30,9 @@ export class AprService {
      * Update APRs for all pools in a chain
      * @returns Updated pool IDs
      */
-    async updateAprs(chain: Chain): Promise<string[]> {
+    async updateAprs(chain: Chain, poolIds?: string[]): Promise<string[]> {
         const manager = this.getManagerForChain(chain);
-        return await manager.updateAprs(chain);
+        return await manager.updateAprs(chain, poolIds);
     }
 
     /**

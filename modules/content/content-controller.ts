@@ -39,7 +39,10 @@ export function ContentController() {
         },
         async reloadAllTokenTypes(chain: Chain) {
             await prisma.prismaTokenType.deleteMany({
-                where: { chain },
+                where: {
+                    chain,
+                    type: { not: 'BPT' },
+                },
             });
 
             await syncTokenContentData([chain]);

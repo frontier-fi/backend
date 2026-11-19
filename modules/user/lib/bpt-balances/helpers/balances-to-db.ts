@@ -9,18 +9,25 @@ export const balancesToDb = (
     syncType?: PrismaLastBlockSyncedCategory,
 ) => {
     // Make sure we have all the balances from the same chain
-    if (balances.length > 0 && _.uniq(balances.map(({ chain }) => chain)).length !== 1) {
+    if (balances.some((balance) => balance.chain !== chain)) {
         throw new Error('Balances should be from the same chain');
     }
 
     const obsoleteIDs = balances.filter((balance) => balance.balanceNum === 0).map(({ id }) => id);
+    const changedPoolIds = _.uniq(
+        balances.map(({ poolId }) => poolId).filter((poolId): poolId is string => Boolean(poolId)),
+    );
 
     return [
         // Wallet balances are related to users table, so we need to create all users records first
-        prisma.prismaUser.createMany({
-            data: _.uniq(balances.map(({ userAddress }) => ({ address: userAddress }))),
-            skipDuplicates: true,
-        }),
+        ...(balances.length > 0
+            ? [
+                  prisma.prismaUser.createMany({
+                      data: _.uniq(balances.map(({ userAddress }) => userAddress)).map((address) => ({ address })),
+                      skipDuplicates: true,
+                  }),
+              ]
+            : []),
 
         // Create or update the balances
         ...balances
@@ -48,6 +55,33 @@ export const balancesToDb = (
                     chain,
                 },
             }),
+        ),
+
+        // Recompute holdersCount atomically inside the same transaction for touched pools only
+        ..._.chunk(changedPoolIds, 32000).map(
+            (poolIds) => prisma.$executeRaw`
+                UPDATE "PrismaPoolDynamicData" AS dyn
+                SET "holdersCount" = sub.holders_count,
+                    "updatedAt" = NOW()
+                FROM (
+                    SELECT
+                        d."poolId",
+                        d."chain",
+                        (
+                            SELECT COUNT(*)::int
+                            FROM "PrismaUserWalletBalance" AS b
+                            WHERE b."poolId" = d."poolId"
+                              AND b."chain" = d."chain"
+                              AND b."balanceNum" > 0
+                        ) AS holders_count
+                    FROM "PrismaPoolDynamicData" AS d
+                    WHERE d."chain" = ${chain}::"Chain"
+                      AND d."poolId" IN (${Prisma.join(poolIds)})
+                ) AS sub
+                WHERE dyn."poolId" = sub."poolId"
+                  AND dyn."chain" = sub."chain"
+                  AND dyn."holdersCount" <> sub.holders_count;
+            `,
         ),
 
         // Update the synced block number when provided
