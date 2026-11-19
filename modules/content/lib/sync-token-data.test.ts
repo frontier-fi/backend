@@ -7,7 +7,6 @@ const {
     mockTokenTypeFindMany,
     mockTokenTypeCreateMany,
     mockTokenTypeDeleteMany,
-    mockPoolFindMany,
     mockTransaction,
     mockSyncErc4626Tokens,
     mockGetViemClient,
@@ -17,7 +16,6 @@ const {
     mockTokenTypeFindMany: vi.fn(),
     mockTokenTypeCreateMany: vi.fn(),
     mockTokenTypeDeleteMany: vi.fn(),
-    mockPoolFindMany: vi.fn(),
     mockTransaction: vi.fn(),
     mockSyncErc4626Tokens: vi.fn(),
     mockGetViemClient: vi.fn(() => ({})),
@@ -33,9 +31,6 @@ vi.mock('../../../prisma/prisma-client', () => ({
             findMany: mockTokenTypeFindMany,
             createMany: mockTokenTypeCreateMany,
             deleteMany: mockTokenTypeDeleteMany,
-        },
-        prismaPool: {
-            findMany: mockPoolFindMany,
         },
         $transaction: mockTransaction,
     },
@@ -94,15 +89,11 @@ describe('syncTokenContentData', () => {
             }),
         );
         mockTokenTypeFindMany.mockResolvedValue([]);
-        mockPoolFindMany.mockResolvedValue([]);
         mockTransaction.mockResolvedValue([]);
     });
 
     it('calls syncErc4626Tokens only for tokens not already in PrismaToken', async () => {
-        // 1st findMany: existing tokens in DB before upsert
         mockTokenFindMany.mockResolvedValueOnce([{ address: existingAddress, chain: Chain.SEPOLIA }]);
-        // 2nd findMany: inside syncBlockedTokens
-        mockTokenFindMany.mockResolvedValueOnce([]);
 
         await syncTokenContentData([Chain.SEPOLIA]);
 
@@ -123,7 +114,6 @@ describe('syncTokenContentData', () => {
             { address: existingAddress, chain: Chain.SEPOLIA },
             { address: newAddress, chain: Chain.SEPOLIA },
         ]);
-        mockTokenFindMany.mockResolvedValueOnce([]);
 
         await syncTokenContentData([Chain.SEPOLIA]);
 
@@ -161,7 +151,6 @@ describe('syncTokenContentData', () => {
             }),
         );
         mockTokenFindMany.mockResolvedValueOnce([{ address: configuredSepoliaWeth, chain: Chain.SEPOLIA }]);
-        mockTokenFindMany.mockResolvedValueOnce([]);
 
         await syncTokenContentData([Chain.SEPOLIA]);
 
@@ -215,12 +204,10 @@ describe('syncTokenContentData', () => {
                 };
             }),
         );
-        mockTokenFindMany
-            .mockResolvedValueOnce([
-                { address: excludedAddress, chain: Chain.SEPOLIA },
-                { address: unannotatedAddress, chain: Chain.SEPOLIA },
-            ])
-            .mockResolvedValueOnce([]);
+        mockTokenFindMany.mockResolvedValueOnce([
+            { address: excludedAddress, chain: Chain.SEPOLIA },
+            { address: unannotatedAddress, chain: Chain.SEPOLIA },
+        ]);
 
         await syncTokenContentData([Chain.SEPOLIA]);
 
@@ -237,5 +224,18 @@ describe('syncTokenContentData', () => {
             ([call]) => (call as { create: { address: string } }).create.address === unannotatedAddress,
         )?.[0] as { create: Record<string, unknown> };
         expect(plainUpsert.create).not.toHaveProperty('excludedFromCoingecko');
+    });
+
+    it('filters upserts to filterAddresses and skips full-chain token scans when scoped', async () => {
+        await syncTokenContentData([Chain.SEPOLIA], [newAddress]);
+
+        expect(mockTokenUpsert).toHaveBeenCalledTimes(1);
+        expect(mockTokenUpsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { address_chain: { address: newAddress, chain: Chain.SEPOLIA } },
+            }),
+        );
+        expect(mockSyncErc4626Tokens).not.toHaveBeenCalled();
+        expect(mockTokenFindMany).not.toHaveBeenCalled();
     });
 });

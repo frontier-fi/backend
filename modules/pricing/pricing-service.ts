@@ -105,6 +105,25 @@ export class PricingService {
         }
     }
 
+    /**
+     * Runs only downstream derived price handlers (ERC4626, BPT, swaps, fallback) against cached DB prices
+     * so pool initialization can price new wrappers/BPTs immediately without spending CoinGecko credits.
+     */
+    async updateDerivedPrices(chain: Chain, tokenAddresses: string[]): Promise<string[]> {
+        if (tokenAddresses.length === 0) {
+            return [];
+        }
+        const tokens = await this.repository.getTokensForPricing(chain, tokenAddresses);
+        if (tokens.length === 0) {
+            return [];
+        }
+        const priceItems = await this.downstreamManager.calculatePricesForTokens(tokens);
+        if (priceItems.length === 0) {
+            return [];
+        }
+        return this.repository.updatePrices(priceItems, tokens);
+    }
+
     async calculatePrices(
         chain: Chain,
         tokenAddresses?: string[],
