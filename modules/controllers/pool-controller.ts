@@ -16,8 +16,16 @@ import { syncHookData } from '../actions/pool/v3/sync-hook-data';
 import { getLastSyncedBlock, upsertLastSyncedBlock } from '../actions/last-synced-block';
 import { getChangedPoolsV3 } from '../sources/logs';
 import { syncBptBalancesFromSubgraph } from '../user/lib/bpt-balances/helpers/sync-bpt-balances-from-subgraph';
+import { syncBptBalancesFromRpc } from '../user/lib/bpt-balances/helpers/sync-bpt-balances-from-rpc';
 import { syncErc4626Tokens } from '../actions/token/sync-erc4626-tokens';
+import { syncErc4626OnchainData } from '../actions/token/sync-erc4626-onchain-data';
+import { syncBlockedBuffers } from '../content/lib/sync-erc4626-blocked-buffers';
+import { syncErc4626Reviews } from '../content/lib/sync-erc4626-reviews';
 import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-reviews';
+import { syncTags } from '../content/lib/sync-tags';
+import { syncTokenContentData } from '../content/lib/sync-token-data';
+import { PricingService } from '../pricing/pricing-service';
+import { AprService } from '../aprs';
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
 import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 import { logger } from '../common/logger';
@@ -32,6 +40,8 @@ interface PendingResyncLogState {
 
 const pendingResyncByChain = new Map<Chain, PendingResyncLogState>();
 const MAX_LOGGED_POOL_IDS = 5;
+// Matches the 5-block overlap used by syncBptBalancesFromRpc when falling back from a lagging subgraph.
+const INIT_BPT_RPC_CATCHUP_LAG_THRESHOLD = 5;
 
 /**
  * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
@@ -158,11 +168,62 @@ export function PoolController(tracer?: any) {
             }
 
             const inserts = await addPoolsV3(poolsToSync, viemClient, vaultAddress, chain, latestBlock);
-            await syncBptBalancesFromSubgraph(
-                poolsToSync.map((pool) => pool.id),
-                vaultSubgraphClient,
-                chain,
-            );
+            const newPoolIds = [...new Set(poolsToSync.map((pool) => pool.id.toLowerCase()))];
+            const newTokenAddresses = [
+                ...new Set(inserts.flatMap(({ tokens }) => tokens.map((token) => token.address.toLowerCase()))),
+            ];
+            const runInitStep = async <T>(step: string, fn: () => Promise<T>): Promise<T | undefined> => {
+                try {
+                    return await fn();
+                } catch (err) {
+                    logger.error('Pool init enrichment step failed', { chain, step, poolIds: newPoolIds, err });
+                    return undefined;
+                }
+            };
+
+            await runInitStep('sync-bpt-balances', async () => {
+                const maxRpcBackfillRange = 5 * network.rpcMaxBlockRange;
+                let subgraphEndBlock: number;
+                try {
+                    subgraphEndBlock = await syncBptBalancesFromSubgraph(newPoolIds, vaultSubgraphClient, chain);
+                } catch (subgraphErr) {
+                    const minCreationBlock = Math.min(
+                        ...poolsToSync.map((pool) => Math.max(1, (Number(pool.blockNumber) || latestBlock) - 1)),
+                    );
+                    if (latestBlock - minCreationBlock > maxRpcBackfillRange) {
+                        throw subgraphErr;
+                    }
+                    logger.warn('Pool init BPT balance subgraph sync failed; falling back to RPC', {
+                        chain,
+                        poolIds: newPoolIds,
+                        fromBlock: minCreationBlock,
+                        toBlock: latestBlock,
+                        err: subgraphErr,
+                    });
+                    await syncBptBalancesFromRpc(newPoolIds, viemClient, chain, undefined, minCreationBlock);
+                    return;
+                }
+
+                // Cover any transfer gap between the subgraph's indexed block and chain head so early LPs
+                // aren't missed if the regular BPT balance sync is running on its RPC fallback near head.
+                const currentBlock = Number(await viemClient.getBlockNumber());
+                const lag = currentBlock - subgraphEndBlock;
+                if (subgraphEndBlock > 0 && lag > INIT_BPT_RPC_CATCHUP_LAG_THRESHOLD) {
+                    if (lag > maxRpcBackfillRange) {
+                        throw new Error(
+                            `Pool init BPT balance subgraph lag (${lag} blocks) exceeds RPC catch-up limit (${maxRpcBackfillRange})`,
+                        );
+                    }
+                    logger.warn('Pool init BPT balance subgraph lagged behind head; catching up via RPC', {
+                        chain,
+                        poolIds: newPoolIds,
+                        fromBlock: subgraphEndBlock,
+                        toBlock: currentBlock,
+                        lag,
+                    });
+                    await syncBptBalancesFromRpc(newPoolIds, viemClient, chain, undefined, subgraphEndBlock);
+                }
+            });
 
             // Skip the 7-call ERC4626 RPC probe only for tokens already classified as non-ERC4626 by the vault subgraph;
             // tokens with isErc4626: true (or unclassified) still run syncErc4626Tokens to verify the 7-method interface.
@@ -182,11 +243,40 @@ export function PoolController(tracer?: any) {
                 .flatMap(({ tokens }) => tokens)
                 .filter((t) => !nonErc4626Addresses.has(t.address.toLowerCase()));
 
-            if (candidateErc4626Tokens.length > 0) {
-                await syncErc4626Tokens(getViemClient(chain), chain, candidateErc4626Tokens);
+            const enrichedErc4626 =
+                candidateErc4626Tokens.length > 0
+                    ? await runInitStep('sync-erc4626-tokens', () =>
+                          syncErc4626Tokens(viemClient, chain, candidateErc4626Tokens),
+                      )
+                    : [];
+
+            const hasErc4626 =
+                inserts.some(({ tokens }) => tokens.some((token) => Boolean(token.underlyingTokenAddress))) ||
+                Boolean(enrichedErc4626?.some((token) => Boolean(token.underlyingTokenAddress)));
+
+            if (hasErc4626) {
+                await runInitStep('sync-erc4626-data', async () => {
+                    await syncBlockedBuffers();
+                    await syncErc4626Reviews();
+                });
+
+                if (vaultAddress) {
+                    await runInitStep('sync-erc4626-onchain-data', () =>
+                        syncErc4626OnchainData(vaultAddress, viemClient, chain),
+                    );
+                }
             }
 
-            await syncRateProviderReviews();
+            await runInitStep('sync-token-content', () => syncTokenContentData([chain], newTokenAddresses));
+            await runInitStep('sync-rate-provider-reviews', () => syncRateProviderReviews());
+            await runInitStep('update-derived-prices-and-liquidity', async () => {
+                const updated = await new PricingService([chain]).updateDerivedPrices(chain, newTokenAddresses);
+                if (updated.length > 0) {
+                    await updateLiquidityValuesForPools(chain, newPoolIds);
+                }
+            });
+            await runInitStep('update-pool-aprs', () => new AprService().updateAprs(chain, newPoolIds));
+            await runInitStep('sync-tags', () => syncTags());
 
             await upsertLastSyncedBlock(chain, PrismaLastBlockSyncedCategory.ADD_POOLS_V3, latestBlock);
 

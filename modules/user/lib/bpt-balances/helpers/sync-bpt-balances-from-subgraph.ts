@@ -15,7 +15,7 @@ import { logger } from '../../../../common/logger';
  * @param subgraphClient implementing lastSyncedBlock and getAllPoolSharesWithBalance
  * @param chain
  * @param syncCategory used to store the last synced block in the DB based on the category, skipping the sync block when not provided
- * @returns the number of blocks synced
+ * @returns the number of blocks synced (or the subgraph's last indexed block when syncCategory is omitted; 0 if skipped or persistence failed)
  */
 export const syncBptBalancesFromSubgraph = async (
     poolIds: string[],
@@ -31,15 +31,18 @@ export const syncBptBalancesFromSubgraph = async (
     // endBlock is the latest synced block on the subgraph
     const endBlock = await subgraphClient.lastSyncedBlock();
 
-    // If the subgraph is not synced, throw
-    const viemClient = getViemClient(chain);
-    const latestBlock = await viemClient.getBlockNumber();
-    if (Number(latestBlock) - endBlock > 60) {
-        throw new Error(
-            `syncBptBalancesFromSubgraph ${syncCategory} on ${chain} subgraph lagging behind by ${
-                Number(latestBlock) - endBlock
-            } blocks`,
-        );
+    // Only enforce the 60-block lag threshold for incremental category syncs (which fall back to RPC);
+    // initial pool backfills from addPoolsV3 pass syncCategory = undefined and must not abort after pool insert.
+    if (syncCategory) {
+        const viemClient = getViemClient(chain);
+        const latestBlock = await viemClient.getBlockNumber();
+        if (Number(latestBlock) - endBlock > 60) {
+            throw new Error(
+                `syncBptBalancesFromSubgraph ${syncCategory} on ${chain} subgraph lagging behind by ${
+                    Number(latestBlock) - endBlock
+                } blocks`,
+            );
+        }
     }
 
     // Get the balances synced block from the DB
@@ -47,11 +50,13 @@ export const syncBptBalancesFromSubgraph = async (
     const fromBlock = Math.max(startBlock - BALANCES_SYNC_BLOCKS_MARGIN, 1);
     const poolShares = await subgraphClient.getAllPoolSharesWithBalance(poolIds, [zeroAddress], fromBlock);
     const operations = balancesToDb(poolShares, chain, endBlock, syncCategory);
-    try {
-        await prisma.$transaction(operations);
-    } catch (e: any) {
-        logger.error('Failed to persist BPT balances from subgraph', { chain, syncCategory, err: e });
-        return 0;
+    if (operations.length > 0) {
+        try {
+            await prisma.$transaction(operations);
+        } catch (e: any) {
+            logger.error('Failed to persist BPT balances from subgraph', { chain, syncCategory, err: e });
+            return 0;
+        }
     }
 
     return endBlock - startBlock;

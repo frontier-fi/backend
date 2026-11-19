@@ -258,4 +258,36 @@ describe('PricingService.updatePricesForChains', () => {
             expect.objectContaining({ address: '0xbase-weth', chain: Chain.BASE, price: 2000 }),
         ]);
     });
+
+    it('updateDerivedPrices prices ERC4626 tokens from cached underlying prices without calling CoinGecko', async () => {
+        const wrapperAddress = '0x0000000000000000000000000000000000004626';
+        getTokensSpy.mockResolvedValueOnce([
+            {
+                address: wrapperAddress,
+                chain: Chain.SEPOLIA,
+                types: ['ERC4626'],
+                underlyingTokenAddress: '0xsepolia-weth',
+                underlyingTokenPrice: 2000,
+                unwrapRate: '1.1',
+            },
+        ]);
+
+        const service = new PricingService([Chain.SEPOLIA]);
+        const updated = await service.updateDerivedPrices(Chain.SEPOLIA, [wrapperAddress]);
+
+        expect(getMarketDataForTokenIds).not.toHaveBeenCalled();
+        expect(getTokensSpy).toHaveBeenCalledWith(Chain.SEPOLIA, [wrapperAddress]);
+        expect(updatePricesSpy).toHaveBeenCalledWith(
+            [
+                expect.objectContaining({
+                    address: wrapperAddress,
+                    chain: Chain.SEPOLIA,
+                    price: 2200,
+                    updatedBy: 'ERC4626PriceHandlerService',
+                }),
+            ],
+            expect.any(Array),
+        );
+        expect(updated).toEqual([wrapperAddress]);
+    });
 });
