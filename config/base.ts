@@ -29,7 +29,7 @@ export default <NetworkData>{
         platformId: 'base',
         excludedTokenAddresses: [],
     },
-    rpcUrl: env.DRPC_API_KEY ? `https://lb.drpc.live/base/${env.DRPC_API_KEY}` : 'https://mainnet.base.org',
+    rpcUrl: env.DRPC_API_KEY ? `https://lb.drpc.live/base/${env.DRPC_API_KEY}` : 'https://base.gateway.tenderly.co',
     rpcMaxBlockRange: 10000,
     acceptableSGLag: 30, // ~1min
     // Active addresses from frontier-fi/deployments addresses/_lookup.json. Mock contracts are omitted.
