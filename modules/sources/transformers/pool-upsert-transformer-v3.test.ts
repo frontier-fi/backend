@@ -171,7 +171,7 @@ describe('poolUpsertTransformerV3', () => {
         expect(weighted?.pool.id).toBe(POOL);
         expect(stable?.pool.type).toBe(PrismaPoolType.STABLE);
         expect(stable?.pool.typeData).toMatchObject({ amp: '200' });
-        expect(gyro?.pool.type).toBe(PrismaPoolType.ECLP);
+        expect(gyro?.pool.type).toBe(PrismaPoolType.GYROE);
         expect(gyro?.pool.typeData).toMatchObject({ alpha: '1', beta: '2' });
     });
 
@@ -254,7 +254,7 @@ describe('poolUpsertTransformerV3', () => {
 
         expect(gyro?.pool).toMatchObject({
             id: '0xbfa2c112f1987854c6922505d06a9d9e897e2bf9',
-            type: PrismaPoolType.ECLP,
+            type: PrismaPoolType.GYROE,
             symbol: 'ECLP-BPT',
             hook: undefined,
             typeData: { alpha: '0.90909090909090909', beta: '1.1', lambda: '4' },

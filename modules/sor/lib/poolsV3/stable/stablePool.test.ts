@@ -137,7 +137,7 @@ describe('SOR V3 Stable Pool Tests', () => {
 
         const eclpBase: PrismaPoolAndHookWithDynamic = {
             ...stablePrismaPool,
-            type: 'ECLP',
+            type: 'GYROE',
             typeData: {
                 alpha: '0.9',
                 beta: '1.1',

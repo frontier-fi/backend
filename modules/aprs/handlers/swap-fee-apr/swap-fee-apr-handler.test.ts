@@ -67,7 +67,7 @@ describe('SwapFeeAprHandler', () => {
 
         const v2Items = await new SwapFeeAprHandler().calculateAprForPools([
             pool({
-                type: PrismaPoolType.ECLP,
+                type: PrismaPoolType.GYROE,
                 version: 1,
                 protocolVersion: 2,
                 dynamicData: {
@@ -84,7 +84,7 @@ describe('SwapFeeAprHandler', () => {
 
         const v3Items = await new SwapFeeAprHandler().calculateAprForPools([
             pool({
-                type: PrismaPoolType.ECLP,
+                type: PrismaPoolType.GYROE,
                 version: 2,
                 protocolVersion: 3,
                 dynamicData: {

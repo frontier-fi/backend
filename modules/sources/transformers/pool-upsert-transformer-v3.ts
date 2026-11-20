@@ -126,7 +126,7 @@ export const poolUpsertTransformerV3 = (
             } as StableData;
             break;
         case PoolType.Eclp:
-            type = PrismaPoolType.ECLP;
+            type = PrismaPoolType.GYROE;
             typeData = {
                 ...poolData.eclpParams,
             };
