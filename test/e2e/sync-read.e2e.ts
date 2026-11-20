@@ -427,7 +427,7 @@ it('reads the known pools and the public list', async () => {
                         where: {
                             chainIn: [SEPOLIA]
                             protocolVersionIn: [3]
-                            poolTypeIn: [WEIGHTED, STABLE, ECLP]
+                            poolTypeIn: [WEIGHTED, STABLE, GYROE]
                             idIn: [$id]
                             minTvl: 0
                         }

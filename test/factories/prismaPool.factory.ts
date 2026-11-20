@@ -11,7 +11,7 @@ class PrismaPoolFactory extends Factory<PrismaPoolAndHookWithDynamic> {
         return this.params({ type: PrismaPoolType.STABLE, typeData: { amp: amp ?? '10' } });
     }
     gyroE(eclpParams: EclpParams) {
-        return this.params({ id: eclpParams.id, type: PrismaPoolType.ECLP, typeData: { ...eclpParams } });
+        return this.params({ id: eclpParams.id, type: PrismaPoolType.GYROE, typeData: { ...eclpParams } });
     }
 }
 
