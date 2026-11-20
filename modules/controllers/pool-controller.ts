@@ -24,6 +24,7 @@ import { syncErc4626Reviews } from '../content/lib/sync-erc4626-reviews';
 import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-reviews';
 import { syncTags } from '../content/lib/sync-tags';
 import { syncTokenContentData } from '../content/lib/sync-token-data';
+import { coingeckoDataService } from '../token/lib/coingecko-data.service';
 import { PricingService } from '../pricing/pricing-service';
 import { AprService } from '../aprs';
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
@@ -297,12 +298,28 @@ export function PoolController(tracer?: any) {
                 }
             }
 
-            await runInitStep('sync-token-content', () => syncTokenContentData([chain], newTokenAddresses));
+            const discoveredUnderlyingAddresses = (enrichedErc4626 ?? [])
+                .map((token) => token.underlyingTokenAddress?.toLowerCase())
+                .filter((address): address is string => Boolean(address));
+            const allNewTokenAddresses = [...new Set([...newTokenAddresses, ...discoveredUnderlyingAddresses])];
+
+            await runInitStep('sync-token-content', () => syncTokenContentData([chain], allNewTokenAddresses));
+            await runInitStep('sync-coingecko-ids', () =>
+                coingeckoDataService.syncCoingeckoIds(Date.now(), {
+                    chains: [chain],
+                    filterAddresses: allNewTokenAddresses,
+                }),
+            );
             await runInitStep('sync-rate-provider-reviews', () => syncRateProviderReviews());
-            await runInitStep('update-derived-prices-and-liquidity', async () => {
-                const updated = await new PricingService([chain]).updateDerivedPrices(chain, newTokenAddresses);
+            await runInitStep('update-prices-and-liquidity', async () => {
+                const pricingService = new PricingService([chain]);
+                const updated = await pricingService.bootstrapTokenPrices(chain, allNewTokenAddresses);
                 if (updated.length > 0) {
                     await updateLiquidityValuesForPools(chain, newPoolIds);
+                    const newPoolIdSet = new Set(newPoolIds);
+                    if (updated.some((address) => !newPoolIdSet.has(address.toLowerCase()))) {
+                        await pricingService.updateDerivedPrices(chain, newPoolIds);
+                    }
                 }
             });
             await runInitStep('update-pool-aprs', () => new AprService().updateAprs(chain, newPoolIds));

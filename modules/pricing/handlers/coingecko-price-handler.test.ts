@@ -7,7 +7,12 @@ import { TokenPriceData } from '../types';
 import { CoingeckoDataService } from '../../token/lib/coingecko-data.service';
 
 const { getMarketDataForTokenIds } = vi.hoisted(() => ({
-    getMarketDataForTokenIds: vi.fn(async (ids: string[]) =>
+    getMarketDataForTokenIds: vi.fn<
+        (
+            ids: string[],
+            options?: unknown,
+        ) => Promise<{ id: string; current_price: number; last_updated: string; image?: string }[]>
+    >(async (ids: string[]) =>
         ids.filter(Boolean).map((id) => ({
             id,
             current_price: 2500.5,
@@ -175,5 +180,69 @@ describe('CoingeckoPriceHandler', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(2);
         expect(data).toEqual([{ id: 'usd-coin', current_price: 1 }]);
         fetchSpy.mockRestore();
+    });
+
+    it('attaches valid CoinGecko logoURI only for tokens missing one and forwards cache options when configured', async () => {
+        getMarketDataForTokenIds.mockResolvedValueOnce([
+            {
+                id: 'balancer',
+                current_price: 2.5,
+                image: 'https://coin-images.coingecko.com/coins/images/11683/large/Balancer.png',
+                last_updated: '2026-11-20T10:00:00.000Z',
+            },
+            {
+                id: 'no-logo-coin',
+                current_price: 1.2,
+                image: 'missing_large.png',
+                last_updated: '2026-11-20T10:00:00.000Z',
+            },
+        ]);
+
+        const cachedHandler = new CoingeckoPriceHandler({
+            excludedTokenAddresses: [],
+            useCache: true,
+        });
+
+        const priceItems = await cachedHandler.calculatePricesForTokens([
+            {
+                address: '0xbal-unlisted',
+                chain: Chain.MAINNET,
+                coingeckoTokenId: 'balancer',
+                excludedFromCoingecko: false,
+                types: [],
+            },
+            {
+                address: '0xbal-curated',
+                chain: Chain.BASE,
+                logoURI: 'https://raw.githubusercontent.com/frontier-fi/tokenlists/main/bal.png',
+                coingeckoTokenId: 'balancer',
+                excludedFromCoingecko: false,
+                types: [],
+            },
+            {
+                address: '0xplaceholder',
+                chain: Chain.MAINNET,
+                coingeckoTokenId: 'no-logo-coin',
+                excludedFromCoingecko: false,
+                types: [],
+            },
+        ]);
+
+        expect(getMarketDataForTokenIds).toHaveBeenLastCalledWith(['balancer', 'no-logo-coin'], {
+            useCache: true,
+            cacheOnly: undefined,
+        });
+        expect(priceItems).toEqual([
+            expect.objectContaining({
+                address: '0xbal-unlisted',
+                chain: Chain.MAINNET,
+                price: 2.5,
+                logoURI: 'https://coin-images.coingecko.com/coins/images/11683/large/Balancer.png',
+            }),
+            expect.not.objectContaining({ logoURI: expect.anything() }),
+            expect.not.objectContaining({ logoURI: expect.anything() }),
+        ]);
+        expect(priceItems[1]).toMatchObject({ address: '0xbal-curated', price: 2.5 });
+        expect(priceItems[2]).toMatchObject({ address: '0xplaceholder', price: 1.2 });
     });
 });

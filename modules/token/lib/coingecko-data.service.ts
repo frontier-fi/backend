@@ -15,7 +15,7 @@ interface HistoricalPriceResponse {
 type HistoricalPrice = { timestamp: number; price: number };
 export type TokenHistoricalPrices = { [address: string]: HistoricalPrice[] };
 
-interface CoingeckoTokenMarketData {
+export interface CoingeckoTokenMarketData {
     id: string;
     symbol: string;
     name: string;
@@ -49,6 +49,39 @@ interface CoingeckoTokenMarketData {
     price_change_percentage_7d_in_currency: number;
 }
 
+export interface SyncCoingeckoIdsOptions {
+    chains?: Chain[];
+    filterAddresses?: string[];
+}
+
+export interface GetMarketDataOptions {
+    useCache?: boolean;
+    cacheOnly?: boolean;
+    nowMs?: number;
+}
+
+export function normalizeCoingeckoLogoUri(image: unknown): string | undefined {
+    if (typeof image !== 'string') {
+        return undefined;
+    }
+    const trimmed = image.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol !== 'https:') {
+            return undefined;
+        }
+        if (/\/missing_[a-z]+\.png$/i.test(parsed.pathname)) {
+            return undefined;
+        }
+        return trimmed;
+    } catch {
+        return undefined;
+    }
+}
+
 interface CoinId {
     id: string;
     symbol: string;
@@ -69,6 +102,7 @@ const requestRateLimiter = new RateLimiter({ tokensPerInterval: tokensPerMinute,
 //max 10 addresses per request because of URI size limit, pro is max 180 because of URI limit
 const addressChunkSize = env.COINGECKO_API_KEY ? 180 : 20;
 export const COIN_LIST_CACHE_TTL_MS = 24 * 60 * 60_000;
+export const MARKET_DATA_CACHE_TTL_MS = 15 * 60_000;
 
 export class CoingeckoDataService {
     private readonly apiKey: string;
@@ -76,7 +110,9 @@ export class CoingeckoDataService {
     /** Demo keys are rejected by pro-api.coingecko.com with error 10011. */
     private useDemoApi = false;
     private cachedCoinMap?: { expiresAt: number; map: Map<string, string> };
+    private pendingCoinMapFetch?: Promise<{ expiresAt: number; map: Map<string, string> }>;
     private checkedMissingUntil = new Map<string, number>();
+    private cachedMarketData = new Map<string, { expiresAt: number; data: CoingeckoTokenMarketData | null }>();
 
     constructor() {
         this.apiKey = env.COINGECKO_API_KEY ?? '';
@@ -101,37 +137,65 @@ export class CoingeckoDataService {
             return this.cachedCoinMap;
         }
 
-        const coinIds = await this.getCoinIdList();
-        const map = new Map<string, string>();
-        for (const coin of coinIds) {
-            for (const [platform, address] of Object.entries(coin.platforms)) {
-                const chain = platformToChain[platform];
-                if (chain && address) {
-                    map.set(`${address.toLowerCase()}-${chain}`, coin.id);
+        if (this.pendingCoinMapFetch) {
+            return this.pendingCoinMapFetch;
+        }
+
+        const fetchPromise = (async () => {
+            const coinIds = await this.getCoinIdList();
+            const map = new Map<string, string>();
+            for (const coin of coinIds) {
+                for (const [platform, address] of Object.entries(coin.platforms ?? {})) {
+                    const chain = platformToChain[platform];
+                    if (chain && address) {
+                        map.set(`${address.toLowerCase()}-${chain}`, coin.id);
+                    }
                 }
             }
-        }
 
-        for (const [key, expiresAt] of this.checkedMissingUntil) {
-            if (expiresAt <= nowMs) {
-                this.checkedMissingUntil.delete(key);
+            for (const [key, expiresAt] of this.checkedMissingUntil) {
+                if (expiresAt <= nowMs) {
+                    this.checkedMissingUntil.delete(key);
+                }
+            }
+
+            this.cachedCoinMap = { expiresAt: nowMs + COIN_LIST_CACHE_TTL_MS, map };
+            return this.cachedCoinMap;
+        })();
+
+        this.pendingCoinMapFetch = fetchPromise;
+        try {
+            return await fetchPromise;
+        } finally {
+            if (this.pendingCoinMapFetch === fetchPromise) {
+                this.pendingCoinMapFetch = undefined;
             }
         }
-
-        this.cachedCoinMap = { expiresAt: nowMs + COIN_LIST_CACHE_TTL_MS, map };
-        return this.cachedCoinMap;
     }
 
-    public async syncCoingeckoIds(nowMs: number = Date.now()) {
-        const cgChains = (Object.keys(config) as Chain[]).filter(
+    public async syncCoingeckoIds(
+        nowMs: number = Date.now(),
+        options: SyncCoingeckoIdsOptions = {},
+    ): Promise<string[]> {
+        const allCgChains = (Object.keys(config) as Chain[]).filter(
             (chain) => chain !== 'SEPOLIA' && Boolean(config[chain]?.coingecko?.platformId),
         );
-        if (cgChains.length === 0) {
-            return;
+        const targetChains = options.chains
+            ? allCgChains.filter((chain) => options.chains!.includes(chain))
+            : allCgChains;
+        if (targetChains.length === 0) {
+            return [];
+        }
+
+        const normalizedFilterAddresses = options.filterAddresses
+            ? [...new Set(options.filterAddresses.map((address) => address.toLowerCase()))]
+            : undefined;
+        if (normalizedFilterAddresses && normalizedFilterAddresses.length === 0) {
+            return [];
         }
 
         const excludedByConfig = new Set(
-            cgChains.flatMap((chain) =>
+            targetChains.flatMap((chain) =>
                 (config[chain].coingecko.excludedTokenAddresses ?? []).map(
                     (address) => `${address.toLowerCase()}-${chain}`,
                 ),
@@ -140,7 +204,8 @@ export class CoingeckoDataService {
 
         const candidateTokens = await prisma.prismaToken.findMany({
             where: {
-                chain: { in: cgChains },
+                chain: { in: targetChains },
+                ...(normalizedFilterAddresses ? { address: { in: normalizedFilterAddresses } } : {}),
                 coingeckoTokenId: null,
                 excludedFromCoingecko: false,
                 types: { none: { type: 'BPT' } },
@@ -162,19 +227,23 @@ export class CoingeckoDataService {
         });
 
         if (uncheckedTokens.length === 0) {
-            return;
+            return [];
         }
 
+        // Always index all configured CoinGecko chains when populating the 24h coin map
+        // so a single-chain scoped sync never leaves other chains missing from the cache.
         const platformToChain = Object.fromEntries(
-            cgChains.map((chain) => [config[chain].coingecko.platformId, chain]),
+            allCgChains.map((chain) => [config[chain].coingecko.platformId, chain]),
         ) as Record<string, Chain>;
         const { expiresAt, map } = await this.getPlatformCoinMap(nowMs, platformToChain);
 
         const updates = [];
+        const updatedAddresses: string[] = [];
         for (const token of uncheckedTokens) {
             const key = `${token.address.toLowerCase()}-${token.chain}`;
             const coingeckoTokenId = map.get(key);
             if (coingeckoTokenId) {
+                updatedAddresses.push(token.address);
                 updates.push(
                     prisma.prismaToken.update({
                         where: {
@@ -191,6 +260,8 @@ export class CoingeckoDataService {
         if (updates.length > 0) {
             await prisma.$transaction(updates);
         }
+
+        return updatedAddresses;
     }
 
     async tokenPrice(chain: Chain, tokens: string[]) {
@@ -200,10 +271,63 @@ export class CoingeckoDataService {
         return this.get<{ [token: string]: { usd: number } }>(endpoint);
     }
 
-    public async getMarketDataForTokenIds(tokenIds: string[]): Promise<CoingeckoTokenMarketData[]> {
-        const endpoint = `/coins/markets?vs_currency=${this.fiatParam}&ids=${tokenIds}&per_page=250&page=1&sparkline=false&price_change_percentage=1h%2C24h%2C7d%2C14d%2C30d`;
+    public async getMarketDataForTokenIds(
+        tokenIds: string[],
+        options: GetMarketDataOptions = {},
+    ): Promise<CoingeckoTokenMarketData[]> {
+        const requestedIds = [...new Set(tokenIds.filter(Boolean))];
+        if (requestedIds.length === 0) {
+            return [];
+        }
 
-        return this.get<CoingeckoTokenMarketData[]>(endpoint);
+        const nowMs = options.nowMs ?? Date.now();
+        const useCache = Boolean(options.useCache || options.cacheOnly);
+        const cachedResults: CoingeckoTokenMarketData[] = [];
+        const idsToFetch: string[] = [];
+
+        if (useCache) {
+            for (const id of requestedIds) {
+                const entry = this.cachedMarketData.get(id);
+                if (entry && entry.expiresAt > nowMs) {
+                    if (entry.data) {
+                        cachedResults.push(entry.data);
+                    }
+                } else {
+                    idsToFetch.push(id);
+                }
+            }
+
+            if (options.cacheOnly || idsToFetch.length === 0) {
+                return cachedResults;
+            }
+        } else {
+            idsToFetch.push(...requestedIds);
+        }
+
+        for (const [id, entry] of this.cachedMarketData) {
+            if (entry.expiresAt <= nowMs) {
+                this.cachedMarketData.delete(id);
+            }
+        }
+
+        const fetched: CoingeckoTokenMarketData[] = [];
+        const expiresAt = nowMs + MARKET_DATA_CACHE_TTL_MS;
+        const chunks = _.chunk(idsToFetch, 250);
+        for (const chunk of chunks) {
+            const endpoint = `/coins/markets?vs_currency=${this.fiatParam}&ids=${chunk.join(',')}&per_page=250&page=1&sparkline=false&price_change_percentage=1h%2C24h%2C7d%2C14d%2C30d`;
+            const chunkData = await this.get<CoingeckoTokenMarketData[]>(endpoint);
+            fetched.push(...chunkData);
+
+            const chunkById = new Map(chunkData.map((item) => [item.id, item]));
+            for (const id of chunk) {
+                this.cachedMarketData.set(id, {
+                    expiresAt,
+                    data: chunkById.get(id) ?? null,
+                });
+            }
+        }
+
+        return useCache ? [...cachedResults, ...fetched] : fetched;
     }
 
     private async getCoinIdList(): Promise<CoinId[]> {
