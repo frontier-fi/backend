@@ -433,7 +433,7 @@ export class PoolAggregatorLoader {
                     ...mappedData,
                     amp: resolveStableAmp(typeData as StableData),
                 };
-            case 'ECLP':
+            case 'GYROE':
                 return {
                     ...mappedData,
                     ...(typeData as EclpData),

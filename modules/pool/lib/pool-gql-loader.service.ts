@@ -630,7 +630,7 @@ export class PoolGqlLoaderService {
                     amp: resolveStableAmp(typeData as StableData),
                     ...mappedData,
                 };
-            case 'ECLP': {
+            case 'GYROE': {
                 const eclpData: EclpData = {
                     alpha: '',
                     beta: '',
@@ -649,7 +649,7 @@ export class PoolGqlLoaderService {
                     ...(typeData as Partial<EclpData>),
                 };
                 return {
-                    __typename: 'GqlPoolEclp',
+                    __typename: 'GqlPoolGyro',
                     ...poolWithoutTypeData,
                     ...eclpData,
                     ...mappedData,

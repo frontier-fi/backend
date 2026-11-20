@@ -90,7 +90,7 @@ export class SOR {
                     case 'STABLE':
                         pool = StablePoolV3.fromPrismaPool(prismaPool, currentTimestamp);
                         break;
-                    case 'ECLP':
+                    case 'GYROE':
                         pool = GyroECLPPool.fromPrismaPool(prismaPool);
                         break;
                     default:

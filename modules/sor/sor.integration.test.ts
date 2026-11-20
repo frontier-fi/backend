@@ -151,7 +151,7 @@ function simulateBatchRouterCalldataOnVault(
             pool = WeightedPoolV3.fromPrismaPool(prismaPool);
         } else if (prismaPool.type === 'STABLE') {
             pool = StablePoolV3.fromPrismaPool(prismaPool);
-        } else if (prismaPool.type === 'ECLP') {
+        } else if (prismaPool.type === 'GYROE') {
             pool = GyroECLPPool.fromPrismaPool(prismaPool);
         } else {
             continue;
@@ -501,7 +501,7 @@ describe('BatchRouter (pure viem, zero @balancer/sdk Swap) Differential Verifica
             // Hop 2: ECLP (hopToken1 -> hopToken2) cloned from recorded GyroECLP fixture parameters
             const eclpTemplate = readTestData(false)
                 .swapPathPools.flat()
-                .find((p) => p.type === 'ECLP')!;
+                .find((p) => p.type === 'GYROE')!;
             const eclpHop: PrismaPoolAndHookWithDynamic = {
                 ...eclpTemplate,
                 id: '0x0000000000000000000000000000000000009102',
@@ -808,15 +808,7 @@ describe.skipIf(!process.env.TEST_LIVE_RPC)(
 
             const [rawKnown, rawCluster, rawManifest, rawBoosted] = await Promise.all([
                 Promise.all(
-                    KNOWN_POOLS.map((p) =>
-                        fetchOnChainPool(
-                            rpcUrl,
-                            chainId,
-                            blockNumber,
-                            p.type === 'ECLP' ? 'GYROE' : p.type,
-                            p.id as Address,
-                        ),
-                    ),
+                    KNOWN_POOLS.map((p) => fetchOnChainPool(rpcUrl, chainId, blockNumber, p.type, p.id as Address)),
                 ),
                 Promise.all(
                     clusterSpecs.map((p) => fetchOnChainPool(rpcUrl, chainId, blockNumber, p.type, p.id as Address)),

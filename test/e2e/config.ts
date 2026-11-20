@@ -23,11 +23,11 @@ export const SOR_URL = `http://127.0.0.1:${SOR_PORT}/graphql`;
 export const SOR_HEALTH_URL = `http://127.0.0.1:${SOR_PORT}/health`;
 export const SEPOLIA_CHAIN_ID = '11155111';
 
-export const POOL_TYPES = ['WEIGHTED', 'STABLE', 'ECLP'] as const;
+export const POOL_TYPES = ['WEIGHTED', 'STABLE', 'GYROE'] as const;
 
 /** Live Sepolia pools the subgraph is expected to keep serving. */
 export const KNOWN_POOLS = [
-    { id: '0xbfa2c112f1987854c6922505d06a9d9e897e2bf9', type: 'ECLP', typename: 'GqlPoolEclp' },
+    { id: '0xbfa2c112f1987854c6922505d06a9d9e897e2bf9', type: 'GYROE', typename: 'GqlPoolGyro' },
     { id: '0x6c0705aa00bbc8476ec0b6d94fa5aa492e75b697', type: 'STABLE', typename: 'GqlPoolStable' },
     { id: '0xd181617f85b6ff1728211c53c0a2b8108bd4a69d', type: 'WEIGHTED', typename: 'GqlPoolWeighted' },
 ] as const;

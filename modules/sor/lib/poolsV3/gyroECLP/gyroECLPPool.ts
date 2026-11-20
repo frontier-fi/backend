@@ -136,7 +136,6 @@ export class GyroECLPPool extends BasePoolV3 implements BasePoolMethodsV3 {
 
     public getPoolState(hookName?: string): GyroECLPState {
         const poolState: GyroECLPState = {
-            // balancer-maths still calls this curve GYROE. The API and database use ECLP.
             poolType: 'GYROE',
             poolAddress: this.address,
             swapFee: this.swapFee,
