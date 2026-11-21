@@ -16,7 +16,9 @@ const {
     mockSyncErc4626Reviews,
     mockSyncErc4626OnchainData,
     mockSyncTokenContentData,
+    mockSyncCoingeckoIds,
     mockSyncRateProviderReviews,
+    mockBootstrapTokenPrices,
     mockUpdateDerivedPrices,
     mockUpdateLiquidityValuesForPools,
     mockUpdateAprs,
@@ -43,7 +45,9 @@ const {
         mockSyncErc4626Reviews: vi.fn(),
         mockSyncErc4626OnchainData: vi.fn(),
         mockSyncTokenContentData: vi.fn(),
+        mockSyncCoingeckoIds: vi.fn(),
         mockSyncRateProviderReviews: vi.fn(),
+        mockBootstrapTokenPrices: vi.fn(),
         mockUpdateDerivedPrices: vi.fn(),
         mockUpdateLiquidityValuesForPools: vi.fn(),
         mockUpdateAprs: vi.fn(),
@@ -116,10 +120,16 @@ vi.mock('../content/lib/sync-rate-provider-reviews', () => ({
     syncRateProviderReviews: mockSyncRateProviderReviews,
 }));
 vi.mock('../content/lib/sync-token-data', () => ({ syncTokenContentData: mockSyncTokenContentData }));
+vi.mock('../token/lib/coingecko-data.service', () => ({
+    coingeckoDataService: { syncCoingeckoIds: mockSyncCoingeckoIds },
+}));
 vi.mock('../content/lib/sync-tags', () => ({ syncTags: mockSyncTags }));
 vi.mock('../pricing/pricing-service', () => ({
     PricingService: vi.fn(function () {
-        return { updateDerivedPrices: mockUpdateDerivedPrices };
+        return {
+            bootstrapTokenPrices: mockBootstrapTokenPrices,
+            updateDerivedPrices: mockUpdateDerivedPrices,
+        };
     }),
 }));
 vi.mock('../aprs', () => ({
@@ -435,14 +445,16 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
         mockSyncErc4626Reviews.mockResolvedValue(undefined);
         mockSyncErc4626OnchainData.mockResolvedValue(undefined);
         mockSyncTokenContentData.mockResolvedValue(undefined);
+        mockSyncCoingeckoIds.mockResolvedValue([]);
         mockSyncRateProviderReviews.mockResolvedValue(undefined);
+        mockBootstrapTokenPrices.mockResolvedValue([]);
         mockUpdateDerivedPrices.mockResolvedValue([]);
         mockUpdateLiquidityValuesForPools.mockResolvedValue([]);
         mockUpdateAprs.mockResolvedValue([poolId]);
         mockSyncTags.mockResolvedValue(undefined);
     });
 
-    it('bootstraps ERC4626 reviews, onchain data, token metadata, derived prices, liquidity, APRs, and tags on new boosted pool init', async () => {
+    it('bootstraps ERC4626 reviews, onchain data, token metadata, CoinGecko IDs, prices, liquidity, BPT price, APRs, and tags on new boosted pool init', async () => {
         const callOrder: string[] = [];
         mockBlockedBuffers.mockImplementation(async () => {
             callOrder.push('syncBlockedBuffers');
@@ -456,16 +468,24 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
         mockSyncTokenContentData.mockImplementation(async () => {
             callOrder.push('syncTokenContentData');
         });
+        mockSyncCoingeckoIds.mockImplementation(async () => {
+            callOrder.push('syncCoingeckoIds');
+            return [];
+        });
         mockSyncRateProviderReviews.mockImplementation(async () => {
             callOrder.push('syncRateProviderReviews');
         });
-        mockUpdateDerivedPrices.mockImplementation(async () => {
-            callOrder.push('updateDerivedPrices');
+        mockBootstrapTokenPrices.mockImplementation(async () => {
+            callOrder.push('bootstrapTokenPrices');
             return [wrapperAddress];
         });
         mockUpdateLiquidityValuesForPools.mockImplementation(async () => {
             callOrder.push('updateLiquidityValuesForPools');
             return [];
+        });
+        mockUpdateDerivedPrices.mockImplementation(async () => {
+            callOrder.push('updateDerivedPrices');
+            return [poolId];
         });
         mockUpdateAprs.mockImplementation(async () => {
             callOrder.push('updateAprs');
@@ -509,24 +529,31 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
             expect.objectContaining({ address: wrapperAddress }),
         ]);
         expect(mockSyncTokenContentData).toHaveBeenCalledWith(['BASE'], [wrapperAddress, underlyingAddress, poolId]);
-        expect(mockUpdateDerivedPrices).toHaveBeenCalledWith('BASE', [wrapperAddress, underlyingAddress, poolId]);
+        expect(mockSyncCoingeckoIds).toHaveBeenCalledWith(expect.any(Number), {
+            chains: ['BASE'],
+            filterAddresses: [wrapperAddress, underlyingAddress, poolId],
+        });
+        expect(mockBootstrapTokenPrices).toHaveBeenCalledWith('BASE', [wrapperAddress, underlyingAddress, poolId]);
         expect(mockUpdateLiquidityValuesForPools).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockUpdateDerivedPrices).toHaveBeenCalledWith('BASE', [poolId]);
         expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
         expect(callOrder).toEqual([
             'syncBlockedBuffers',
             'syncErc4626Reviews',
             'syncErc4626OnchainData',
             'syncTokenContentData',
+            'syncCoingeckoIds',
             'syncRateProviderReviews',
-            'updateDerivedPrices',
+            'bootstrapTokenPrices',
             'updateLiquidityValuesForPools',
+            'updateDerivedPrices',
             'updateAprs',
             'syncTags',
         ]);
         expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
     });
 
-    it('skips ERC4626-specific syncs for plain pools while still syncing content, APRs, and tags', async () => {
+    it('skips ERC4626-specific syncs for plain pools while still syncing content, CoinGecko IDs, prices, APRs, and tags', async () => {
         const tokenA = '0x1111111111111111111111111111111111111111';
         mockGetAllInitializedPools.mockResolvedValue([
             {
@@ -550,12 +577,72 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
         expect(mockSyncErc4626Reviews).not.toHaveBeenCalled();
         expect(mockSyncErc4626OnchainData).not.toHaveBeenCalled();
         expect(mockSyncTokenContentData).toHaveBeenCalledWith(['BASE'], [tokenA, poolId]);
+        expect(mockSyncCoingeckoIds).toHaveBeenCalledWith(expect.any(Number), {
+            chains: ['BASE'],
+            filterAddresses: [tokenA, poolId],
+        });
         expect(mockSyncRateProviderReviews).toHaveBeenCalledTimes(1);
-        expect(mockUpdateDerivedPrices).toHaveBeenCalledWith('BASE', [tokenA, poolId]);
+        expect(mockBootstrapTokenPrices).toHaveBeenCalledWith('BASE', [tokenA, poolId]);
         expect(mockUpdateLiquidityValuesForPools).not.toHaveBeenCalled();
+        expect(mockUpdateDerivedPrices).not.toHaveBeenCalled();
         expect(mockUpdateAprs).toHaveBeenCalledWith('BASE', [poolId]);
         expect(mockSyncTags).toHaveBeenCalledTimes(1);
         expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'ADD_POOLS_V3', rpcHead);
+    });
+
+    it('skips second BPT pricing pass when only the BPT token itself was updated during bootstrap', async () => {
+        const tokenA = '0x1111111111111111111111111111111111111111';
+        mockBootstrapTokenPrices.mockResolvedValueOnce([poolId]);
+        mockGetAllInitializedPools.mockResolvedValue([
+            {
+                id: poolId,
+                tokens: [{ address: tokenA, token: { isErc4626: false } }],
+            },
+        ]);
+        mockAddPoolsV3.mockResolvedValue([
+            {
+                tokens: [
+                    { address: tokenA, decimals: 18, name: 'Token A', symbol: 'TKA' },
+                    { address: poolId, decimals: 18, name: 'Plain Pool', symbol: 'PLAIN' },
+                ],
+            },
+        ]);
+
+        await PoolController().addPoolsV3('BASE');
+
+        expect(mockUpdateLiquidityValuesForPools).toHaveBeenCalledWith('BASE', [poolId]);
+        expect(mockUpdateDerivedPrices).not.toHaveBeenCalled();
+    });
+
+    it('includes RPC-discovered ERC4626 underlyings in token content, CoinGecko ID, and price bootstrap', async () => {
+        const discoveredUnderlying = '0x2222222222222222222222222222222222222222';
+        mockSyncErc4626Tokens.mockResolvedValueOnce([
+            { address: wrapperAddress, underlyingTokenAddress: discoveredUnderlying },
+        ]);
+        mockGetAllInitializedPools.mockResolvedValue([
+            {
+                id: poolId,
+                tokens: [{ address: wrapperAddress, token: {} }],
+            },
+        ]);
+        mockAddPoolsV3.mockResolvedValue([
+            {
+                tokens: [
+                    { address: wrapperAddress, decimals: 18, name: 'Wrapper', symbol: 'WRP' },
+                    { address: poolId, decimals: 18, name: 'Boosted', symbol: 'BST' },
+                ],
+            },
+        ]);
+
+        await PoolController().addPoolsV3('BASE');
+
+        const expectedAddresses = [wrapperAddress, poolId, discoveredUnderlying];
+        expect(mockSyncTokenContentData).toHaveBeenCalledWith(['BASE'], expectedAddresses);
+        expect(mockSyncCoingeckoIds).toHaveBeenCalledWith(expect.any(Number), {
+            chains: ['BASE'],
+            filterAddresses: expectedAddresses,
+        });
+        expect(mockBootstrapTokenPrices).toHaveBeenCalledWith('BASE', expectedAddresses);
     });
 
     it('logs failures from individual enrichment steps without aborting remaining bootstrap steps or ADD_POOLS_V3 checkpoint', async () => {

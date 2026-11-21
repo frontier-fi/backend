@@ -1,10 +1,12 @@
 import { Chain } from '@prisma/client';
 import { PriceHandler, TokenPriceData, PriceItem } from '../types';
-import { coingeckoDataService } from '../../token/lib/coingecko-data.service';
+import { coingeckoDataService, normalizeCoingeckoLogoUri } from '../../token/lib/coingecko-data.service';
 import _ from 'lodash';
 
 interface CoingeckoConfig {
     excludedTokenAddresses: { address: string; chain: Chain }[];
+    useCache?: boolean;
+    cacheOnly?: boolean;
 }
 
 export class CoingeckoPriceHandler implements PriceHandler {
@@ -25,12 +27,18 @@ export class CoingeckoPriceHandler implements PriceHandler {
         const chunks = _.chunk(uniqueTokensWithIds, 250); // max page size is 250
 
         for (const chunk of chunks) {
-            const response = await coingeckoDataService.getMarketDataForTokenIds(
-                chunk.map((item) => item.coingeckoTokenId || ''),
-            );
+            const ids = chunk.map((item) => item.coingeckoTokenId || '');
+            const response =
+                this.config.useCache || this.config.cacheOnly
+                    ? await coingeckoDataService.getMarketDataForTokenIds(ids, {
+                          useCache: this.config.useCache,
+                          cacheOnly: this.config.cacheOnly,
+                      })
+                    : await coingeckoDataService.getMarketDataForTokenIds(ids);
 
             for (const item of response) {
                 const tokensToUpdate = acceptedTokens.filter((token) => token.coingeckoTokenId === item.id);
+                const logoURI = normalizeCoingeckoLogoUri(item.image);
 
                 for (const tokenToUpdate of tokensToUpdate) {
                     if (item.current_price) {
@@ -40,6 +48,7 @@ export class CoingeckoPriceHandler implements PriceHandler {
                             price: Number(item.current_price),
                             updatedAt: new Date(item.last_updated),
                             updatedBy: this.id,
+                            ...(logoURI && !tokenToUpdate.logoURI ? { logoURI } : {}),
                         });
                     }
                 }
@@ -53,7 +62,9 @@ export class CoingeckoPriceHandler implements PriceHandler {
         return tokens.filter(
             (token) =>
                 !this.config.excludedTokenAddresses.find(
-                    (excluded) => excluded.address === token.address && excluded.chain === token.chain,
+                    (excluded) =>
+                        excluded.address.toLowerCase() === token.address.toLowerCase() &&
+                        excluded.chain === token.chain,
                 ) &&
                 !token.excludedFromCoingecko &&
                 token.coingeckoTokenId,

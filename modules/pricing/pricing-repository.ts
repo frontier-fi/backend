@@ -20,6 +20,7 @@ export class PricingRepository {
                 select: {
                     address: true,
                     chain: true,
+                    logoURI: true,
                     coingeckoTokenId: true,
                     excludedFromCoingecko: true,
                     underlyingTokenAddress: true,
@@ -43,6 +44,7 @@ export class PricingRepository {
         return tokens.map((token) => ({
             address: token.address,
             chain: token.chain,
+            logoURI: token.logoURI || undefined,
             coingeckoTokenId: token.coingeckoTokenId || undefined,
             excludedFromCoingecko: token.excludedFromCoingecko || undefined,
             types: token.types.map((t) => t.type),
@@ -78,6 +80,9 @@ export class PricingRepository {
                     ? token.currentPrice
                     : undefined,
             ]),
+        );
+        const missingLogoAddresses = new Set(
+            tokensForPricing.filter((token) => !token.logoURI).map((token) => token.address),
         );
 
         const hourlyTimestamp = roundToHour(now());
@@ -115,6 +120,24 @@ export class PricingRepository {
                     },
                 }),
             );
+
+            // Backfill missing token logos (e.g. from CoinGecko /coins/markets) without ever
+            // overwriting a curated logoURI from tokenlists.
+            if (item.logoURI && missingLogoAddresses.has(item.address)) {
+                missingLogoAddresses.delete(item.address);
+                operations.push(
+                    prisma.prismaToken.updateMany({
+                        where: {
+                            address: item.address,
+                            chain: item.chain,
+                            OR: [{ logoURI: null }, { logoURI: '' }],
+                        },
+                        data: {
+                            logoURI: item.logoURI,
+                        },
+                    }),
+                );
+            }
 
             // Skip current price update if price didn't change
             const latestPrice = latestPrices[item.address];
