@@ -44,11 +44,22 @@ function errorFields(error: unknown, prefix?: string): Pick<JobResult, 'error' |
     return { error: fullMessage, err: wrapped };
 }
 
+export const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000;
+export const DEFAULT_DONE_LOG_INTERVAL_MS = 10 * 60_000;
+export const SLOW_JOB_LOG_THRESHOLD_S = 10;
+
 /**
- * Logs one canonical JSON line per job execution so Better Stack can compute durations,
- * stall heartbeats, and error alerts per name and chain.
+ * Logs failures, skips, slow runs, the first `done` per `(name, chain)` after startup, and a
+ * periodic `done` heartbeat every `doneLogIntervalMs` so Better Stack alerts stay intact without
+ * emitting a line on every sub-minute tick.
  */
-function logJobResult(name: string, chain: Chain, { err, ...outcome }: JobResult): JobOutcome {
+function logJobResult(
+    name: string,
+    chain: Chain,
+    { err, ...outcome }: JobResult,
+    lastDoneLoggedAt: Map<string, number>,
+    options: Pick<Required<WorkerRouteOptions>, 'doneLogIntervalMs' | 'slowJobLogThresholdSeconds' | 'now'>,
+): JobOutcome {
     if (outcome.error) {
         outcome.error = redactSecrets(outcome.error);
     }
@@ -65,12 +76,16 @@ function logJobResult(name: string, chain: Chain, { err, ...outcome }: JobResult
     } else if (outcome.status === 'skipped') {
         logger.info('Worker job skipped', fields);
     } else {
-        logger.info('Worker job finished', fields);
+        const nowMs = options.now();
+        const lastLoggedAt = lastDoneLoggedAt.get(outcome.job);
+        const isSlow = (outcome.durationSeconds ?? 0) >= options.slowJobLogThresholdSeconds;
+        if (isSlow || lastLoggedAt === undefined || nowMs - lastLoggedAt >= options.doneLogIntervalMs) {
+            lastDoneLoggedAt.set(outcome.job, nowMs);
+            logger.info('Worker job finished', fields);
+        }
     }
     return outcome;
 }
-
-export const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000;
 
 export type LockAcquireFn = (jobId: string) => Promise<(() => Promise<void>) | null>;
 
@@ -146,6 +161,9 @@ const runningJobs = new Map<string, Promise<JobResult>>();
 export interface WorkerRouteOptions {
     jobTimeoutMs?: number;
     acquireLock?: LockAcquireFn;
+    doneLogIntervalMs?: number;
+    slowJobLogThresholdSeconds?: number;
+    now?: () => number;
 }
 
 function runIfNotAlreadyRunning(
@@ -183,7 +201,7 @@ async function runJob(
         return { job: jobId, status: 'skipped', reason: 'locked by another worker' };
     }
 
-    const startedAt = Date.now();
+    const startedAt = options.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     try {
@@ -195,10 +213,10 @@ async function runJob(
 
         await Promise.race([fn(), timeoutPromise]);
 
-        const duration = (Date.now() - startedAt) / 1000;
+        const duration = (options.now() - startedAt) / 1000;
         return { job: jobId, status: 'done', durationSeconds: duration };
     } catch (error: unknown) {
-        const duration = (Date.now() - startedAt) / 1000;
+        const duration = (options.now() - startedAt) / 1000;
         return { job: jobId, status: 'failed', durationSeconds: duration, ...errorFields(error) };
     } finally {
         clearTimeout(timer);
@@ -221,9 +239,13 @@ export function configureWorkerRoutes(
     options: WorkerRouteOptions = {},
 ): WorkerRoutes {
     let draining = false;
+    const lastDoneLoggedAt = new Map<string, number>();
     const resolvedOptions: Required<WorkerRouteOptions> = {
         jobTimeoutMs: options.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS,
         acquireLock: options.acquireLock ?? acquirePostgresAdvisoryLock,
+        doneLogIntervalMs: options.doneLogIntervalMs ?? DEFAULT_DONE_LOG_INTERVAL_MS,
+        slowJobLogThresholdSeconds: options.slowJobLogThresholdSeconds ?? SLOW_JOB_LOG_THRESHOLD_S,
+        now: options.now ?? (() => Date.now()),
     };
 
     app.get('/health', (_req, res) => {
@@ -254,7 +276,7 @@ export function configureWorkerRoutes(
 
         const result = await runIfNotAlreadyRunning(jobId, () => handler(chain), resolvedOptions);
 
-        res.json(logJobResult(name, chain, result));
+        res.json(logJobResult(name, chain, result, lastDoneLoggedAt, resolvedOptions));
     });
 
     return {

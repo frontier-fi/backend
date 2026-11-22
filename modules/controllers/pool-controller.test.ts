@@ -228,48 +228,72 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
 });
 
 describe('logPoolSyncSourceChange', () => {
-    it('logs only when the pool sync source changes for a chain', async () => {
+    it('logs at debug level only when the pool sync source changes for a chain', async () => {
         // A fresh module, so the syncPoolsV3 runs above have not recorded a source yet.
-        vi.resetModules();
-        const { logPoolSyncSourceChange } = await import('./pool-controller');
+        const previousLogLevel = process.env.LOG_LEVEL;
+        const previousDebug = process.env.DEBUG;
         const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-        logPoolSyncSourceChange('BASE', 'rpc', { lag: 75, acceptableSGLag: 30 });
-        logPoolSyncSourceChange('BASE', 'rpc', { lag: 80, acceptableSGLag: 30 });
-        logPoolSyncSourceChange('SEPOLIA', 'subgraph', { lag: 2, acceptableSGLag: 100 });
-        logPoolSyncSourceChange('BASE', 'subgraph', { lag: 20, acceptableSGLag: 30 });
+        try {
+            process.env.LOG_LEVEL = 'info';
+            delete process.env.DEBUG;
+            vi.resetModules();
+            const { env } = await import('../../apps/env');
+            const { logPoolSyncSourceChange } = await import('./pool-controller');
 
-        expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
-            {
-                level: 'info',
-                message: 'Pool sync source changed',
-                event: 'pool-sync-source',
-                chain: 'BASE',
-                source: 'rpc',
-                lag: 75,
-                acceptableSGLag: 30,
-            },
-            {
-                level: 'info',
-                message: 'Pool sync source changed',
-                event: 'pool-sync-source',
-                chain: 'SEPOLIA',
-                source: 'subgraph',
-                lag: 2,
-                acceptableSGLag: 100,
-            },
-            {
-                level: 'info',
-                message: 'Pool sync source changed',
-                event: 'pool-sync-source',
-                chain: 'BASE',
-                source: 'subgraph',
-                lag: 20,
-                acceptableSGLag: 30,
-            },
-        ]);
+            // Suppressed by default in production when LOG_LEVEL is info.
+            logPoolSyncSourceChange('MAINNET', 'rpc', { lag: 75, acceptableSGLag: 30 });
+            expect(stdout).not.toHaveBeenCalled();
 
-        stdout.mockRestore();
+            env.LOG_LEVEL = 'debug';
+            process.env.LOG_LEVEL = 'debug';
+            logPoolSyncSourceChange('BASE', 'rpc', { lag: 75, acceptableSGLag: 30 });
+            logPoolSyncSourceChange('BASE', 'rpc', { lag: 80, acceptableSGLag: 30 });
+            logPoolSyncSourceChange('SEPOLIA', 'subgraph', { lag: 2, acceptableSGLag: 100 });
+            logPoolSyncSourceChange('BASE', 'subgraph', { lag: 20, acceptableSGLag: 30 });
+
+            expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+                {
+                    level: 'debug',
+                    message: 'Pool sync source changed',
+                    event: 'pool-sync-source',
+                    chain: 'BASE',
+                    source: 'rpc',
+                    lag: 75,
+                    acceptableSGLag: 30,
+                },
+                {
+                    level: 'debug',
+                    message: 'Pool sync source changed',
+                    event: 'pool-sync-source',
+                    chain: 'SEPOLIA',
+                    source: 'subgraph',
+                    lag: 2,
+                    acceptableSGLag: 100,
+                },
+                {
+                    level: 'debug',
+                    message: 'Pool sync source changed',
+                    event: 'pool-sync-source',
+                    chain: 'BASE',
+                    source: 'subgraph',
+                    lag: 20,
+                    acceptableSGLag: 30,
+                },
+            ]);
+        } finally {
+            if (previousLogLevel === undefined) {
+                delete process.env.LOG_LEVEL;
+            } else {
+                process.env.LOG_LEVEL = previousLogLevel;
+            }
+            if (previousDebug === undefined) {
+                delete process.env.DEBUG;
+            } else {
+                process.env.DEBUG = previousDebug;
+            }
+            stdout.mockRestore();
+        }
     });
 });
 
@@ -351,9 +375,10 @@ describe('logPoolPendingResyncChange', () => {
 });
 
 describe('logSubgraphSyncStatus', () => {
-    it('logs per-chain RPC head and subgraph block/lag at most once per interval and clamps negative lag to 0', async () => {
+    it('logs per-chain RPC head and subgraph block/lag at most once per 2m interval and clamps negative lag to 0', async () => {
         vi.resetModules();
         const { logSubgraphSyncStatus, SUBGRAPH_SYNC_LOG_INTERVAL_MS } = await import('./pool-controller');
+        expect(SUBGRAPH_SYNC_LOG_INTERVAL_MS).toBe(120_000);
         const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
         // First call per chain logs immediately.
