@@ -28,7 +28,7 @@ export default <NetworkData>{
         excludedTokenAddresses: [],
     },
     rpcUrl: env.DRPC_API_KEY ? `https://lb.drpc.live/monad/${env.DRPC_API_KEY}` : 'https://monad.gateway.tenderly.co',
-    rpcMaxBlockRange: 1000,
+    rpcMaxBlockRange: 10000,
     acceptableSGLag: 150, // ~1min
     // Active addresses from frontier-fi/deployments addresses/_lookup.json. Mock contracts are omitted.
     contracts: {
@@ -189,141 +189,66 @@ export default <NetworkData>{
                     ],
                 },
                 {
-                    // wnWMON
+                    // Neverland: one request for all wrapped reserves, keyed by underlying reserve address.
                     url: 'https://app.neverland.money/api/pool-apy',
                     scale: 100,
                     extractors: [
+                        ...(
+                            [
+                                [
+                                    '0xdb39a9d4a1f1b4e93a5684d602207628ad60613c',
+                                    '0x3bd359c1119da7da1d913d1c4d2b7c461115433a',
+                                ], // wnWMON
+                                [
+                                    '0x82c370ba90e38ef6acd8b1b078d34fd86fc6bac9',
+                                    '0x00000000efe302beaa2b3e6e1b18d08d69a9012a',
+                                ], // wnAUSD
+                                [
+                                    '0x8d5c2df3eef09088fcccf3376d8ecd0dd505f642',
+                                    '0x754704bc059f8c67012fed69bc8a327a5aafb603',
+                                ], // wnUSDC
+                                [
+                                    '0x8959f4e6ed1f4567a464959793d5f8f6f33c1c8b',
+                                    '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+                                ], // wnWBTC
+                                [
+                                    '0x98a297e6424787e57af119949d7e00b721f832bb',
+                                    '0xd18b7ec58cdf4876f6afebd3ed1730e4ce10414b',
+                                ], // wnCBBTC
+                                [
+                                    '0xb3b850ac62b89fe9f4efb652b516108a8aeb8848',
+                                    '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242',
+                                ], // wnWETH
+                                [
+                                    '0x4e8aaecce10ad9394e96fe5f2bd4e587a7b04298',
+                                    '0xe7cd86e13ac4309349f30b3435a9d337750fc82d',
+                                ], // wnUSDT0
+                                [
+                                    '0x29d2075e5151b1a6863bdc40ea86bd5e8afd1705',
+                                    '0x8498312a6b3cbd158bf0c93abdcf29e6e4f55081',
+                                ], // wnGMON
+                                [
+                                    '0x08139339dd9a480ceb84d9c7cce48be436db20b3',
+                                    '0xa3227c5969757783154c60bf0bc1944180ed81b9',
+                                ], // wnSMON
+                                [
+                                    '0x5e073494678fb7fa4a05bb17d45941dd9dc469c1',
+                                    '0x1b68626dca36c7fe922fd2d55e4f631d962de19c',
+                                ], // wnSHMON
+                            ] as const
+                        ).map(([token, reserve]) => ({
+                            type: 'path' as const,
+                            token,
+                            path: `$.reserves.${reserve}.supply.baseAPY`,
+                        })),
                         {
-                            type: 'path',
-                            token: '0xdb39a9d4a1f1b4e93a5684d602207628ad60613c',
-                            path: '$.reserves.0x3bd359c1119da7da1d913d1c4d2b7c461115433a.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnloAZND
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    convert: async (baseAPY: number) => {
-                        const res = await (await fetch('https://app.neverland.money/api/pool-apy')).json();
-                        const externalAPY =
-                            (res as any).reserves['0x9c82eb49b51f7dc61e22ff347931ca32adc6cd90'].supply.externalAPY /
-                            100;
-                        return baseAPY + externalAPY;
-                    },
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0xd786f7569c39a9f64e6a54eb77db21364e90f279',
-                            path: '$.reserves.0x9c82eb49b51f7dc61e22ff347931ca32adc6cd90.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnAUSD
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x82c370ba90e38ef6acd8b1b078d34fd86fc6bac9',
-                            path: '$.reserves.0x00000000efe302beaa2b3e6e1b18d08d69a9012a.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnUSDC
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x8d5c2df3eef09088fcccf3376d8ecd0dd505f642',
-                            path: '$.reserves.0x754704bc059f8c67012fed69bc8a327a5aafb603.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnWBTC
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x8959f4e6ed1f4567a464959793d5f8f6f33c1c8b',
-                            path: '$.reserves.0x0555e30da8f98308edb960aa94c0db47230d2b9c.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnCBBTC
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x98a297e6424787e57af119949d7e00b721f832bb',
-                            path: '$.reserves.0xd18b7ec58cdf4876f6afebd3ed1730e4ce10414b.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnWETH
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0xb3b850ac62b89fe9f4efb652b516108a8aeb8848',
-                            path: '$.reserves.0xee8c0e9f1bffb4eb878d8f15f368a02a35481242.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnUSDT0
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x4e8aaecce10ad9394e96fe5f2bd4e587a7b04298',
-                            path: '$.reserves.0xe7cd86e13ac4309349f30b3435a9d337750fc82d.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnGMON
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x29d2075e5151b1a6863bdc40ea86bd5e8afd1705',
-                            path: '$.reserves.0x8498312a6b3cbd158bf0c93abdcf29e6e4f55081.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnSMON
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x08139339dd9a480ceb84d9c7cce48be436db20b3',
-                            path: '$.reserves.0xa3227c5969757783154c60bf0bc1944180ed81b9.supply.baseAPY',
-                        },
-                    ],
-                },
-                {
-                    // wnSHMON
-                    url: 'https://app.neverland.money/api/pool-apy',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x5e073494678fb7fa4a05bb17d45941dd9dc469c1',
-                            path: '$.reserves.0x1b68626dca36c7fe922fd2d55e4f631d962de19c.supply.baseAPY',
+                            // wnloAZND earns the reserve's external APY on top of its base APY.
+                            type: 'enumerate',
+                            path: "$.reserves[?(@property === '0x9c82eb49b51f7dc61e22ff347931ca32adc6cd90')]",
+                            entries: (reserve: any): [string, number] => [
+                                '0xd786f7569c39a9f64e6a54eb77db21364e90f279',
+                                Number(reserve.supply.baseAPY) + Number(reserve.supply.externalAPY),
+                            ],
                         },
                     ],
                 },

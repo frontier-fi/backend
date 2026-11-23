@@ -71,23 +71,25 @@ export const morphoApiClient = {
             vaults: { items },
         } = await request<BlueApiResponse>(url, query);
 
-        // Map apy to vault addresses
+        // Map apy to `${chain}-${vault address}`, as vault addresses are only unique per chain
         return Object.fromEntries(
-            items.map((vault: Vault) => [
-                vault.address.toLowerCase(),
-                {
-                    dailyApy: vault.state.dailyApy,
-                    dailyNetApy: vault.state.dailyNetApy,
-                    fee: vault.state.fee,
-                    rewardApy:
-                        vault.state.dailyNetApy -
-                        vault.state.dailyApy * (1 - vault.state.fee) -
-                        (vault.asset.yield?.apr || 0),
-                    chain: mapMorphoNetworkToChain[
-                        vault.chain.network.toLowerCase() as keyof typeof mapMorphoNetworkToChain
-                    ],
-                },
-            ]),
+            items.map((vault: Vault) => {
+                const chain =
+                    mapMorphoNetworkToChain[vault.chain.network.toLowerCase() as keyof typeof mapMorphoNetworkToChain];
+                return [
+                    `${chain}-${vault.address.toLowerCase()}`,
+                    {
+                        dailyApy: vault.state.dailyApy,
+                        dailyNetApy: vault.state.dailyNetApy,
+                        fee: vault.state.fee,
+                        rewardApy:
+                            vault.state.dailyNetApy -
+                            vault.state.dailyApy * (1 - vault.state.fee) -
+                            (vault.asset.yield?.apr || 0),
+                        chain,
+                    },
+                ];
+            }),
         );
     },
 };
