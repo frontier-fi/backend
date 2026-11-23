@@ -1,19 +1,22 @@
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import express from 'express';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configuredSchedule } from '../scheduler/schedule';
 import {
     acquirePostgresAdvisoryLock,
     configureWorkerRoutes,
+    DEFAULT_DONE_LOG_INTERVAL_MS,
     JobHandler,
     jobHandlers,
+    SLOW_JOB_LOG_THRESHOLD_S,
     WorkerRouteOptions,
     WorkerRoutes,
 } from './job-handlers';
 import { env } from '../env';
 
 const SEPOLIA_ID = '11155111';
+const BASE_ID = '8453';
 
 const noopLock = async () => async () => undefined;
 
@@ -74,29 +77,23 @@ describe('worker route', () => {
     const handlers: Record<string, JobHandler> = {};
     let server: Server | undefined;
     let url: string;
-
-    beforeAll(async () => {
-        ({ server, url } = await serve(handlers));
-    });
-
-    afterAll(async () => {
-        if (server?.listening) {
-            await new Promise((resolve) => server!.close(resolve));
-        }
-    });
-
     let stdoutSpy: ReturnType<typeof vi.spyOn>;
     let stderrSpy: ReturnType<typeof vi.spyOn>;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         for (const name of Object.keys(handlers)) delete handlers[name];
         stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
         stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        ({ server, url } = await serve(handlers));
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         stdoutSpy.mockRestore();
         stderrSpy.mockRestore();
+        if (server?.listening) {
+            server.closeAllConnections();
+            await new Promise((resolve) => server!.close(resolve));
+        }
     });
 
     it('answers the health check', async () => {
@@ -254,6 +251,202 @@ describe('worker route', () => {
 
         expect(result.status).toBe(400);
         expect(handlers['sync-pools-v3']).not.toHaveBeenCalled();
+    });
+});
+
+describe('worker job log throttling', () => {
+    const handlers: Record<string, JobHandler> = {};
+    let clock = 0;
+    let lockHeldByPeer = false;
+    let server: Server;
+    let url: string;
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+        for (const name of Object.keys(handlers)) delete handlers[name];
+        clock = 1_000;
+        lockHeldByPeer = false;
+        stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        ({ server, url } = await serve(handlers, {
+            acquireLock: async () => (lockHeldByPeer ? null : async () => undefined),
+            doneLogIntervalMs: DEFAULT_DONE_LOG_INTERVAL_MS,
+            slowJobLogThresholdSeconds: SLOW_JOB_LOG_THRESHOLD_S,
+            now: () => clock,
+        }));
+    });
+
+    afterEach(async () => {
+        stdoutSpy.mockRestore();
+        stderrSpy.mockRestore();
+        if (server?.listening) {
+            server.closeAllConnections();
+            await new Promise((resolve) => server.close(resolve));
+        }
+    });
+
+    it('logs the first done run, suppresses fast done runs within doneLogIntervalMs while returning outcome, and logs again once elapsed', async () => {
+        handlers['sync-pools-v3'] = async () => {
+            clock += 250;
+        };
+
+        // 1. First done run after startup logs immediately (clock ends at 1_250).
+        const first = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(first.status).toBe(200);
+        expect(first.body).toEqual({
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            status: 'done',
+            durationSeconds: 0.25,
+        });
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+
+        // 2. Fast runs inside the 10-minute window are suppressed on stdout, without sliding the window forward.
+        clock = 1_250 + 30_000 - 250;
+        const second = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(second.status).toBe(200);
+        expect(second.body).toEqual({
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            status: 'done',
+            durationSeconds: 0.25,
+        });
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+
+        clock = 1_250 + DEFAULT_DONE_LOG_INTERVAL_MS - 1 - 250;
+        const justBeforeBoundary = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(justBeforeBoundary.body).toMatchObject({ status: 'done', durationSeconds: 0.25 });
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+
+        // 3. Run completing at doneLogIntervalMs after the first logged done emits the heartbeat again.
+        clock = 1_250 + DEFAULT_DONE_LOG_INTERVAL_MS - 250;
+        const afterInterval = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(afterInterval.body).toMatchObject({ status: 'done', durationSeconds: 0.25 });
+        expect(stdoutSpy).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(String(stdoutSpy.mock.calls[1][0]))).toMatchObject({
+            level: 'info',
+            message: 'Worker job finished',
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'done',
+            durationSeconds: 0.25,
+        });
+    });
+
+    it('logs slow done runs (>= slowJobLogThresholdSeconds) immediately even within the throttle window', async () => {
+        let simulatedDurationMs = 100;
+        handlers['sync-pools-v3'] = async () => {
+            clock += simulatedDurationMs;
+        };
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+
+        // Fast follow-up 20s later is suppressed.
+        clock += 20_000;
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+
+        // Slow run (>= 10s) 20s later bypasses throttling and logs immediately with durationSeconds.
+        clock += 20_000;
+        simulatedDurationMs = SLOW_JOB_LOG_THRESHOLD_S * 1_000;
+        const slow = await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(slow.body).toEqual({
+            job: `sync-pools-v3-${SEPOLIA_ID}`,
+            status: 'done',
+            durationSeconds: SLOW_JOB_LOG_THRESHOLD_S,
+        });
+        expect(stdoutSpy).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(String(stdoutSpy.mock.calls[1][0]))).toMatchObject({
+            level: 'info',
+            message: 'Worker job finished',
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'done',
+            durationSeconds: SLOW_JOB_LOG_THRESHOLD_S,
+        });
+    });
+
+    it('always logs failed and skipped runs immediately inside the throttle window and preserves first-done logging', async () => {
+        // Initial skipped and failed runs before any done do not mark first-done as logged.
+        lockHeldByPeer = true;
+        handlers['sync-pools-v3'] = async () => undefined;
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stdoutSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(stdoutSpy.mock.calls[0][0]))).toMatchObject({
+            level: 'info',
+            message: 'Worker job skipped',
+            status: 'skipped',
+            reason: 'locked by another worker',
+        });
+
+        lockHeldByPeer = false;
+        let shouldFail = true;
+        handlers['sync-pools-v3'] = async () => {
+            if (shouldFail) throw new Error('transient rpc error');
+        };
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stderrSpy).toHaveBeenCalledTimes(1);
+
+        // First actual done run still logs immediately.
+        shouldFail = false;
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stdoutSpy).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(String(stdoutSpy.mock.calls[1][0]))).toMatchObject({
+            level: 'info',
+            message: 'Worker job finished',
+            status: 'done',
+        });
+
+        // Within the throttle window: fast done is suppressed, but failed and skipped still log immediately.
+        clock += 5_000;
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stdoutSpy).toHaveBeenCalledTimes(2);
+
+        clock += 5_000;
+        shouldFail = true;
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stderrSpy).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(String(stderrSpy.mock.calls[1][0]))).toMatchObject({
+            level: 'error',
+            message: 'Worker job failed',
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'failed',
+            error: 'transient rpc error',
+        });
+
+        clock += 5_000;
+        lockHeldByPeer = true;
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        expect(stdoutSpy).toHaveBeenCalledTimes(3);
+        expect(JSON.parse(String(stdoutSpy.mock.calls[2][0]))).toMatchObject({
+            level: 'info',
+            message: 'Worker job skipped',
+            name: 'sync-pools-v3',
+            chain: 'SEPOLIA',
+            status: 'skipped',
+        });
+    });
+
+    it('tracks throttle timers independently per job name and chain', async () => {
+        handlers['sync-pools-v3'] = async () => undefined;
+        handlers['add-pools-v3'] = async () => undefined;
+
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        clock += 1_000;
+        // Repeat of same job + chain is suppressed.
+        await post(url, { name: 'sync-pools-v3', chain: SEPOLIA_ID });
+        // Same job on a different chain logs immediately.
+        await post(url, { name: 'sync-pools-v3', chain: BASE_ID });
+        // Different job on the original chain logs immediately.
+        await post(url, { name: 'add-pools-v3', chain: SEPOLIA_ID });
+
+        expect(stdoutSpy.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])))).toEqual([
+            expect.objectContaining({ name: 'sync-pools-v3', chain: 'SEPOLIA', status: 'done' }),
+            expect.objectContaining({ name: 'sync-pools-v3', chain: 'BASE', status: 'done' }),
+            expect.objectContaining({ name: 'add-pools-v3', chain: 'SEPOLIA', status: 'done' }),
+        ]);
     });
 });
 

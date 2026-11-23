@@ -31,7 +31,7 @@ import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 import { logger } from '../common/logger';
 
 const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
-export const SUBGRAPH_SYNC_LOG_INTERVAL_MS = 60_000;
+export const SUBGRAPH_SYNC_LOG_INTERVAL_MS = 120_000;
 const subgraphSyncLastLoggedAt = new Map<Chain, number>();
 export const PENDING_RESYNC_REMINDER_MS = 3 * 60_000;
 
@@ -47,7 +47,7 @@ const INIT_BPT_RPC_CATCHUP_LAG_THRESHOLD = 5;
 
 /**
  * Emits a throttled per-chain snapshot of RPC head vs. Ormi vault/pools subgraph block heights and
- * lag (once per minute per chain) to feed Better Stack block-lag/height metrics and status charts.
+ * lag (once every 2 minutes per chain) to feed Better Stack block-lag/height metrics and status charts.
  */
 export function logSubgraphSyncStatus(
     chain: Chain,
@@ -74,8 +74,9 @@ export function logSubgraphSyncStatus(
 }
 
 /**
- * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
- * when the source changes for a chain, so the lag stays visible without a line per run.
+ * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs at
+ * debug level only when the source changes for a chain, so transitions can be inspected without
+ * production noise when lag hovers near acceptableSGLag.
  */
 export function logPoolSyncSourceChange(
     chain: Chain,
@@ -86,7 +87,7 @@ export function logPoolSyncSourceChange(
         return;
     }
     poolSyncSources.set(chain, source);
-    logger.info('Pool sync source changed', { event: 'pool-sync-source', chain, source, ...details });
+    logger.debug('Pool sync source changed', { event: 'pool-sync-source', chain, source, ...details });
 }
 
 /**
