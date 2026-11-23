@@ -1,5 +1,5 @@
 import { Chain as ViemChain, createPublicClient, http, PublicClient } from 'viem';
-import { base, mainnet, sepolia } from 'viem/chains';
+import { base, mainnet, monad, sepolia } from 'viem/chains';
 import { Chain } from '@prisma/client';
 import config from '../../config';
 import { logger } from '../common/logger';
@@ -14,6 +14,7 @@ export interface IViemClient {
 
 const chain2ViemChain: Partial<Record<Chain, ViemChain>> = {
     [Chain.MAINNET]: mainnet,
+    [Chain.MONAD]: monad,
     [Chain.SEPOLIA]: sepolia,
     [Chain.BASE]: base,
 };

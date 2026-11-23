@@ -54,7 +54,9 @@ describe('ContentController', () => {
 
         await ContentController().syncTokenContentData();
 
-        expect(mockSyncTokenContentData).toHaveBeenCalledWith(expect.arrayContaining(['SEPOLIA', 'BASE', 'MAINNET']));
+        expect(mockSyncTokenContentData).toHaveBeenCalledWith(
+            expect.arrayContaining(['SEPOLIA', 'BASE', 'MAINNET', 'MONAD']),
+        );
         expect(mockSyncTokenContentData.mock.invocationCallOrder[0]).toBeLessThan(
             mockSyncCoingeckoIds.mock.invocationCallOrder[0],
         );

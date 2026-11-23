@@ -16,18 +16,17 @@ export class MorphoRewardsAprHandler implements AprHandler {
         const morphoApr = await morphoApiClient.morphoApr();
 
         // Find all pools with Morpho vault tokens
-        const morphoVaultAddresses = Object.keys(morphoApr);
         const poolsWithMorphoTokens = pools.filter((pool) => {
-            return pool.tokens.find((token) => morphoVaultAddresses.includes(token.address));
+            return pool.tokens.find((token) => `${pool.chain}-${token.address}` in morphoApr);
         });
 
         // For each of them get reward token APRs
         const aprItems = poolsWithMorphoTokens.flatMap((pool) => {
-            const tokens = pool.tokens.filter((token) => morphoVaultAddresses.includes(token.address));
+            const tokens = pool.tokens.filter((token) => `${pool.chain}-${token.address}` in morphoApr);
             const tvl = pool.tokens.map((t) => t.balanceUSD).reduce((a, b) => a + b, 0);
 
             const vaultRewards = tokens.flatMap((token) => {
-                const vaultApr = morphoApr[token.address];
+                const vaultApr = morphoApr[`${pool.chain}-${token.address}`];
                 const weight = token.balanceUSD / tvl || 0;
 
                 return {
