@@ -8,6 +8,14 @@ const { mockTokenFindMany, mockTokenUpdate, mockTransaction } = vi.hoisted(() =>
     mockTransaction: vi.fn(async (ops: unknown[]) => ops),
 }));
 
+vi.mock('limiter', () => ({
+    RateLimiter: class {
+        async removeTokens() {
+            return 1;
+        }
+    },
+}));
+
 vi.mock('../../../prisma/prisma-client', () => ({
     prisma: {
         prismaToken: {
@@ -18,7 +26,12 @@ vi.mock('../../../prisma/prisma-client', () => ({
     },
 }));
 
-import { COIN_LIST_CACHE_TTL_MS, CoingeckoDataService } from './coingecko-data.service';
+import {
+    COIN_LIST_CACHE_TTL_MS,
+    CoingeckoDataService,
+    MARKET_DATA_CACHE_TTL_MS,
+    normalizeCoingeckoLogoUri,
+} from './coingecko-data.service';
 
 describe('CoingeckoDataService.syncCoingeckoIds', () => {
     let previousCoingeckoKey: string | undefined;
@@ -162,5 +175,203 @@ describe('CoingeckoDataService.syncCoingeckoIds', () => {
             expect.stringMatching(/^https:\/\/api\.coingecko\.com\//),
             expect.stringMatching(/^https:\/\/api\.coingecko\.com\//),
         ]);
+    });
+
+    it('scopes syncCoingeckoIds to requested chains and addresses while indexing all chains in the 24h coin map', async () => {
+        const fetchSpy = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => [
+                {
+                    id: 'balancer',
+                    symbol: 'bal',
+                    name: 'Balancer',
+                    platforms: {
+                        ethereum: '0xba100000625a3754423978a60c9317c58a424e3d',
+                        base: '0x4158734d47fc9692176b5085e0f52ee0da5d47f1',
+                    },
+                },
+            ],
+        }));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const service = new CoingeckoDataService();
+
+        // Scoped to MAINNET + uppercase address: fetches /coins/list once and indexes both MAINNET and BASE.
+        mockTokenFindMany.mockResolvedValueOnce([
+            { address: '0xba100000625a3754423978a60c9317c58a424e3d', chain: Chain.MAINNET, coingeckoTokenId: null },
+        ]);
+        const mainnetUpdated = await service.syncCoingeckoIds(0, {
+            chains: [Chain.MAINNET],
+            filterAddresses: ['0xBA100000625A3754423978A60C9317C58A424E3D'],
+        });
+
+        expect(mainnetUpdated).toEqual(['0xba100000625a3754423978a60c9317c58a424e3d']);
+        expect(mockTokenFindMany).toHaveBeenCalledWith({
+            where: {
+                chain: { in: [Chain.MAINNET] },
+                address: { in: ['0xba100000625a3754423978a60c9317c58a424e3d'] },
+                coingeckoTokenId: null,
+                excludedFromCoingecko: false,
+                types: { none: { type: 'BPT' } },
+            },
+            select: {
+                address: true,
+                chain: true,
+                coingeckoTokenId: true,
+            },
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        // Later BASE sync reuses the warm 24h map with 0 extra HTTP calls.
+        mockTokenFindMany.mockResolvedValueOnce([
+            { address: '0x4158734d47fc9692176b5085e0f52ee0da5d47f1', chain: Chain.BASE, coingeckoTokenId: null },
+        ]);
+        const baseUpdated = await service.syncCoingeckoIds(60_000, {
+            chains: [Chain.BASE],
+            filterAddresses: ['0x4158734d47fc9692176b5085e0f52ee0da5d47f1'],
+        });
+
+        expect(baseUpdated).toEqual(['0x4158734d47fc9692176b5085e0f52ee0da5d47f1']);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(mockTokenUpdate).toHaveBeenLastCalledWith({
+            where: {
+                address_chain: { address: '0x4158734d47fc9692176b5085e0f52ee0da5d47f1', chain: Chain.BASE },
+            },
+            data: { coingeckoTokenId: 'balancer' },
+        });
+
+        // Sepolia and empty address filters short-circuit before hitting Prisma or CoinGecko.
+        expect(await service.syncCoingeckoIds(60_000, { chains: [Chain.SEPOLIA] })).toEqual([]);
+        expect(await service.syncCoingeckoIds(60_000, { chains: [Chain.MAINNET], filterAddresses: [] })).toEqual([]);
+        expect(mockTokenFindMany).toHaveBeenCalledTimes(2);
+    });
+
+    it('coalesces concurrent cold-start /coins/list fetches into one request', async () => {
+        let resolveFetch!: (value: unknown) => void;
+        let markFetchStarted!: () => void;
+        const fetchStarted = new Promise<void>((resolve) => {
+            markFetchStarted = resolve;
+        });
+        const fetchSpy = vi.fn(
+            () =>
+                new Promise((resolve) => {
+                    resolveFetch = resolve;
+                    markFetchStarted();
+                }),
+        );
+        vi.stubGlobal('fetch', fetchSpy);
+
+        mockTokenFindMany
+            .mockResolvedValueOnce([{ address: '0xbal-mainnet', chain: Chain.MAINNET, coingeckoTokenId: null }])
+            .mockResolvedValueOnce([{ address: '0xbal-base', chain: Chain.BASE, coingeckoTokenId: null }]);
+
+        const service = new CoingeckoDataService();
+        const first = service.syncCoingeckoIds(1_000, { chains: [Chain.MAINNET] });
+        const second = service.syncCoingeckoIds(1_000, { chains: [Chain.BASE] });
+
+        await fetchStarted;
+        resolveFetch({
+            ok: true,
+            status: 200,
+            json: async () => [
+                {
+                    id: 'balancer',
+                    symbol: 'bal',
+                    name: 'Balancer',
+                    platforms: { ethereum: '0xbal-mainnet', base: '0xbal-base' },
+                },
+            ],
+        });
+
+        expect(await Promise.all([first, second])).toEqual([['0xbal-mainnet'], ['0xbal-base']]);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('caches /coins/markets responses and supports useCache and cacheOnly lookups without redundant API calls', async () => {
+        const fetchSpy = vi
+            .fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => [
+                    {
+                        id: 'balancer',
+                        current_price: 2.5,
+                        image: 'https://coin-images.coingecko.com/coins/images/11683/large/Balancer.png',
+                        last_updated: '2026-11-20T10:00:00.000Z',
+                    },
+                ],
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => [
+                    {
+                        id: 'aave',
+                        current_price: 150,
+                        image: 'https://coin-images.coingecko.com/coins/images/12645/large/AAVE.png',
+                        last_updated: '2026-11-20T10:01:00.000Z',
+                    },
+                ],
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => [
+                    {
+                        id: 'balancer',
+                        current_price: 2.75,
+                        image: 'https://coin-images.coingecko.com/coins/images/11683/large/Balancer.png',
+                        last_updated: '2026-11-20T10:20:00.000Z',
+                    },
+                ],
+            });
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const service = new CoingeckoDataService();
+
+        // Warm via default live call (as scheduled update-token-prices does); 'delisted' is negative-cached.
+        const initial = await service.getMarketDataForTokenIds(['balancer', 'delisted'], { nowMs: 1_000 });
+        expect(initial).toHaveLength(1);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        // cacheOnly serves warm hit and ignores misses with 0 HTTP calls.
+        const fromCacheOnly = await service.getMarketDataForTokenIds(['balancer', 'aave'], {
+            cacheOnly: true,
+            nowMs: 2_000,
+        });
+        expect(fromCacheOnly.map((item) => item.id)).toEqual(['balancer']);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        // useCache reuses 'balancer' and negative-cached 'delisted', fetching only 'aave'.
+        const mixed = await service.getMarketDataForTokenIds(['balancer', 'delisted', 'aave'], {
+            useCache: true,
+            nowMs: 3_000,
+        });
+        expect(mixed.map((item) => item.id)).toEqual(['balancer', 'aave']);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        expect(fetchSpy.mock.calls[1][0]).toContain('ids=aave&');
+
+        // After TTL expires, useCache refreshes from CoinGecko.
+        const refreshed = await service.getMarketDataForTokenIds(['balancer'], {
+            useCache: true,
+            nowMs: 1_000 + MARKET_DATA_CACHE_TTL_MS + 1,
+        });
+        expect(refreshed[0]?.current_price).toBe(2.75);
+        expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+});
+
+describe('normalizeCoingeckoLogoUri', () => {
+    it('accepts valid HTTPS logo URLs and rejects CoinGecko placeholders and non-HTTPS values', () => {
+        expect(
+            normalizeCoingeckoLogoUri('  https://coin-images.coingecko.com/coins/images/11683/large/Balancer.png  '),
+        ).toBe('https://coin-images.coingecko.com/coins/images/11683/large/Balancer.png');
+        expect(normalizeCoingeckoLogoUri('missing_large.png')).toBeUndefined();
+        expect(normalizeCoingeckoLogoUri('https://static.coingecko.com/s/missing_large.png')).toBeUndefined();
+        expect(normalizeCoingeckoLogoUri('http://coin-images.coingecko.com/logo.png')).toBeUndefined();
+        expect(normalizeCoingeckoLogoUri('')).toBeUndefined();
+        expect(normalizeCoingeckoLogoUri(null)).toBeUndefined();
     });
 });

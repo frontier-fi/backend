@@ -4,6 +4,7 @@ import { SwapEvent } from '../../prisma/prisma-types';
 export interface TokenPriceData {
     address: string;
     chain: Chain;
+    logoURI?: string;
     coingeckoTokenId?: string;
     excludedFromCoingecko?: boolean;
     types: string[];
@@ -21,6 +22,7 @@ export interface PriceItem {
     price: number;
     updatedAt: Date;
     updatedBy: string;
+    logoURI?: string;
 }
 
 export interface PriceHandler {

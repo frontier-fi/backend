@@ -24,6 +24,7 @@ import { syncErc4626Reviews } from '../content/lib/sync-erc4626-reviews';
 import { syncRateProviderReviews } from '../content/lib/sync-rate-provider-reviews';
 import { syncTags } from '../content/lib/sync-tags';
 import { syncTokenContentData } from '../content/lib/sync-token-data';
+import { coingeckoDataService } from '../token/lib/coingecko-data.service';
 import { PricingService } from '../pricing/pricing-service';
 import { AprService } from '../aprs';
 import { PoolWithMappedJsonFields } from '../../prisma/prisma-types';
@@ -31,7 +32,7 @@ import { updateLifetimeValues } from '../actions/pool/update-liftetime-values';
 import { logger } from '../common/logger';
 
 const poolSyncSources = new Map<Chain, 'subgraph' | 'rpc'>();
-export const SUBGRAPH_SYNC_LOG_INTERVAL_MS = 60_000;
+export const SUBGRAPH_SYNC_LOG_INTERVAL_MS = 120_000;
 const subgraphSyncLastLoggedAt = new Map<Chain, number>();
 export const PENDING_RESYNC_REMINDER_MS = 3 * 60_000;
 
@@ -47,7 +48,7 @@ const INIT_BPT_RPC_CATCHUP_LAG_THRESHOLD = 5;
 
 /**
  * Emits a throttled per-chain snapshot of RPC head vs. Ormi vault/pools subgraph block heights and
- * lag (once per minute per chain) to feed Better Stack block-lag/height metrics and status charts.
+ * lag (once every 2 minutes per chain) to feed Better Stack block-lag/height metrics and status charts.
  */
 export function logSubgraphSyncStatus(
     chain: Chain,
@@ -74,8 +75,9 @@ export function logSubgraphSyncStatus(
 }
 
 /**
- * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs only
- * when the source changes for a chain, so the lag stays visible without a line per run.
+ * syncPoolsV3 reads changed pools from the subgraphs, or from RPC logs while they lag. Logs at
+ * debug level only when the source changes for a chain, so transitions can be inspected without
+ * production noise when lag hovers near acceptableSGLag.
  */
 export function logPoolSyncSourceChange(
     chain: Chain,
@@ -86,7 +88,7 @@ export function logPoolSyncSourceChange(
         return;
     }
     poolSyncSources.set(chain, source);
-    logger.info('Pool sync source changed', { event: 'pool-sync-source', chain, source, ...details });
+    logger.debug('Pool sync source changed', { event: 'pool-sync-source', chain, source, ...details });
 }
 
 /**
@@ -297,12 +299,28 @@ export function PoolController(tracer?: any) {
                 }
             }
 
-            await runInitStep('sync-token-content', () => syncTokenContentData([chain], newTokenAddresses));
+            const discoveredUnderlyingAddresses = (enrichedErc4626 ?? [])
+                .map((token) => token.underlyingTokenAddress?.toLowerCase())
+                .filter((address): address is string => Boolean(address));
+            const allNewTokenAddresses = [...new Set([...newTokenAddresses, ...discoveredUnderlyingAddresses])];
+
+            await runInitStep('sync-token-content', () => syncTokenContentData([chain], allNewTokenAddresses));
+            await runInitStep('sync-coingecko-ids', () =>
+                coingeckoDataService.syncCoingeckoIds(Date.now(), {
+                    chains: [chain],
+                    filterAddresses: allNewTokenAddresses,
+                }),
+            );
             await runInitStep('sync-rate-provider-reviews', () => syncRateProviderReviews());
-            await runInitStep('update-derived-prices-and-liquidity', async () => {
-                const updated = await new PricingService([chain]).updateDerivedPrices(chain, newTokenAddresses);
+            await runInitStep('update-prices-and-liquidity', async () => {
+                const pricingService = new PricingService([chain]);
+                const updated = await pricingService.bootstrapTokenPrices(chain, allNewTokenAddresses);
                 if (updated.length > 0) {
                     await updateLiquidityValuesForPools(chain, newPoolIds);
+                    const newPoolIdSet = new Set(newPoolIds);
+                    if (updated.some((address) => !newPoolIdSet.has(address.toLowerCase()))) {
+                        await pricingService.updateDerivedPrices(chain, newPoolIds);
+                    }
                 }
             });
             await runInitStep('update-pool-aprs', () => new AprService().updateAprs(chain, newPoolIds));
