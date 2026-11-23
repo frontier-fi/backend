@@ -62,6 +62,7 @@ type BlueApiResponse = {
 const mapMorphoNetworkToChain = {
     ethereum: 'MAINNET',
     base: 'BASE',
+    monad: 'MONAD',
 };
 
 export const morphoApiClient = {
@@ -82,7 +83,9 @@ export const morphoApiClient = {
                         vault.state.dailyNetApy -
                         vault.state.dailyApy * (1 - vault.state.fee) -
                         (vault.asset.yield?.apr || 0),
-                    chain: mapMorphoNetworkToChain[vault.chain.network as keyof typeof mapMorphoNetworkToChain],
+                    chain: mapMorphoNetworkToChain[
+                        vault.chain.network.toLowerCase() as keyof typeof mapMorphoNetworkToChain
+                    ],
                 },
             ]),
         );

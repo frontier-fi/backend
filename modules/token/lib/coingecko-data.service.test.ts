@@ -65,7 +65,7 @@ describe('CoingeckoDataService.syncCoingeckoIds', () => {
 
         expect(mockTokenFindMany).toHaveBeenCalledWith({
             where: {
-                chain: { in: [Chain.BASE, Chain.MAINNET] },
+                chain: { in: [Chain.BASE, Chain.MAINNET, Chain.MONAD] },
                 coingeckoTokenId: null,
                 excludedFromCoingecko: false,
                 types: { none: { type: 'BPT' } },
