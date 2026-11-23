@@ -58,6 +58,12 @@ vi.mock('../../../../config', () => ({
                 merklAprHandler: true,
             },
         },
+        MONAD: {
+            chain: { id: 143, prismaId: 'MONAD' },
+            aprHandlers: {
+                merklAprHandler: true,
+            },
+        },
     },
 }));
 
@@ -293,5 +299,6 @@ describe('APR handler chain gating', () => {
         expect(createHandlers(Chain.SEPOLIA).map((h) => h.getAprServiceName())).not.toContain('MerklAprHandler');
         expect(createHandlers(Chain.BASE).map((h) => h.getAprServiceName())).toContain('MerklAprHandler');
         expect(createHandlers(Chain.MAINNET).map((h) => h.getAprServiceName())).toContain('MerklAprHandler');
+        expect(createHandlers(Chain.MONAD).map((h) => h.getAprServiceName())).toContain('MerklAprHandler');
     });
 });
