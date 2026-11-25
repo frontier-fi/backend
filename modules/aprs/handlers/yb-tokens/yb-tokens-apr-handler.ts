@@ -18,6 +18,10 @@ export class YbTokensAprHandler implements AprHandler {
         return 'YbTokensAprHandler';
     }
 
+    public getAprTypes(): PrismaPoolAprType[] {
+        return [PrismaPoolAprType.IB_YIELD];
+    }
+
     public async calculateAprForPools(
         pools: PoolAPRData[],
     ): Promise<Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[]> {

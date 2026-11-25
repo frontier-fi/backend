@@ -9,6 +9,10 @@ export class MorphoRewardsAprHandler implements AprHandler {
         return 'MorphoRewardsAprHandler';
     }
 
+    public getAprTypes(): PrismaPoolAprType[] {
+        return [PrismaPoolAprType.MERKL];
+    }
+
     public async calculateAprForPools(
         pools: PoolAPRData[],
     ): Promise<Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[]> {

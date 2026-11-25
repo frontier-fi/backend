@@ -1,8 +1,8 @@
 import { Chain, PrismaPoolAprType } from '@prisma/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '../../../../apps/env';
 import type { PoolAPRData } from '../../types';
-import { MerklAprHandler } from './merkl-apr-handler';
+import { clearMerklResponseCache, MerklAprHandler } from './merkl-apr-handler';
 import { createHandlers } from '../create-handlers';
 
 const fetchMock = vi.fn();
@@ -73,7 +73,7 @@ type Opportunity = {
     dailyRewards: number;
     explorerAddress: string;
     apr: number;
-    campaigns: { params: { whitelist: string[] } }[];
+    campaigns?: { params?: { whitelist?: string[] } }[];
 };
 
 function opportunity(overrides: Partial<Opportunity> = {}): Opportunity {
@@ -110,22 +110,26 @@ function json(body: unknown, init?: ResponseInit) {
 }
 
 describe('MerklAprHandler', () => {
-    const handler = new MerklAprHandler();
+    const noSleep = () => Promise.resolve();
+    const handler = new MerklAprHandler({ sleep: noSleep, batchDelayMs: 0, retryBaseDelayMs: 0 });
     const previousKey = env.MERKL_API_KEY;
 
     beforeEach(() => {
+        clearMerklResponseCache();
         fetchMock.mockReset();
         vi.stubGlobal('fetch', fetchMock);
         env.MERKL_API_KEY = undefined;
     });
 
     afterEach(() => {
+        clearMerklResponseCache();
         env.MERKL_API_KEY = previousKey;
         vi.unstubAllGlobals();
     });
 
-    it('names itself MerklAprHandler', () => {
+    it('names itself MerklAprHandler and owns MERKL APR type', () => {
         expect(handler.getAprServiceName()).toBe('MerklAprHandler');
+        expect(handler.getAprTypes()).toEqual([PrismaPoolAprType.MERKL]);
     });
 
     it('turns a live pool opportunity into an APR fraction and sends the API key', async () => {
@@ -149,19 +153,20 @@ describe('MerklAprHandler', () => {
         ]);
         expect(fetchMock).toHaveBeenCalledWith(
             expect.stringContaining('mainProtocolId=frontier&chainId=11155111&page=0&items=100'),
-            {
+            expect.objectContaining({
                 headers: { 'X-API-Key': 'merkl-test-key' },
-            },
+            }),
         );
     });
 
-    it('drops whitelisted campaigns, other chains, and pools with no liquidity', async () => {
+    it('drops whitelisted campaigns, other chains, and pools with no liquidity, and tolerates missing campaign params', async () => {
         fetchMock.mockImplementation((url: string) => {
             if (!String(url).includes('mainProtocolId=frontier')) return json([]);
             return json([
                 opportunity({ campaigns: [{ params: { whitelist: ['0xabc'] } }] }),
                 opportunity({ chainId: 1, identifier: POOL }),
                 opportunity({ identifier: '0xcccccccccccccccccccccccccccccccccccccccc' }),
+                opportunity({ apr: 5, campaigns: [{ params: {} }] }),
             ]);
         });
 
@@ -174,11 +179,11 @@ describe('MerklAprHandler', () => {
             }),
         ]);
 
-        expect(items).toEqual([]);
-        expect(fetchMock.mock.calls[0][1]).toEqual({ headers: {} });
+        expect(items).toEqual([expect.objectContaining({ poolId: 'pool-1', apr: 0.05 })]);
+        expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ headers: {} }));
     });
 
-    it('sums pool and token opportunities that land on the same pool', async () => {
+    it('sums pool and token opportunities that land on the same pool and scopes token lookups by chainId', async () => {
         fetchMock.mockImplementation((url: string) => {
             if (String(url).includes('mainProtocolId=frontier')) return json([opportunity({ apr: 10 })]);
             return json([
@@ -210,11 +215,13 @@ describe('MerklAprHandler', () => {
         // Pool APR 10% plus the wrapper's 20% scaled by its 25/100 share of TVL.
         expect(items).toHaveLength(1);
         expect(items[0].apr).toBeCloseTo(0.1 + 0.2 * 0.25);
-        expect(String(fetchMock.mock.calls[1][0])).toContain(A_TOKEN);
+        expect(String(fetchMock.mock.calls[1][0])).toContain(`chainId=11155111&explorerAddress=${A_TOKEN}`);
         expect(String(fetchMock.mock.calls[1][0])).not.toContain(WRAPPER);
     });
 
-    it('asks Merkl once per underlying token, ten at a time', async () => {
+    it('asks Merkl once per underlying token in batches of 4 and skips trailing batch sleep', async () => {
+        const sleepMock = vi.fn().mockResolvedValue(undefined);
+        const pacedHandler = new MerklAprHandler({ sleep: sleepMock, batchDelayMs: 300 });
         const tokens = Array.from({ length: 11 }, (_, index) => {
             const address = `0x${(index + 1).toString(16).padStart(40, '0')}`;
             return {
@@ -225,12 +232,15 @@ describe('MerklAprHandler', () => {
         });
         fetchMock.mockImplementation(() => json([]));
 
-        await handler.calculateAprForPools([pool({ tokens })]);
+        await pacedHandler.calculateAprForPools([pool({ tokens })]);
 
         const tokenCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes('explorerAddress='));
         expect(tokenCalls).toHaveLength(11);
         expect(fetchMock).toHaveBeenCalledTimes(12);
-    }, 10_000);
+        // 11 tokens in batches of 4 -> 3 batches -> 2 sleeps between batches (no sleep after final batch)
+        expect(sleepMock).toHaveBeenCalledTimes(2);
+        expect(sleepMock).toHaveBeenCalledWith(300);
+    });
 
     it('paginates through opportunities when a page returns 100 items and stops on a short page', async () => {
         const fullPage = Array.from({ length: 100 }, (_, i) =>
@@ -251,12 +261,115 @@ describe('MerklAprHandler', () => {
         expect(String(fetchMock.mock.calls[1][0])).toContain('page=1&items=100');
     });
 
-    it('throws when Merkl responds with a non-OK HTTP status', async () => {
-        fetchMock.mockImplementationOnce(() =>
+    it('caches successful responses across handler instances until max-age expires', async () => {
+        let nowMs = 1_000_000;
+        const firstHandler = new MerklAprHandler({ now: () => nowMs, sleep: noSleep });
+        const secondHandler = new MerklAprHandler({ now: () => nowMs, sleep: noSleep });
+
+        fetchMock.mockImplementation(() =>
+            json([opportunity({ apr: 12 })], {
+                headers: { 'Cache-Control': 'public, max-age=120' },
+            }),
+        );
+
+        const firstItems = await firstHandler.calculateAprForPools([pool()]);
+        nowMs += 60_000;
+        const cachedItems = await secondHandler.calculateAprForPools([pool()]);
+
+        expect(firstItems).toEqual([expect.objectContaining({ apr: 0.12 })]);
+        expect(cachedItems).toEqual([expect.objectContaining({ apr: 0.12 })]);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        nowMs += 60_000; // 120s elapsed -> expired
+        fetchMock.mockImplementation(() =>
+            json([opportunity({ apr: 18 })], {
+                headers: { 'Cache-Control': 'public, max-age=120' },
+            }),
+        );
+
+        const refreshedItems = await secondHandler.calculateAprForPools([pool()]);
+        expect(refreshedItems).toEqual([expect.objectContaining({ apr: 0.18 })]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('deduplicates concurrent in-flight requests for the same URL', async () => {
+        let resolveFetch!: (value: Response) => void;
+        fetchMock.mockImplementationOnce(
+            () =>
+                new Promise<Response>((resolve) => {
+                    resolveFetch = resolve;
+                }),
+        );
+
+        const firstHandler = new MerklAprHandler({ sleep: noSleep });
+        const secondHandler = new MerklAprHandler({ sleep: noSleep });
+
+        const p1 = firstHandler.calculateAprForPools([pool()]);
+        const p2 = secondHandler.calculateAprForPools([pool()]);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        resolveFetch(new Response(JSON.stringify([opportunity({ apr: 9 })])));
+
+        const [res1, res2] = await Promise.all([p1, p2]);
+        expect(res1).toEqual([expect.objectContaining({ apr: 0.09 })]);
+        expect(res2).toEqual([expect.objectContaining({ apr: 0.09 })]);
+    });
+
+    it('retries on 429 using Retry-After and does not cache failures', async () => {
+        const sleepMock = vi.fn().mockResolvedValue(undefined);
+        const retryHandler = new MerklAprHandler({ sleep: sleepMock, retryBaseDelayMs: 500, maxRetries: 2 });
+
+        fetchMock
+            .mockImplementationOnce(() =>
+                json(
+                    { message: 'rate limited' },
+                    { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '2' } },
+                ),
+            )
+            .mockImplementationOnce(() =>
+                json({ message: 'upstream error' }, { status: 503, statusText: 'Service Unavailable' }),
+            )
+            .mockImplementationOnce(() => json([opportunity({ apr: 14 })]));
+
+        const items = await retryHandler.calculateAprForPools([pool()]);
+
+        expect(items).toEqual([expect.objectContaining({ apr: 0.14 })]);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(sleepMock).toHaveBeenNthCalledWith(1, 2_000);
+        expect(sleepMock).toHaveBeenNthCalledWith(2, 1_000);
+    });
+
+    it('throws after exhausting retries on 429 and allows subsequent calls to retry', async () => {
+        const sleepMock = vi.fn().mockResolvedValue(undefined);
+        const retryHandler = new MerklAprHandler({ sleep: sleepMock, retryBaseDelayMs: 100, maxRetries: 2 });
+
+        fetchMock.mockImplementation(() =>
             json({ message: 'rate limited' }, { status: 429, statusText: 'Too Many Requests' }),
         );
 
-        await expect(handler.calculateAprForPools([pool()])).rejects.toThrow('Merkl API error: 429 Too Many Requests');
+        await expect(retryHandler.calculateAprForPools([pool()])).rejects.toThrow(
+            'Merkl API error: 429 Too Many Requests',
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+
+        // Failures were not cached, so a later call fetches again.
+        fetchMock.mockImplementationOnce(() => json([opportunity({ apr: 7 })]));
+        const recovered = await retryHandler.calculateAprForPools([pool()]);
+        expect(recovered).toEqual([expect.objectContaining({ apr: 0.07 })]);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('does not retry on non-retryable 400 responses', async () => {
+        const sleepMock = vi.fn().mockResolvedValue(undefined);
+        const retryHandler = new MerklAprHandler({ sleep: sleepMock, retryBaseDelayMs: 100, maxRetries: 2 });
+
+        fetchMock.mockImplementation(() =>
+            json({ message: 'bad request' }, { status: 400, statusText: 'Bad Request' }),
+        );
+
+        await expect(retryHandler.calculateAprForPools([pool()])).rejects.toThrow('Merkl API error: 400 Bad Request');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(sleepMock).not.toHaveBeenCalled();
     });
 
     it('maps wrappers across all configured Aave markets on the same chain', async () => {
