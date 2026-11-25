@@ -1,4 +1,4 @@
-import { PrismaPoolAprItem } from '@prisma/client';
+import { PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
 import type { PoolAPRData } from './apr-repository';
 export type { PoolAPRData };
 
@@ -9,6 +9,11 @@ export interface AprHandler {
      * @returns Array of APR items ready to be saved (without createdAt/updatedAt)
      */
     calculateAprForPools(pools: PoolAPRData[]): Promise<Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[]>;
+
+    /**
+     * Get the APR item types owned by this handler.
+     */
+    getAprTypes(): PrismaPoolAprType[];
 
     /**
      * Get the name of this calculator

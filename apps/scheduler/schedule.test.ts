@@ -76,8 +76,19 @@ describe('buildSchedule', () => {
 
         expect(schedule[0].initialDelay).toBe(0);
         schedule.forEach((entry, index) => {
-            expect(entry.initialDelay).toBe(Math.min(index * STARTUP_STAGGER_MS, entry.interval));
+            expect(entry.initialDelay).toBe((index * STARTUP_STAGGER_MS) % entry.interval);
+            expect(entry.initialDelay).toBeLessThan(entry.interval);
         });
+    });
+
+    it('gives update-pool-apr a distinct initialDelay across configured networks', () => {
+        const schedule = buildSchedule(networks, globalWorkerJobs);
+        const aprDelays = schedule
+            .filter((entry) => entry.name === 'update-pool-apr')
+            .map((entry) => entry.initialDelay);
+
+        expect(aprDelays).toHaveLength(networks.length);
+        expect(new Set(aprDelays).size).toBe(networks.length);
     });
 
     it('uses the stagger it is given', () => {
