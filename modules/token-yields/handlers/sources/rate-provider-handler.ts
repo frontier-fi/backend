@@ -6,6 +6,9 @@ import { daysAgo, now } from '../../../common/time';
 
 const abi = [parseAbiItem('function getRate() view returns(uint)')];
 
+const relativeGrowth = (currentRate: bigint, pastRate: bigint) =>
+    parseFloat(formatEther(currentRate)) / parseFloat(formatEther(pastRate)) - 1;
+
 export const rateProviderHandler: TokenYieldHandler = async ({
     chain,
     intervalInDays,
@@ -39,8 +42,7 @@ export const rateProviderHandler: TokenYieldHandler = async ({
                         blockNumber: BigInt(pastBlock),
                     });
 
-                    const rateGrowth = currentRate - pastRate;
-                    apr = parseFloat(formatEther(rateGrowth)) * (365 / intervalInDays);
+                    apr = relativeGrowth(currentRate, pastRate) * (365 / intervalInDays);
                 } catch {
                     // When contract doesn't exit it fails with
                     // The contract function "getRate" returned no data ("0x")
@@ -53,8 +55,7 @@ export const rateProviderHandler: TokenYieldHandler = async ({
                         blockNumber: BigInt(fallbackIntervalBlock),
                     });
 
-                    const rateGrowth = currentRate - pastRate;
-                    apr = parseFloat(formatEther(rateGrowth)) * (365 * 2);
+                    apr = relativeGrowth(currentRate, pastRate) * 365;
                 }
 
                 return {
