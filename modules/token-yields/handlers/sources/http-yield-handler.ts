@@ -15,6 +15,8 @@ const fetchJsonWithTimeout = async (
         ...options,
         signal: controller.signal,
     }).then((response) => response.json());
+    // Detached so a late abort rejection is not unhandled when the timeout wins the race
+    fetchPromise.catch(() => {});
 
     let onAbort: (() => void) | undefined;
     // Timeout promise - needed to handle bun edge case that doesn't throw when fetch is aborted

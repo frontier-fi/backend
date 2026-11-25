@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseError, ContractFunctionExecutionError, ContractFunctionZeroDataError, parseEther } from 'viem';
 import { logger } from '../../../common/logger';
 import { rateProviderHandler } from './rate-provider-handler';
@@ -42,6 +42,10 @@ describe('rateProviderHandler', () => {
     beforeEach(() => {
         timestamps = {};
         rates = {};
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it('annualises rate growth over the time that really elapsed', async () => {
