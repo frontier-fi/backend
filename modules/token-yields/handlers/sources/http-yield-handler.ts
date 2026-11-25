@@ -1,7 +1,7 @@
 import { JSONPath } from 'jsonpath-plus';
 import { TokenYieldHandler, TokenYieldHttpFetchConfig } from '../../types';
 
-const fetchWithTimeout = async (
+const fetchJsonWithTimeout = async (
     url: string,
     options: RequestInit = {},
     _skipSSL = false,
@@ -10,10 +10,13 @@ const fetchWithTimeout = async (
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+    // The body is read inside the race, so the timeout also covers a response that stalls after its headers
     const fetchPromise = fetch(url, {
         ...options,
         signal: controller.signal,
-    });
+    }).then((response) => response.json());
+    // Detached so a late abort rejection is not unhandled when the timeout wins the race
+    fetchPromise.catch(() => {});
 
     let onAbort: (() => void) | undefined;
     // Timeout promise - needed to handle bun edge case that doesn't throw when fetch is aborted
@@ -25,9 +28,9 @@ const fetchWithTimeout = async (
     });
 
     try {
-        const response = await Promise.race([fetchPromise, timeoutPromise]);
+        const json = await Promise.race([fetchPromise, timeoutPromise]);
         clearTimeout(timeoutId);
-        return response;
+        return json;
     } catch (error: any) {
         clearTimeout(timeoutId);
         throw `${url} ${error.message}`;
@@ -76,7 +79,7 @@ const normalizeValue = async (value: any, { url, average, scale, convert }: Toke
 };
 
 export const httpTokenYieldHandler: TokenYieldHandler = async (config: TokenYieldHttpFetchConfig) => {
-    const res = await fetchWithTimeout(
+    const json = await fetchJsonWithTimeout(
         config.url,
         {
             method: config.method ?? (config.body ? 'POST' : 'GET'),
@@ -86,8 +89,6 @@ export const httpTokenYieldHandler: TokenYieldHandler = async (config: TokenYiel
         config.skipSSL,
     );
     try {
-        const json = await res.json();
-
         return transform(extract(json, config), config);
     } catch (e: any) {
         throw `http-yield-handler ${e.message} ${config.url}`;
