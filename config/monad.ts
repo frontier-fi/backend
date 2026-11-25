@@ -165,30 +165,6 @@ export default <NetworkData>{
                     ],
                 },
                 {
-                    // blbUSDC
-                    url: 'https://api2.curvance.com/snapshots/latest/token/0x7f779f7f5316f6164dc5a25422a5ee51504b284a',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0x215394b5677cb7a18b6fa8cc2cd155c024ee6b2e',
-                            path: '$.percent_supply_apy',
-                        },
-                    ],
-                },
-                {
-                    // blbAUSD
-                    url: 'https://api2.curvance.com/snapshots/latest/token/0xbde2459a033f20442ce18483cdd48643d80c6c93',
-                    scale: 100,
-                    extractors: [
-                        {
-                            type: 'path',
-                            token: '0xc2ddc1004ca0d6cc4bfd1dcd03dcf855bed8e670',
-                            path: '$.percent_supply_apy',
-                        },
-                    ],
-                },
-                {
                     // Neverland: one request for all wrapped reserves, keyed by underlying reserve address.
                     url: 'https://app.neverland.money/api/pool-apy',
                     scale: 100,
@@ -355,6 +331,22 @@ export default <NetworkData>{
                     ],
                 },
             ],
+            // Blueberry vault yield doesn't track any single Curvance market's supply APY
+            // (blbAUSD's market reported 0% while the vault earned ~9%), so use realised rate growth.
+            rateProvider: {
+                chain: 'MONAD',
+                intervalInDays: 7,
+                rateProviders: [
+                    {
+                        tokenAddress: '0x215394b5677cb7a18b6fa8cc2cd155c024ee6b2e', // blbUSDC
+                        rateProviderAddress: '0xa321a4bc2a55e9ec674897fe3fc9dd08beff1d5c',
+                    },
+                    {
+                        tokenAddress: '0xc2ddc1004ca0d6cc4bfd1dcd03dcf855bed8e670', // blbAUSD
+                        rateProviderAddress: '0x497bdbc39b9f70b7ce781cc74e45e1cb897843c0',
+                    },
+                ],
+            },
         },
     },
     workerJobs: [...activeChainWorkerJobsV3, ...activeChainWorkerJobsGeneric],
