@@ -1,10 +1,13 @@
 import { TokenYieldHandler, RateProviderYieldConfig } from '../../types';
 import { getViemClient } from '../../../sources/viem-client';
-import { formatEther, parseAbiItem, Hex } from 'viem';
-import { blockNumbers } from '../../../block-numbers';
-import { daysAgo, now } from '../../../common/time';
+import { BaseError, ContractFunctionZeroDataError, formatEther, parseAbiItem, Hex } from 'viem';
+import { logger } from '../../../common/logger';
+import { secondsPerDay, secondsPerYear } from '../../../common/time';
 
 const abi = [parseAbiItem('function getRate() view returns(uint)')];
+
+// Number of recent blocks used to measure the chain's average block time
+const BLOCK_TIME_SAMPLE = 10_000;
 
 const relativeGrowth = (currentRate: bigint, pastRate: bigint) =>
     parseFloat(formatEther(currentRate)) / parseFloat(formatEther(pastRate)) - 1;
@@ -17,62 +20,58 @@ export const rateProviderHandler: TokenYieldHandler = async ({
     try {
         const client = getViemClient(chain, { multicallBatch: true, jsonRpcBatch: true });
 
-        const pastBlock = await blockNumbers().getBlock(chain, daysAgo(intervalInDays));
-        const fallbackIntervalBlock = await blockNumbers().getBlock(chain, now() - 24 * 3600);
+        const latest = await client.getBlock();
+        const sample = await client.getBlock({ blockNumber: latest.number - BigInt(BLOCK_TIME_SAMPLE) });
+        const blockTime = Number(latest.timestamp - sample.timestamp) / BLOCK_TIME_SAMPLE;
 
-        if (!pastBlock) {
-            return [];
-        }
+        // Located from the average block time, so the block is only roughly `days` old.
+        // The APR is annualised over the time that really elapsed since its timestamp.
+        const blockDaysAgo = (days: number) =>
+            client.getBlock({ blockNumber: latest.number - BigInt(Math.round((days * secondsPerDay) / blockTime)) });
 
-        const aprs = await Promise.allSettled(
+        const [pastBlock, fallbackBlock] = await Promise.all([blockDaysAgo(intervalInDays), blockDaysAgo(1)]);
+
+        const getRate = (address: string, blockNumber: bigint) =>
+            client.readContract({ address: address as Hex, abi, functionName: 'getRate', blockNumber });
+
+        const results = await Promise.allSettled(
             rateProviders.map(async ({ tokenAddress, rateProviderAddress }) => {
-                const currentRate = await client.readContract({
-                    address: rateProviderAddress as Hex,
-                    abi,
-                    functionName: 'getRate',
-                });
+                const currentRate = await getRate(rateProviderAddress, latest.number);
 
-                let pastRate: bigint;
-                let apr: number;
-                try {
-                    pastRate = await client.readContract({
-                        address: rateProviderAddress as Hex,
-                        abi,
-                        functionName: 'getRate',
-                        blockNumber: BigInt(pastBlock),
+                // Rate providers that weren't live for the whole interval get the 1 day window
+                for (const block of [pastBlock, fallbackBlock]) {
+                    const pastRate = await getRate(rateProviderAddress, block.number).catch((error) => {
+                        // No data means the rate provider wasn't deployed yet. Anything else is an RPC failure,
+                        // like missing historical state, and must not be mistaken for a young rate provider.
+                        if (
+                            error instanceof BaseError &&
+                            error.walk((e) => e instanceof ContractFunctionZeroDataError)
+                        ) {
+                            return 0n;
+                        }
+                        throw error;
                     });
+                    if (pastRate === 0n) continue;
 
-                    apr = relativeGrowth(currentRate, pastRate) * (365 / intervalInDays);
-                } catch {
-                    // When contract doesn't exit it fails with
-                    // The contract function "getRate" returned no data ("0x")
-                    if (!fallbackIntervalBlock) return;
-
-                    pastRate = await client.readContract({
-                        address: rateProviderAddress as Hex,
-                        abi,
-                        functionName: 'getRate',
-                        blockNumber: BigInt(fallbackIntervalBlock),
-                    });
-
-                    apr = relativeGrowth(currentRate, pastRate) * 365;
+                    const years = Number(latest.timestamp - block.timestamp) / secondsPerYear;
+                    // A rate that fell is a loss and not a yield, so it is stored as 0
+                    return { address: tokenAddress, apr: Math.max(relativeGrowth(currentRate, pastRate) / years, 0) };
                 }
-
-                return {
-                    address: tokenAddress,
-                    apr,
-                };
             }),
-        ).then((results) =>
-            results
-                .filter((r) => r.status === 'fulfilled')
-                .map((r) => r.value)
-                .filter((v) => !!v)
-                .filter((v) => v.apr > 0),
         );
 
-        return aprs;
+        return results.flatMap((result, i) => {
+            if (result.status === 'rejected') {
+                logger.warn('Rate provider APR failed', {
+                    chain,
+                    tokenAddress: rateProviders[i].tokenAddress,
+                    err: result.reason,
+                });
+                return [];
+            }
+            return result.value ? [result.value] : [];
+        });
     } catch (error) {
-        throw Error(`Rate provider APR hanlder failed: ${(error as Error).message}`);
+        throw Error(`Rate provider APR handler failed: ${(error as Error).message}`);
     }
 };

@@ -333,6 +333,7 @@ export default <NetworkData>{
             ],
             // Blueberry vault yield doesn't track any single Curvance market's supply APY
             // (blbAUSD's market reported 0% while the vault earned ~9%), so use realised rate growth.
+            // Needs 7 days of historical state, which the keyless Tenderly RPC doesn't serve: set DRPC_API_KEY.
             rateProvider: {
                 chain: 'MONAD',
                 intervalInDays: 7,
