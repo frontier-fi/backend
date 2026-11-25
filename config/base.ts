@@ -103,6 +103,9 @@ export default <NetworkData>{
                     ],
                 },
             ],
+            teth: {
+                address: '0xd09acb80c1e8f2291862c4978a008791c9167003', // tETH
+            },
         },
     },
     workerJobs: [...activeChainWorkerJobsV3, ...activeChainWorkerJobsGeneric],

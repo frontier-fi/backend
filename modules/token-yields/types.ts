@@ -81,4 +81,7 @@ export interface TokenYieldConfig {
         calls: TokenYieldContractFetchConfig[];
     };
     rateProvider?: RateProviderYieldConfig;
+    teth?: {
+        address: string;
+    };
 }
