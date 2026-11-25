@@ -102,7 +102,21 @@ export default <NetworkData>{
                         },
                     ],
                 },
+                {
+                    url: 'https://api.rocketpool.net/mainnet/reth/apr',
+                    scale: 100,
+                    extractors: [
+                        {
+                            type: 'path',
+                            token: '0xb6fe221fe9eef5aba221c348ba20a1bf5e73624c', // rETH
+                            path: '$.yearlyAPR',
+                        },
+                    ],
+                },
             ],
+            teth: {
+                address: '0xd09acb80c1e8f2291862c4978a008791c9167003', // tETH
+            },
         },
     },
     workerJobs: [...activeChainWorkerJobsV3, ...activeChainWorkerJobsGeneric],
