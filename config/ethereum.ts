@@ -105,6 +105,17 @@ export default <NetworkData>{
                     ],
                 },
                 {
+                    url: 'https://api.rocketpool.net/mainnet/reth/apr',
+                    scale: 100,
+                    extractors: [
+                        {
+                            type: 'path',
+                            token: '0xae78736cd615f374d3085123a210448e74fc6393', // rETH
+                            path: '$.yearlyAPR',
+                        },
+                    ],
+                },
+                {
                     url: 'https://info-sky.blockanalitica.com/api/v1/savings-rate/?format=json',
                     scale: 1,
                     extractors: [
