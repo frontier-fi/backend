@@ -1,4 +1,4 @@
-import { Chain, PrismaPoolAprItem } from '@prisma/client';
+import { Chain, PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
 import { AprHandler } from './types';
 import { AprRepository } from './apr-repository';
 import _ from 'lodash';
@@ -10,21 +10,22 @@ export class AprManager {
         private readonly aprHandlers: AprHandler[],
     ) {}
 
-    /**
-     * Calculate APRs without writing to the database
-     */
-    async calculateAprs(
+    private async calculateAprsWithFailures(
         chain: Chain,
         poolIds?: string[],
-    ): Promise<Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[]> {
+    ): Promise<{
+        aprItems: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[];
+        failedTypes: Set<PrismaPoolAprType>;
+    }> {
         const pools = await this.aprRepository.getPoolsForAprCalculation(chain, poolIds);
 
         if (pools.length === 0) {
-            return [];
+            return { aprItems: [], failedTypes: new Set() };
         }
 
         // Get all APR items from all handlers
         const allAprItems: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[] = [];
+        const failedTypes = new Set<PrismaPoolAprType>();
 
         for (const handler of this.aprHandlers) {
             try {
@@ -32,18 +33,34 @@ export class AprManager {
                 allAprItems.push(...items);
             } catch (e: any) {
                 logger.error('APR handler failed', { handler: handler.getAprServiceName(), err: e });
+                for (const type of handler.getAprTypes()) {
+                    failedTypes.add(type);
+                }
             }
         }
 
-        return allAprItems;
+        return { aprItems: allAprItems, failedTypes };
+    }
+
+    /**
+     * Calculate APRs without writing to the database
+     */
+    async calculateAprs(
+        chain: Chain,
+        poolIds?: string[],
+    ): Promise<Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[]> {
+        const { aprItems } = await this.calculateAprsWithFailures(chain, poolIds);
+        return aprItems;
     }
 
     /**
      * Calculate and persist APRs
      */
     async updateAprs(chain: Chain, poolIds?: string[]): Promise<string[]> {
-        const aprItems = await this.calculateAprs(chain, poolIds);
-        const changedPoolIds = await this.aprRepository.savePoolAprItems(chain, aprItems, poolIds);
+        const { aprItems, failedTypes } = await this.calculateAprsWithFailures(chain, poolIds);
+        const changedPoolIds = await this.aprRepository.savePoolAprItems(chain, aprItems, poolIds, {
+            preserveTypes: failedTypes,
+        });
 
         if (changedPoolIds.length > 0) {
             await this.aprRepository.updatePoolTotalApr(chain, changedPoolIds);

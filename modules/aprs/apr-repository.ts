@@ -1,4 +1,4 @@
-import { Prisma, Chain, PrismaPoolAprItem } from '@prisma/client';
+import { Prisma, Chain, PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
 import { prisma } from '../../prisma/prisma-client';
 import { prismaBulkExecuteOperations } from '../../prisma/prisma-util';
 import _ from 'lodash';
@@ -59,6 +59,7 @@ export class AprRepository {
         chain: Chain,
         newAprItems: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[],
         poolIds?: string[],
+        options?: { preserveTypes?: ReadonlySet<PrismaPoolAprType> },
     ): Promise<string[]> {
         const changedPoolIds = new Set<string>();
 
@@ -70,9 +71,13 @@ export class AprRepository {
             },
         });
 
-        // Remove items that are not in newAprItems anymore
+        const preserveTypes = options?.preserveTypes;
+
+        // Remove items that are not in newAprItems anymore, unless their handler failed
         const itemsToRemove = existingItems.filter(
-            (existingItem) => !newAprItems.find((newAprItem) => newAprItem.id === existingItem.id),
+            (existingItem) =>
+                !(existingItem.type && preserveTypes?.has(existingItem.type)) &&
+                !newAprItems.some((newAprItem) => newAprItem.id === existingItem.id),
         );
 
         if (itemsToRemove.length > 0) {

@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { Chain, PrismaPoolAprItem } from '@prisma/client';
+import { Chain, PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
 import { AprHandler, PoolAPRData } from '../../types';
 import { AaveChanClientInterface, AaveChanResponse, AaveChanClient } from './aave-chan-client';
 
@@ -19,6 +19,10 @@ export class AaveApiAprHandler implements AprHandler {
 
     public getAprServiceName(): string {
         return 'AaveApiAprHandler';
+    }
+
+    public getAprTypes(): PrismaPoolAprType[] {
+        return [PrismaPoolAprType.MERKL];
     }
 
     public async calculateAprForPools(

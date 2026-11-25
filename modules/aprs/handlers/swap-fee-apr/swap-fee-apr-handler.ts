@@ -35,6 +35,10 @@ export class SwapFeeAprHandler implements AprHandler {
         return 'SwapFeeAprHandler';
     }
 
+    public getAprTypes(): PrismaPoolAprType[] {
+        return [PrismaPoolAprType.SWAP_FEE_24H, PrismaPoolAprType.DYNAMIC_SWAP_FEE_24H];
+    }
+
     public async calculateAprForPools(
         pools: PoolAPRData[],
     ): Promise<Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[]> {

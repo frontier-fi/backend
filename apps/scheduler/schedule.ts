@@ -37,7 +37,7 @@ export function buildSchedule(
         name: job.name,
         chainId: job.chainId,
         interval: job.interval,
-        initialDelay: Math.min(index * staggerMs, job.interval),
+        initialDelay: (index * staggerMs) % job.interval,
     }));
 }
 
