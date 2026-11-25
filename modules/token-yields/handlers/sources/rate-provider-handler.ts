@@ -60,17 +60,22 @@ export const rateProviderHandler: TokenYieldHandler = async ({
             }),
         );
 
-        return results.flatMap((result, i) => {
-            if (result.status === 'rejected') {
-                logger.warn('Rate provider APR failed', {
-                    chain,
-                    tokenAddress: rateProviders[i].tokenAddress,
-                    err: result.reason,
-                });
-                return [];
-            }
-            return result.value ? [result.value] : [];
-        });
+        const failures = results.flatMap((result, i) =>
+            result.status === 'rejected' ? [{ tokenAddress: rateProviders[i].tokenAddress, err: result.reason }] : [],
+        );
+        if (failures.length > 0) {
+            const { err } = failures[0];
+            // These tokens keep their previous APR. Logged at error level, which is what the alerts count,
+            // and once per run so that a single failed run doesn't look like a burst of errors.
+            logger.error('Rate provider APR failed', {
+                chain,
+                tokenAddresses: failures.map((failure) => failure.tokenAddress),
+                // viem's full message puts the RPC's own reason after the calldata, beyond the logger's length cap
+                err: err instanceof BaseError ? err.details || err.shortMessage : err,
+            });
+        }
+
+        return results.flatMap((result) => (result.status === 'fulfilled' && result.value ? [result.value] : []));
     } catch (error) {
         throw Error(`Rate provider APR handler failed: ${(error as Error).message}`);
     }
