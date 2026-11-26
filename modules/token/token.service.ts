@@ -20,6 +20,7 @@ import {
     MutationTokenDeleteTokenTypeArgs,
     QueryTokenGetTokensArgs,
 } from '../../apps/api/gql/generated-schema';
+import { createHash } from 'node:crypto';
 import { Dictionary } from 'lodash';
 import config from '../../config';
 import { addressesMatch, normalizeAddress } from '../web3/addresses';
@@ -37,6 +38,7 @@ const TOKEN_DEFINITIONS_MAX_BYTES = 8 * 1024 * 1024;
 export class TokenService {
     cache: CacheClass<string, any>;
     private inFlight = new Map<string, Promise<unknown>>();
+    private cacheGeneration = 0;
     private definitionsCache = new BoundedLruCache<GqlToken[]>({
         maxEntries: TOKEN_DEFINITIONS_MAX_ENTRIES,
         maxBytes: TOKEN_DEFINITIONS_MAX_BYTES,
@@ -47,17 +49,26 @@ export class TokenService {
         this.cache = new Cache<string, any>();
     }
 
-    private singleFlight<T>(key: string, load: () => Promise<T>): Promise<T> {
-        const existing = this.inFlight.get(key) as Promise<T> | undefined;
+    public invalidateTokenCaches(): void {
+        this.cacheGeneration += 1;
+        this.definitionsCache.clear();
+        this.cache.clear();
+        this.inFlight.clear();
+    }
+
+    private singleFlight<T>(key: string, load: (generationAtStart: number) => Promise<T>): Promise<T> {
+        const generationAtStart = this.cacheGeneration;
+        const scopedKey = `${generationAtStart}:${key}`;
+        const existing = this.inFlight.get(scopedKey) as Promise<T> | undefined;
         if (existing) {
             return existing;
         }
-        const promise = load().finally(() => {
-            if (this.inFlight.get(key) === promise) {
-                this.inFlight.delete(key);
+        const promise = load(generationAtStart).finally(() => {
+            if (this.inFlight.get(scopedKey) === promise) {
+                this.inFlight.delete(scopedKey);
             }
         });
-        this.inFlight.set(key, promise);
+        this.inFlight.set(scopedKey, promise);
         return promise;
     }
 
@@ -87,11 +98,11 @@ export class TokenService {
         const cacheKey = `${ALL_TOKENS_CACHE_KEY}:${chain}`;
         let tokens: PrismaToken[] | null = this.cache.get(cacheKey);
         if (!tokens) {
-            tokens = await this.singleFlight(cacheKey, async () => {
+            tokens = await this.singleFlight(cacheKey, async (generationAtStart) => {
                 const loaded = await prisma.prismaToken.findMany({ where: { chain: chain } });
                 // An empty list must not be cached. A quote before the first sync would
                 // otherwise hide every token added during the next five minutes.
-                if (loaded.length > 0) {
+                if (loaded.length > 0 && generationAtStart === this.cacheGeneration) {
                     this.cache.put(cacheKey, loaded, 5 * 60 * 1000);
                 }
                 return loaded;
@@ -132,14 +143,18 @@ export class TokenService {
     }
 
     public async getTokenDefinitions(args: QueryTokenGetTokensArgs): Promise<GqlToken[]> {
-        const cacheKey = stableStringify({ chains: args.chains ?? [], where: args.where ?? null });
+        const cacheKey = createHash('sha256')
+            .update(stableStringify({ chains: args.chains ?? [], where: args.where ?? null }))
+            .digest('hex');
         const cached = this.definitionsCache.getSync(cacheKey);
         if (cached) {
             return cached;
         }
-        return this.singleFlight(`token:definitions:${cacheKey}`, async () => {
+        return this.singleFlight(`token:definitions:${cacheKey}`, async (generationAtStart) => {
             const definitions = await this.loadTokenDefinitions(args);
-            this.definitionsCache.setSync(cacheKey, definitions);
+            if (generationAtStart === this.cacheGeneration) {
+                this.definitionsCache.setSync(cacheKey, definitions);
+            }
             return definitions;
         });
     }
@@ -305,7 +320,7 @@ export class TokenService {
         > | null = this.cache.get(ERC4626_REVIEW_DATA_CACHE_KEY);
 
         if (!erc4626Data) {
-            erc4626Data = await this.singleFlight(ERC4626_REVIEW_DATA_CACHE_KEY, async () => {
+            erc4626Data = await this.singleFlight(ERC4626_REVIEW_DATA_CACHE_KEY, async (generationAtStart) => {
                 const reviews = await prisma.prismaErc4626ReviewData.findMany();
                 // Remove all duplicates, keeping only items that appear exactly once
                 const addressChainCounts = new Map<string, number>();
@@ -325,7 +340,9 @@ export class TokenService {
                             },
                         ]),
                 );
-                this.cache.put(ERC4626_REVIEW_DATA_CACHE_KEY, data, 10 * 60 * 1000); // cache for 10 min
+                if (generationAtStart === this.cacheGeneration) {
+                    this.cache.put(ERC4626_REVIEW_DATA_CACHE_KEY, data, 10 * 60 * 1000); // cache for 10 min
+                }
                 return data;
             });
         }
@@ -337,9 +354,11 @@ export class TokenService {
         const cacheKey = `${TOKEN_PRICES_CACHE_KEY}:${chain}`;
         let tokenPrices: PrismaTokenCurrentPrice[] | null = this.cache.get(cacheKey);
         if (!tokenPrices) {
-            tokenPrices = await this.singleFlight(cacheKey, async () => {
+            tokenPrices = await this.singleFlight(cacheKey, async (generationAtStart) => {
                 const prices = await this.tokenPriceService.getCurrentTokenPrices([chain]);
-                this.cache.put(cacheKey, prices, 30 * 1000);
+                if (generationAtStart === this.cacheGeneration) {
+                    this.cache.put(cacheKey, prices, 30 * 1000);
+                }
                 return prices;
             });
         }
@@ -437,6 +456,7 @@ export class TokenService {
                 },
             },
         });
+        this.invalidateTokenCaches();
     }
 }
 

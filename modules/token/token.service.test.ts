@@ -208,4 +208,69 @@ describe('TokenService single-flight and cache consolidation', () => {
         expect(recovered).toHaveLength(1);
         expect(freshSpy).toHaveBeenCalledTimes(2);
     });
+
+    it('invalidates token definitions cache on deleteTokenType and prevents stale in-flight refills', async () => {
+        const token = prismaTokenFactory.build({
+            address: '0x00000000000000000000000000000000000000aa',
+            chain: 'SEPOLIA',
+            symbol: 'TKN',
+            name: 'Token',
+        });
+        let types: Array<{ chain: 'SEPOLIA'; tokenAddress: string; type: 'WHITE_LISTED' }> = [
+            { chain: 'SEPOLIA', tokenAddress: token.address, type: 'WHITE_LISTED' },
+        ];
+
+        vi.spyOn(prisma.prismaToken, 'findMany').mockResolvedValue([token]);
+        const findTypes = vi.spyOn(prisma.prismaTokenType, 'findMany').mockImplementation((async () => types) as any);
+        vi.spyOn(prisma.prismaPriceRateProviderData, 'findMany').mockResolvedValue([]);
+        vi.spyOn(prisma.prismaErc4626ReviewData, 'findMany').mockResolvedValue([]);
+        const deleteSpy = vi.spyOn(prisma.prismaTokenType, 'delete').mockImplementation((async () => {
+            types = [];
+            return {} as any;
+        }) as any);
+
+        const before = await service.getTokenDefinitions({ chains: ['SEPOLIA'] });
+        expect(before[0].types).toEqual(['WHITE_LISTED']);
+
+        await service.deleteTokenType(
+            { tokenAddress: token.address, type: 'WHITE_LISTED', chain: 'SEPOLIA' },
+            'SEPOLIA',
+        );
+        expect(deleteSpy).toHaveBeenCalledTimes(1);
+
+        const after = await service.getTokenDefinitions({ chains: ['SEPOLIA'] });
+        expect(after[0].types).toEqual([]);
+        expect(findTypes).toHaveBeenCalledTimes(2);
+
+        // Stale load in flight when invalidateTokenCaches() runs must not refill the cache
+        let resolveStaleLoad!: () => void;
+        let loadAttempt = 0;
+        const fresh = new TokenService(new TokenPriceService());
+        vi.spyOn(prisma.prismaToken, 'findMany').mockImplementation((async () => {
+            loadAttempt += 1;
+            if (loadAttempt === 1) {
+                await new Promise<void>((resolve) => {
+                    resolveStaleLoad = resolve;
+                });
+                return [prismaTokenFactory.build({ address: '0xold', chain: 'SEPOLIA', symbol: 'OLD' })];
+            }
+            return [prismaTokenFactory.build({ address: '0xnew', chain: 'SEPOLIA', symbol: 'NEW' })];
+        }) as any);
+
+        const stalePromise = fresh.getTokenDefinitions({ chains: ['SEPOLIA'] });
+        await Promise.resolve();
+
+        fresh.invalidateTokenCaches();
+        const postInvalidate = await fresh.getTokenDefinitions({ chains: ['SEPOLIA'] });
+        expect(postInvalidate.map((t) => t.address)).toEqual(['0xnew']);
+
+        resolveStaleLoad();
+        const staleRes = await stalePromise;
+        expect(staleRes.map((t) => t.address)).toEqual(['0xold']);
+
+        // Cache still serves the new load, not the stale one
+        const cachedAfter = await fresh.getTokenDefinitions({ chains: ['SEPOLIA'] });
+        expect(cachedAfter.map((t) => t.address)).toEqual(['0xnew']);
+        expect(loadAttempt).toBe(2);
+    });
 });

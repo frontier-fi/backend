@@ -73,7 +73,7 @@ export class BoundedLruCache<V> {
     }
 
     setSync(key: string, value: V, ttlMs?: number): boolean {
-        const entryBytes = Math.max(1, this.sizeOf(value));
+        const entryBytes = Math.max(1, Buffer.byteLength(key, 'utf8') + this.sizeOf(value));
         if (entryBytes > this.maxBytes) {
             this.deleteSync(key);
             return false;

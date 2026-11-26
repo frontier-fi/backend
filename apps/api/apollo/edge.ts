@@ -1,7 +1,9 @@
 import { ApolloServerPlugin, HeaderMap } from '@apollo/server';
+import { createHash } from 'node:crypto';
 import {
     DocumentNode,
     execute,
+    FormattedExecutionResult,
     FragmentDefinitionNode,
     Kind,
     OperationDefinitionNode,
@@ -143,7 +145,8 @@ function buildCacheKey(
     operationName: string | null | undefined,
     variables: Record<string, unknown> | undefined,
 ): string {
-    return `${queryHash}:${operationName ?? ''}:${variables ? stableStringify(variables) : ''}`;
+    const raw = `${queryHash}:${operationName ?? ''}:${variables ? stableStringify(variables) : ''}`;
+    return createHash('sha256').update(raw).digest('hex');
 }
 
 export function clientIp(headers: HeaderMap | undefined, contextValue: Partial<ResolverContext> | undefined): string {
@@ -167,6 +170,11 @@ interface RateBucket {
     count: number;
     resetAt: number;
 }
+
+type InFlightOutcome =
+    | { kind: 'data'; data: Record<string, unknown> }
+    | { kind: 'error'; status: number | undefined; singleResult: FormattedExecutionResult }
+    | { kind: 'invalidated' };
 
 export interface EdgePluginOptions {
     now?: () => number;
@@ -208,7 +216,7 @@ export function createApolloEdgePlugin(
         sizeOf: (entry) => estimateByteSize(entry.data),
         now,
     });
-    const inFlight = new Map<string, Promise<Record<string, unknown> | undefined>>();
+    const inFlight = new Map<string, Promise<InFlightOutcome>>();
     const rateBuckets = new Map<string, RateBucket>();
     let cacheGeneration = 0;
 
@@ -267,13 +275,13 @@ export function createApolloEdgePlugin(
             let inFlightLeader:
                 | {
                       key: string;
-                      promise: Promise<Record<string, unknown> | undefined>;
-                      resolve: (data: Record<string, unknown> | undefined) => void;
+                      promise: Promise<InFlightOutcome>;
+                      resolve: (outcome: InFlightOutcome) => void;
                   }
                 | undefined;
             let servedFromPlugin = false;
 
-            const settleLeader = (data: Record<string, unknown> | undefined) => {
+            const settleLeader = (outcome: InFlightOutcome) => {
                 if (!inFlightLeader) {
                     return;
                 }
@@ -282,7 +290,7 @@ export function createApolloEdgePlugin(
                 if (inFlight.get(leader.key) === leader.promise) {
                     inFlight.delete(leader.key);
                 }
-                leader.resolve(data);
+                leader.resolve(outcome);
             };
 
             return {
@@ -333,100 +341,121 @@ export function createApolloEdgePlugin(
                         requestContext.request.variables,
                     );
                     const cacheControl = `public, max-age=${ttl.maxAge}, stale-while-revalidate=${ttl.swr}`;
-                    const entry = cache.getSync(key);
 
-                    if (entry && currentTime < entry.staleUntil) {
-                        servedFromPlugin = true;
-                        const isFresh = currentTime < entry.freshUntil;
+                    for (let attempt = 0; attempt < 2; attempt++) {
+                        const activeGeneration = cacheGeneration;
+                        const inFlightKey = `${activeGeneration}:${key}`;
+                        const checkTime = now();
+                        const entry = cache.getSync(key);
 
-                        if (!isFresh && !entry.revalidating) {
-                            entry.revalidating = true;
-                            const generationAtStart = cacheGeneration;
-                            Promise.resolve()
-                                .then(() =>
-                                    execute({
-                                        schema: requestContext.schema,
-                                        document: requestContext.document,
-                                        operationName: requestContext.operationName,
-                                        variableValues: requestContext.request.variables,
-                                        contextValue: requestContext.contextValue,
-                                    }),
-                                )
-                                .then((result) => {
-                                    if (
-                                        result.data &&
-                                        !result.errors?.length &&
-                                        generationAtStart === cacheGeneration
-                                    ) {
-                                        const refreshedAt = now();
-                                        setCacheEntry(key, {
-                                            data: result.data,
-                                            freshUntil: refreshedAt + ttl.maxAge * 1_000,
-                                            staleUntil: refreshedAt + (ttl.maxAge + ttl.swr) * 1_000,
-                                            revalidating: false,
-                                        });
-                                    } else {
-                                        entry.revalidating = false;
-                                    }
-                                })
-                                .catch(() => {
-                                    entry.revalidating = false;
-                                });
-                        }
-
-                        return {
-                            http: {
-                                status: undefined,
-                                headers: new HeaderMap([
-                                    ['cache-control', cacheControl],
-                                    ['x-cache', isFresh ? 'HIT' : 'STALE'],
-                                ]),
-                            },
-                            body: {
-                                kind: 'single',
-                                singleResult: { data: entry.data },
-                            },
-                        };
-                    }
-
-                    if (entry) {
-                        cache.deleteSync(key);
-                    }
-
-                    const pending = inFlight.get(key);
-                    if (pending) {
-                        const sharedData = await pending;
-                        if (sharedData !== undefined) {
+                        if (entry && checkTime < entry.staleUntil) {
                             servedFromPlugin = true;
+                            const isFresh = checkTime < entry.freshUntil;
+
+                            if (!isFresh && !entry.revalidating) {
+                                entry.revalidating = true;
+                                const generationAtStart = activeGeneration;
+                                Promise.resolve()
+                                    .then(() =>
+                                        execute({
+                                            schema: requestContext.schema,
+                                            document: requestContext.document,
+                                            operationName: requestContext.operationName,
+                                            variableValues: requestContext.request.variables,
+                                            contextValue: requestContext.contextValue,
+                                        }),
+                                    )
+                                    .then((result) => {
+                                        if (
+                                            result.data &&
+                                            !result.errors?.length &&
+                                            generationAtStart === cacheGeneration
+                                        ) {
+                                            const refreshedAt = now();
+                                            setCacheEntry(key, {
+                                                data: result.data,
+                                                freshUntil: refreshedAt + ttl.maxAge * 1_000,
+                                                staleUntil: refreshedAt + (ttl.maxAge + ttl.swr) * 1_000,
+                                                revalidating: false,
+                                            });
+                                        } else {
+                                            entry.revalidating = false;
+                                        }
+                                    })
+                                    .catch(() => {
+                                        entry.revalidating = false;
+                                    });
+                            }
+
                             return {
                                 http: {
                                     status: undefined,
                                     headers: new HeaderMap([
                                         ['cache-control', cacheControl],
-                                        ['x-cache', 'HIT'],
+                                        ['x-cache', isFresh ? 'HIT' : 'STALE'],
                                     ]),
                                 },
                                 body: {
                                     kind: 'single',
-                                    singleResult: { data: sharedData },
+                                    singleResult: { data: entry.data },
                                 },
                             };
                         }
+
+                        if (entry) {
+                            cache.deleteSync(key);
+                        }
+
+                        const pending = inFlight.get(inFlightKey);
+                        if (pending) {
+                            const outcome = await pending;
+                            if (outcome.kind === 'data') {
+                                servedFromPlugin = true;
+                                return {
+                                    http: {
+                                        status: undefined,
+                                        headers: new HeaderMap([
+                                            ['cache-control', cacheControl],
+                                            ['x-cache', 'HIT'],
+                                        ]),
+                                    },
+                                    body: {
+                                        kind: 'single',
+                                        singleResult: { data: outcome.data },
+                                    },
+                                };
+                            }
+                            if (outcome.kind === 'error') {
+                                servedFromPlugin = true;
+                                return {
+                                    http: {
+                                        status: outcome.status,
+                                        headers: new HeaderMap(),
+                                    },
+                                    body: {
+                                        kind: 'single',
+                                        singleResult: outcome.singleResult,
+                                    },
+                                };
+                            }
+                            continue;
+                        }
+
+                        let resolveLeader!: (outcome: InFlightOutcome) => void;
+                        const leaderPromise = new Promise<InFlightOutcome>((resolve) => {
+                            resolveLeader = resolve;
+                        });
+                        inFlight.set(inFlightKey, leaderPromise);
+                        inFlightLeader = { key: inFlightKey, promise: leaderPromise, resolve: resolveLeader };
+                        cacheCandidate = { key, ...ttl, generation: activeGeneration };
                         return null;
                     }
 
-                    let resolveLeader!: (data: Record<string, unknown> | undefined) => void;
-                    const leaderPromise = new Promise<Record<string, unknown> | undefined>((resolve) => {
-                        resolveLeader = resolve;
-                    });
-                    inFlight.set(key, leaderPromise);
-                    inFlightLeader = { key, promise: leaderPromise, resolve: resolveLeader };
-                    cacheCandidate = { key, ...ttl, generation: cacheGeneration };
                     return null;
                 },
 
                 async willSendResponse(requestContext) {
-                    let resolvedData: Record<string, unknown> | undefined;
+                    let outcome: InFlightOutcome = { kind: 'invalidated' };
                     try {
                         if (
                             requestContext.operation?.operation === 'mutation' &&
@@ -436,37 +465,45 @@ export function createApolloEdgePlugin(
                         ) {
                             cacheGeneration += 1;
                             cache.clear();
+                            inFlight.clear();
                             return;
                         }
                         if (servedFromPlugin || !cacheCandidate) {
                             return;
                         }
-                        if (requestContext.errors?.length || requestContext.response.body.kind !== 'single') {
+                        if (requestContext.response.body.kind !== 'single') {
+                            return;
+                        }
+
+                        if (cacheCandidate.generation !== cacheGeneration) {
                             return;
                         }
 
                         const { singleResult } = requestContext.response.body;
-                        if (singleResult.errors?.length || !singleResult.data) {
+                        if (requestContext.errors?.length || singleResult.errors?.length || !singleResult.data) {
+                            outcome = {
+                                kind: 'error',
+                                status: requestContext.response.http.status,
+                                singleResult,
+                            };
                             return;
                         }
 
-                        if (cacheCandidate.generation === cacheGeneration) {
-                            resolvedData = singleResult.data;
-                            const currentTime = now();
-                            setCacheEntry(cacheCandidate.key, {
-                                data: singleResult.data,
-                                freshUntil: currentTime + cacheCandidate.maxAge * 1_000,
-                                staleUntil: currentTime + (cacheCandidate.maxAge + cacheCandidate.swr) * 1_000,
-                                revalidating: false,
-                            });
-                            requestContext.response.http.headers.set(
-                                'cache-control',
-                                `public, max-age=${cacheCandidate.maxAge}, stale-while-revalidate=${cacheCandidate.swr}`,
-                            );
-                            requestContext.response.http.headers.set('x-cache', 'MISS');
-                        }
+                        outcome = { kind: 'data', data: singleResult.data };
+                        const currentTime = now();
+                        setCacheEntry(cacheCandidate.key, {
+                            data: singleResult.data,
+                            freshUntil: currentTime + cacheCandidate.maxAge * 1_000,
+                            staleUntil: currentTime + (cacheCandidate.maxAge + cacheCandidate.swr) * 1_000,
+                            revalidating: false,
+                        });
+                        requestContext.response.http.headers.set(
+                            'cache-control',
+                            `public, max-age=${cacheCandidate.maxAge}, stale-while-revalidate=${cacheCandidate.swr}`,
+                        );
+                        requestContext.response.http.headers.set('x-cache', 'MISS');
                     } finally {
-                        settleLeader(resolvedData);
+                        settleLeader(outcome);
                     }
                 },
             };

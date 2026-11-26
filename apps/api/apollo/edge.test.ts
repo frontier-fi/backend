@@ -190,7 +190,7 @@ describe('apolloEdgePlugin', () => {
         await server.stop();
     });
 
-    it('deduplicates concurrent cold misses via single-flight and skips caching when leader fails', async () => {
+    it('deduplicates concurrent cold misses and shares failures without a retry burst', async () => {
         let resolveQuery!: (val: number) => void;
         let callCount = 0;
         const poolGetPoolsCount = vi.fn(() => {
@@ -217,7 +217,7 @@ describe('apolloEdgePlugin', () => {
         expect(results.filter((r) => r.headers.get('x-cache') === 'HIT')).toHaveLength(19);
         await server.stop();
 
-        // Failed leader does not hang or poison followers
+        // Five concurrent waiters on a failing leader share the failure with zero retries; next call retries once
         let rejectLeader!: (err: Error) => void;
         let failCalls = 0;
         const failingResolver = vi.fn(() => {
@@ -230,27 +230,31 @@ describe('apolloEdgePlugin', () => {
             return 99;
         });
         const failServer = await createTestServer({ Query: { poolGetPoolsCount: failingResolver } });
-        const first = failServer.run('{ poolGetPoolsCount }');
+        const failedBatch = Array.from({ length: 6 }, () => failServer.run('{ poolGetPoolsCount }'));
         await new Promise((resolve) => setTimeout(resolve, 10));
-        const follower = failServer.run('{ poolGetPoolsCount }');
+        expect(failingResolver).toHaveBeenCalledTimes(1);
 
         rejectLeader(new Error('boom'));
-        const [leaderRes, followerRes] = await Promise.all([first, follower]);
-        expect(leaderRes.errors).toBeDefined();
-        expect(followerRes.errors).toBeUndefined();
-        expect(followerRes.data).toEqual({ poolGetPoolsCount: 99 });
+        const failedResults = await Promise.all(failedBatch);
+        expect(failingResolver).toHaveBeenCalledTimes(1);
+        expect(failedResults.every((res) => (res.errors?.length ?? 0) > 0)).toBe(true);
+
+        // Errors are not cached, so a subsequent request executes normally and succeeds
+        const recovered = await failServer.run('{ poolGetPoolsCount }');
+        expect(recovered.errors).toBeUndefined();
+        expect(recovered.data).toEqual({ poolGetPoolsCount: 99 });
         expect(failingResolver).toHaveBeenCalledTimes(2);
         await failServer.server.stop();
     });
 
-    it('prevents an in-flight pre-mutation query from repopulating the cleared cache', async () => {
-        let resolveQuery!: (val: number) => void;
+    it('decouples post-mutation reads from pre-mutation in-flight work and prevents stale refills', async () => {
+        let resolveFirst!: (val: number) => void;
         let count = 0;
         const poolGetPoolsCount = vi.fn(() => {
             count += 1;
             if (count === 1) {
                 return new Promise<number>((resolve) => {
-                    resolveQuery = resolve;
+                    resolveFirst = resolve;
                 });
             }
             return 2;
@@ -261,26 +265,33 @@ describe('apolloEdgePlugin', () => {
             Mutation: { tokenSyncTokenDefinitions: () => 'ok' },
         });
 
-        const inFlightQuery = run('{ poolGetPoolsCount }');
+        const preMutationLeader = run('{ poolGetPoolsCount }');
+        const preMutationFollower = run('{ poolGetPoolsCount }');
         await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(poolGetPoolsCount).toHaveBeenCalledTimes(1);
 
         const mutationRes = await run('mutation { tokenSyncTokenDefinitions }');
         expect(mutationRes.errors).toBeUndefined();
 
-        resolveQuery(1);
-        const staleInFlightRes = await inFlightQuery;
-        expect(staleInFlightRes.data).toEqual({ poolGetPoolsCount: 1 });
+        // Five post-mutation reads issued immediately do not wait for preMutationLeader and share 1 fresh call
+        const postMutationReads = await Promise.all(Array.from({ length: 5 }, () => run('{ poolGetPoolsCount }')));
+        expect(poolGetPoolsCount).toHaveBeenCalledTimes(2);
+        expect(postMutationReads.every((r) => r.data?.poolGetPoolsCount === 2)).toBe(true);
+        expect(postMutationReads.filter((r) => r.headers.get('x-cache') === 'MISS')).toHaveLength(1);
+        expect(postMutationReads.filter((r) => r.headers.get('x-cache') === 'HIT')).toHaveLength(4);
 
-        const nextRes = await run('{ poolGetPoolsCount }');
-        expect(nextRes.data).toEqual({ poolGetPoolsCount: 2 });
-        expect(nextRes.headers.get('x-cache')).toBe('MISS');
+        // Completing the stale pre-mutation load returns to its leader, while its follower sees the fresh cached data
+        resolveFirst(1);
+        const [staleLeaderRes, replayedFollowerRes] = await Promise.all([preMutationLeader, preMutationFollower]);
+        expect(staleLeaderRes.data).toEqual({ poolGetPoolsCount: 1 });
+        expect(replayedFollowerRes.data).toEqual({ poolGetPoolsCount: 2 });
         expect(poolGetPoolsCount).toHaveBeenCalledTimes(2);
 
         await server.stop();
     });
 
-    it('evicts oldest entries when maxCacheBytes is exceeded and reports live stats', async () => {
-        const edge = createApolloEdgePlugin({ SOR_INSTANCE: false }, { maxCacheEntries: 100, maxCacheBytes: 75 })!;
+    it('evicts oldest entries when maxCacheBytes is exceeded and keeps keys fixed-length', async () => {
+        const edge = createApolloEdgePlugin({ SOR_INSTANCE: false }, { maxCacheEntries: 100, maxCacheBytes: 150 })!;
         let aCalls = 0;
         let bCalls = 0;
         const server = new ApolloServer<ResolverContext>({
@@ -294,33 +305,45 @@ describe('apolloEdgePlugin', () => {
                         totalSwapFee: '0',
                         poolCount: '1',
                     }),
+                    tokenGetTokens: () => [],
                 },
             },
             plugins: [edge.plugin],
         });
         await server.start();
 
-        const run = async (query: string) => {
+        const run = async (query: string, variables?: Record<string, unknown>) => {
             const response = await server.executeOperation(
-                { query, http: { method: 'POST', headers: new HeaderMap(), search: '', body: {} } },
+                { query, variables, http: { method: 'POST', headers: new HeaderMap(), search: '', body: {} } },
                 { contextValue: { adminApiKey: null, req: {} as ResolverContext['req'] } },
             );
             if (response.body.kind !== 'single') throw new Error('Expected single result');
             return { headers: response.http.headers, ...response.body.singleResult };
         };
 
+        // SHA-256 key (64B) + {"poolGetPoolsCount":1} (23B) = 87B
         await run('{ poolGetPoolsCount }');
         expect(edge.getStats().responseCacheEntries).toBe(1);
-        expect(edge.getStats().responseCacheBytes).toBeGreaterThan(0);
+        expect(edge.getStats().responseCacheBytes).toBe(87);
         expect(edge.getStats().rateLimitBuckets).toBe(1);
         expect(edge.getStats().inFlightRequests).toBe(0);
 
-        // Second response (~66B) + first response (~23B) > 75B budget, so poolGetPoolsCount is evicted
+        // Large variables still hash to a fixed 64B key
+        const bigFilterRes = await run(
+            'query Q($where: GqlTokenFilter) { tokenGetTokens(chains: [SEPOLIA], where: $where) { address } }',
+            {
+                where: { tokensIn: Array.from({ length: 40 }, (_, i) => `0x${String(i).padStart(40, '0')}`) },
+            },
+        );
+        expect(bigFilterRes.errors).toBeUndefined();
+        expect(edge.getStats().responseCacheBytes).toBeLessThanOrEqual(150);
+
+        // Second large response (64B + 67B = 131B) evicts earlier entries to stay within 150B
         const bigRes = await run('{ protocolMetricsAggregated(chains: [SEPOLIA]) { totalLiquidity } }');
         expect(bigRes.errors).toBeUndefined();
         expect(bigRes.headers.get('x-cache')).toBe('MISS');
         expect(edge.getStats().responseCacheEntries).toBe(1);
-        expect(edge.getStats().responseCacheBytes).toBeLessThanOrEqual(75);
+        expect(edge.getStats().responseCacheBytes).toBe(131);
 
         const evictedCheck = await run('{ poolGetPoolsCount }');
         expect(evictedCheck.headers.get('x-cache')).toBe('MISS');
