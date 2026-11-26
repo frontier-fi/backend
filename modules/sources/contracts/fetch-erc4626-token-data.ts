@@ -2,7 +2,9 @@ import { ViemClient } from '../viem-client';
 import MinimalErc4626Abi from './abis/MinimalERC4626';
 import { fetchErc20Headers } from '.';
 import { multicallViem, ViemMulticallCall } from '../../web3/multicaller-viem';
+import { addressesMatch, isNativeAssetAddress } from '../../web3/addresses';
 import { Chain } from '@prisma/client';
+import { zeroAddress } from 'viem';
 
 interface Erc4626Data {
     asset?: string;
@@ -94,6 +96,7 @@ export async function fetchErc4626AndUnderlyingTokenData(
     }
 
     const results = await multicallViem<{ [tokenAddress: string]: Erc4626Data }>(viemClient, calls);
+    const rejectedUnderlyings = new Set<string>();
 
     for (const token of tokens) {
         const result = results[token.address];
@@ -108,9 +111,14 @@ export async function fetchErc4626AndUnderlyingTokenData(
             result.previewMint !== undefined &&
             result.previewRedeem !== undefined &&
             result.previewWithdraw !== undefined &&
-            result.asset !== '0x0000000000000000000000000000000000000000'
+            !addressesMatch(result.asset, zeroAddress) &&
+            !isNativeAssetAddress(result.asset, token.chain) &&
+            !addressesMatch(result.asset, token.address)
         ) {
-            underlyingTokenAddress = result.asset?.toLowerCase();
+            const candidate = result.asset.toLowerCase();
+            if (!rejectedUnderlyings.has(candidate)) {
+                underlyingTokenAddress = candidate;
+            }
         }
 
         tokenData[token.address] = {
@@ -127,12 +135,19 @@ export async function fetchErc4626AndUnderlyingTokenData(
                 [underlyingTokenAddress as `0x${string}`],
                 viemClient,
             );
+            const detail = underlyingTokenDetail[underlyingTokenAddress];
+
+            if (!detail || !Number.isInteger(detail.decimals) || detail.decimals < 0) {
+                rejectedUnderlyings.add(underlyingTokenAddress);
+                tokenData[token.address].underlyingTokenAddress = undefined;
+                continue;
+            }
 
             tokenData[underlyingTokenAddress] = {
                 address: underlyingTokenAddress,
-                decimals: underlyingTokenDetail[underlyingTokenAddress].decimals,
-                name: underlyingTokenDetail[underlyingTokenAddress].name,
-                symbol: underlyingTokenDetail[underlyingTokenAddress].symbol,
+                decimals: detail.decimals,
+                name: detail.name,
+                symbol: detail.symbol,
                 chain: token.chain,
                 underlyingTokenAddress: undefined,
             };

@@ -445,4 +445,51 @@ describe('poolUpsertTransformerV3', () => {
 
         expect(boosted?.poolExpandedTokens.map((t) => t.tokenAddress)).toEqual([waUsdc, USDC, DAI]);
     });
+
+    it('ignores native sentinel ERC4626 underlyingToken on MONAD (e.g. shMON)', () => {
+        const shMon = '0x1b68626dca36c7fe922fd2d55e4f631d962de19c';
+        const nativeSentinel = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
+        const transformed = poolUpsertTransformerV3(
+            pool(PoolType.Stable, {
+                rateProviders: [],
+                tokens: [
+                    {
+                        address: shMon,
+                        decimals: 18,
+                        symbol: 'shMON',
+                        name: 'ShMonad',
+                        index: 0,
+                        balance: '100',
+                        paysYieldFees: false,
+                        scalingFactor: '1',
+                        rateProvider: ZERO,
+                        tokenType: 0,
+                        buffer: null,
+                        token: {
+                            isErc4626: true,
+                            underlyingToken: {
+                                address: nativeSentinel,
+                                decimals: 0,
+                                symbol: '',
+                                name: '',
+                            },
+                        },
+                        nestedPool: null,
+                    },
+                ],
+            }),
+            Chain.MONAD,
+            100,
+        );
+
+        const shMonRow = transformed?.tokens.find((t) => t.address === shMon);
+        expect(shMonRow).toBeDefined();
+        expect(shMonRow?.underlyingTokenAddress).toBeUndefined();
+        expect(transformed?.tokens.some((t) => t.address.toLowerCase() === nativeSentinel.toLowerCase())).toBe(false);
+        expect(
+            transformed?.poolExpandedTokens.some((t) => t.tokenAddress.toLowerCase() === nativeSentinel.toLowerCase()),
+        ).toBe(false);
+        expect(transformed?.poolExpandedTokens.map((t) => t.tokenAddress)).toEqual([shMon]);
+    });
 });
