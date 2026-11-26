@@ -84,6 +84,7 @@ const resolvers: Resolvers = {
 
             const service = new PricingService(chains);
             await service.updatePricesForChains(chains);
+            tokenService.invalidateTokenCaches();
 
             return true;
         },
@@ -91,6 +92,7 @@ const resolvers: Resolvers = {
             isAdminRoute(context);
 
             await ContentController().syncTokenContentData();
+            tokenService.invalidateTokenCaches();
 
             return 'success';
         },
@@ -105,6 +107,7 @@ const resolvers: Resolvers = {
             isAdminRoute(context);
 
             await ContentController().reloadAllTokenTypes(chain);
+            tokenService.invalidateTokenCaches();
 
             return 'success';
         },
@@ -122,6 +125,7 @@ const resolvers: Resolvers = {
                     logger.error('Admin token type reload failed', { chain, err: e });
                 }
             }
+            tokenService.invalidateTokenCaches();
 
             return result;
         },

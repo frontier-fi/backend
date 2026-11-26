@@ -5,8 +5,24 @@ import { V3JoinedSubgraphPool } from '../subgraphs';
 import { parseEther, zeroAddress } from 'viem';
 import { PoolUpsertData } from '../../../prisma/prisma-types';
 import { hookTransformer } from './hook-transformer';
-import { normalizeAddress } from '../../web3/addresses';
+import { isNativeAssetAddress, normalizeAddress } from '../../web3/addresses';
 import _ from 'lodash';
+
+const getValidErc4626Underlying = (token: V3JoinedSubgraphPool['tokens'][number], chain: Chain) => {
+    const underlying = token.token?.isErc4626 ? token.token.underlyingToken : null;
+    if (!underlying?.address) {
+        return null;
+    }
+    const normalized = normalizeAddress(underlying.address);
+    if (
+        normalized === zeroAddress ||
+        isNativeAssetAddress(normalized, chain) ||
+        normalized === normalizeAddress(token.address)
+    ) {
+        return null;
+    }
+    return underlying;
+};
 
 const resolvePriceRateProvider = (
     rateProviders: V3JoinedSubgraphPool['rateProviders'],
@@ -45,23 +61,24 @@ export const poolUpsertTransformerV3 = (
     // expand the nested and ERC-4626 underlying tokens
     const allTokens = _.uniqBy(
         _.flattenDeep(
-            poolData.tokens.map((token) => [
-                token,
-                ...(token.nestedPool?.tokens || []).map((nestedToken) => ({
-                    ...nestedToken,
-                    nestedPoolId: token.nestedPool?.id || null,
-                })),
-                ...(token.token?.isErc4626 &&
-                token.token.underlyingToken?.address &&
-                normalizeAddress(token.token.underlyingToken.address) !== zeroAddress
-                    ? [
-                          {
-                              address: token.token.underlyingToken.address,
-                              nestedPoolId: null,
-                          },
-                      ]
-                    : []),
-            ]),
+            poolData.tokens.map((token) => {
+                const validUnderlying = getValidErc4626Underlying(token, chain);
+                return [
+                    token,
+                    ...(token.nestedPool?.tokens || []).map((nestedToken) => ({
+                        ...nestedToken,
+                        nestedPoolId: token.nestedPool?.id || null,
+                    })),
+                    ...(validUnderlying
+                        ? [
+                              {
+                                  address: validUnderlying.address,
+                                  nestedPoolId: null,
+                              },
+                          ]
+                        : []),
+                ];
+            }),
         ),
         (token) => normalizeAddress(token.address),
     );
@@ -69,12 +86,7 @@ export const poolUpsertTransformerV3 = (
     const poolTokensWithUnderlying = _.uniqBy(
         [
             ...poolData.tokens.flatMap((token) => {
-                const underlying =
-                    token.token?.isErc4626 &&
-                    token.token.underlyingToken?.address &&
-                    normalizeAddress(token.token.underlyingToken.address) !== zeroAddress
-                        ? token.token.underlyingToken
-                        : null;
+                const underlying = getValidErc4626Underlying(token, chain);
                 const wrappedEntry = {
                     address: normalizeAddress(token.address),
                     decimals: token.decimals,

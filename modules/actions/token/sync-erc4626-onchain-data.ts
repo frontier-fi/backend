@@ -5,7 +5,6 @@ import { fetchBufferBalances } from '../../sources/contracts/v3/fetch-buffer-bal
 import { fetchMaxValues } from '../../sources/contracts/v3/fetch-erc4626-max-values';
 import { fetchUnwrapRates } from '../../sources/contracts/v3/fetch-unwrap-rates';
 import _ from 'lodash';
-import { formatEther } from 'viem';
 import { prismaBulkExecuteOperations } from '../../../prisma/prisma-util';
 import { syncErc4626Tokens } from './sync-erc4626-tokens';
 import { logger } from '../../common/logger';
@@ -87,22 +86,6 @@ export const syncErc4626OnchainData = async (vaultExplorerAddress: string, viemC
 
         // Merge onchain data into one object
         const onchainData = _.merge({}, maxValues, unwrapRates, bufferBalances);
-
-        // workaround for morphov2 vaults, set maxWithdraw and maxDeposit to maxInt
-        const morphoV2Vaults = [
-            '0x4ef53d2caa51c447fdfeeedee8f07fd1962c9ee6', // kpk usdc prime v2
-            '0xbb50a5341368751024ddf33385ba8cf61fe65ff9', // kpk eth prime v2
-            '0x8c106eedad96553e64287a5a6839c3cc78afa3d0', // gauntlet usdc prime
-            '0x870f0bf29a25a40e7cc087cd5c53e70c11f2c8a8', // kpk usdt prime v2
-        ];
-        morphoV2Vaults.forEach((vault) => {
-            if (onchainData[vault]) {
-                onchainData[vault].maxDeposit =
-                    formatEther(115792089237316195423570985008687907853269984665640564039457584007913129639935n);
-                onchainData[vault].maxWithdraw =
-                    formatEther(115792089237316195423570985008687907853269984665640564039457584007913129639935n);
-            }
-        });
 
         const operations: any[] = [];
         Object.entries(onchainData).map(([tokenAddress, newData]) => {

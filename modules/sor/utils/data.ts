@@ -27,6 +27,7 @@ export type BufferPoolData = {
 export type SORDbPool = PrismaPoolAndHookWithDynamic;
 
 const cache = new Cache<string, { pools: SORDbPool[]; bufferPools: BufferPoolData[] }>();
+const inFlight = new Map<string, Promise<{ pools: SORDbPool[]; bufferPools: BufferPoolData[] }>>();
 const SOR_POOLS_CACHE_KEY = `sor:pools`;
 
 export async function getBasePoolsFromDb(
@@ -40,10 +41,23 @@ export async function getBasePoolsFromDb(
     let cached = cache.get(cacheKey);
 
     if (!cached) {
-        // get pools
-        const pools = await getPools(chain, poolIds);
-        const bufferPools = await getBufferPoolsFromDBPools(pools, chain);
-        cached = cache.put(cacheKey, { pools, bufferPools }, parseInt(env.SOR_POOLS_CACHE_TTL_SECONDS) * 1000);
+        let pending = inFlight.get(cacheKey);
+        if (!pending) {
+            const loadPromise = (async () => {
+                const pools = await getPools(chain, poolIds);
+                const bufferPools = await getBufferPoolsFromDBPools(pools, chain);
+                const entry = { pools, bufferPools };
+                cache.put(cacheKey, entry, parseInt(env.SOR_POOLS_CACHE_TTL_SECONDS) * 1000);
+                return entry;
+            })().finally(() => {
+                if (inFlight.get(cacheKey) === loadPromise) {
+                    inFlight.delete(cacheKey);
+                }
+            });
+            inFlight.set(cacheKey, loadPromise);
+            pending = loadPromise;
+        }
+        cached = await pending;
     }
 
     // Filter by protocol version and hook preferences

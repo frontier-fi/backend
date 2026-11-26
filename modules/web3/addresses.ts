@@ -31,6 +31,11 @@ export function addressesMatch(address1: string, address2: string) {
     return address1.toLowerCase() === address2.toLowerCase();
 }
 
+export function isNativeAssetAddress(address: string, chain: Chain): boolean {
+    const nativeAddress = config[chain]?.eth?.address;
+    return Boolean(nativeAddress && addressesMatch(address, nativeAddress));
+}
+
 export function replaceZeroAddressWithEth(address: string, chain: Chain) {
     if (addressesMatch(address, zeroAddress)) {
         return config[chain].eth.address;
