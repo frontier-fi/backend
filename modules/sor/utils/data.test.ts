@@ -69,6 +69,32 @@ describe('routing safety', () => {
         expect((await load()).pools).toHaveLength(0);
         expect(poolQuery).toHaveBeenCalledTimes(1);
     });
+
+    it('deduplicates concurrent cold getBasePoolsFromDb loads for the same chain and poolIds', async () => {
+        const pool = {
+            id: 'single-flight-pool',
+            address: 'single-flight-pool',
+            protocolVersion: 3,
+            hook: null,
+            tokens: [],
+        };
+        const poolQuery = vi.spyOn(prisma.prismaPool, 'findMany').mockImplementation((async () => {
+            await Promise.resolve();
+            return [pool];
+        }) as any);
+        vi.spyOn(prisma.prismaTokenType, 'findMany').mockResolvedValue([]);
+        vi.spyOn(prisma.prismaToken, 'findMany').mockResolvedValue([]);
+        vi.spyOn(prisma.prismaPriceRateProviderData, 'findMany').mockResolvedValue([]);
+        vi.spyOn(tokenService, 'getErc4626Data').mockResolvedValue({});
+        vi.spyOn(tokenService, 'getTokens').mockResolvedValue([]);
+
+        const results = await Promise.all(
+            Array.from({ length: 10 }, () => getBasePoolsFromDb('SEPOLIA', 3, true, ['single-flight-pool'])),
+        );
+
+        expect(poolQuery).toHaveBeenCalledTimes(1);
+        expect(results.every((r) => r.pools.length === 1)).toBe(true);
+    });
 });
 
 describe('getBufferPoolsFromDBPools', () => {

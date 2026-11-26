@@ -23,16 +23,42 @@ import {
 import { Dictionary } from 'lodash';
 import config from '../../config';
 import { addressesMatch, normalizeAddress } from '../web3/addresses';
-import murmurhash from 'murmurhash';
+import { BoundedLruCache } from '../common/bounded-cache';
+import { stableStringify } from '../common/stable-stringify';
 
 const TOKEN_PRICES_CACHE_KEY = `token:prices:current`;
 const TOKEN_PRICES_24H_AGO_CACHE_KEY = `token:prices:24h-ago`;
 const ALL_TOKENS_CACHE_KEY = `tokens:all`;
+const ERC4626_REVIEW_DATA_CACHE_KEY = `erc4626:review-data`;
+const TOKEN_DEFINITIONS_TTL_MS = 30 * 1000;
+const TOKEN_DEFINITIONS_MAX_ENTRIES = 64;
+const TOKEN_DEFINITIONS_MAX_BYTES = 8 * 1024 * 1024;
 
 export class TokenService {
     cache: CacheClass<string, any>;
+    private inFlight = new Map<string, Promise<unknown>>();
+    private definitionsCache = new BoundedLruCache<GqlToken[]>({
+        maxEntries: TOKEN_DEFINITIONS_MAX_ENTRIES,
+        maxBytes: TOKEN_DEFINITIONS_MAX_BYTES,
+        defaultTtlMs: TOKEN_DEFINITIONS_TTL_MS,
+    });
+
     constructor(private readonly tokenPriceService: TokenPriceService) {
         this.cache = new Cache<string, any>();
+    }
+
+    private singleFlight<T>(key: string, load: () => Promise<T>): Promise<T> {
+        const existing = this.inFlight.get(key) as Promise<T> | undefined;
+        if (existing) {
+            return existing;
+        }
+        const promise = load().finally(() => {
+            if (this.inFlight.get(key) === promise) {
+                this.inFlight.delete(key);
+            }
+        });
+        this.inFlight.set(key, promise);
+        return promise;
     }
 
     public async getToken(address: string, chain: Chain): Promise<PrismaToken | null> {
@@ -58,14 +84,18 @@ export class TokenService {
     }
 
     public async getTokens(chain: Chain, addresses?: string[]): Promise<PrismaToken[]> {
-        let tokens: PrismaToken[] | null = this.cache.get(`${ALL_TOKENS_CACHE_KEY}:${chain}`);
+        const cacheKey = `${ALL_TOKENS_CACHE_KEY}:${chain}`;
+        let tokens: PrismaToken[] | null = this.cache.get(cacheKey);
         if (!tokens) {
-            tokens = await prisma.prismaToken.findMany({ where: { chain: chain } });
-            // An empty list must not be cached. A quote before the first sync would
-            // otherwise hide every token added during the next five minutes.
-            if (tokens.length > 0) {
-                this.cache.put(`${ALL_TOKENS_CACHE_KEY}:${chain}`, tokens, 5 * 60 * 1000);
-            }
+            tokens = await this.singleFlight(cacheKey, async () => {
+                const loaded = await prisma.prismaToken.findMany({ where: { chain: chain } });
+                // An empty list must not be cached. A quote before the first sync would
+                // otherwise hide every token added during the next five minutes.
+                if (loaded.length > 0) {
+                    this.cache.put(cacheKey, loaded, 5 * 60 * 1000);
+                }
+                return loaded;
+            });
         }
         if (addresses) {
             const wanted = new Set(addresses.map((address) => normalizeAddress(address)));
@@ -82,7 +112,7 @@ export class TokenService {
 
         if (token) {
             const rateProviderData = await this.getPriceRateProviderData([token]);
-            const erc4626Data = await this.getErc4626Data([token]);
+            const erc4626Data = await this.getErc4626Data();
             return {
                 ...token,
                 chain: token.chain as GqlChain,
@@ -102,6 +132,19 @@ export class TokenService {
     }
 
     public async getTokenDefinitions(args: QueryTokenGetTokensArgs): Promise<GqlToken[]> {
+        const cacheKey = stableStringify({ chains: args.chains ?? [], where: args.where ?? null });
+        const cached = this.definitionsCache.getSync(cacheKey);
+        if (cached) {
+            return cached;
+        }
+        return this.singleFlight(`token:definitions:${cacheKey}`, async () => {
+            const definitions = await this.loadTokenDefinitions(args);
+            this.definitionsCache.setSync(cacheKey, definitions);
+            return definitions;
+        });
+    }
+
+    private async loadTokenDefinitions(args: QueryTokenGetTokensArgs): Promise<GqlToken[]> {
         const chains = args.chains!;
         const types = (args.where?.typeIn || []) as PrismaTokenTypeOption[];
         const where: Prisma.PrismaTokenWhereInput = {
@@ -180,7 +223,7 @@ export class TokenService {
         }
 
         const rateProviderData = await this.getPriceRateProviderData(tokens, chains);
-        const erc4626Data = await this.getErc4626Data(tokens);
+        const erc4626Data = await this.getErc4626Data();
 
         return tokens.map((token) => ({
             ...token,
@@ -253,58 +296,52 @@ export class TokenService {
         return priceRateProviderDataResult;
     }
 
-    async getErc4626Data(
-        tokens?: PrismaToken[],
-    ): Promise<
+    async getErc4626Data(): Promise<
         Record<string, (Erc4626ReviewData & { erc4626Address: string; assetAddress: string; chain: Chain }) | undefined>
     > {
-        const tokenKey = tokens ? tokens.map((t) => `${t.chain}:${t.address}`).join(',') : 'all';
-        const cacheKey = `ERC4626REVIEWDATA-${murmurhash.v3(tokenKey).toString(36)}`;
-
         let erc4626Data: Record<
             string,
             Erc4626ReviewData & { erc4626Address: string; assetAddress: string; chain: Chain }
-        > = this.cache.get(cacheKey);
+        > | null = this.cache.get(ERC4626_REVIEW_DATA_CACHE_KEY);
 
         if (!erc4626Data) {
-            erc4626Data = await prisma.prismaErc4626ReviewData
-                .findMany()
-                .then((reviews) => {
-                    // Remove all duplicates, keeping only items that appear exactly once
-                    const addressChainCounts = new Map<string, number>();
+            erc4626Data = await this.singleFlight(ERC4626_REVIEW_DATA_CACHE_KEY, async () => {
+                const reviews = await prisma.prismaErc4626ReviewData.findMany();
+                // Remove all duplicates, keeping only items that appear exactly once
+                const addressChainCounts = new Map<string, number>();
+                for (const review of reviews) {
+                    const key = `${review.erc4626Address}-${review.chain}`;
+                    addressChainCounts.set(key, (addressChainCounts.get(key) || 0) + 1);
+                }
 
-                    reviews.forEach((review) => {
-                        const key = `${review.erc4626Address}-${review.chain}`;
-                        addressChainCounts.set(key, (addressChainCounts.get(key) || 0) + 1);
-                    });
-
-                    const noDuplicatesReviews = reviews.filter((review) => {
-                        const key = `${review.erc4626Address}-${review.chain}`;
-                        return addressChainCounts.get(key) === 1;
-                    });
-
-                    return noDuplicatesReviews;
-                })
-                .then((reviews) =>
-                    reviews.map((review) => ({
-                        ...review,
-                        warnings: review.warnings?.split(',').filter(Boolean) || [],
-                    })),
-                )
-                .then((reviews) =>
-                    Object.fromEntries(reviews.map((review) => [`${review.erc4626Address}-${review.chain}`, review])),
+                const data = Object.fromEntries(
+                    reviews
+                        .filter((review) => addressChainCounts.get(`${review.erc4626Address}-${review.chain}`) === 1)
+                        .map((review) => [
+                            `${review.erc4626Address}-${review.chain}`,
+                            {
+                                ...review,
+                                warnings: review.warnings?.split(',').filter(Boolean) || [],
+                            },
+                        ]),
                 );
-            this.cache.put(cacheKey, erc4626Data, 10 * 60 * 1000); // cache for 10 min
+                this.cache.put(ERC4626_REVIEW_DATA_CACHE_KEY, data, 10 * 60 * 1000); // cache for 10 min
+                return data;
+            });
         }
 
         return erc4626Data;
     }
 
     public async getTokenPrices(chain: Chain): Promise<PrismaTokenCurrentPrice[]> {
-        let tokenPrices = this.cache.get(`${TOKEN_PRICES_CACHE_KEY}:${chain}`);
+        const cacheKey = `${TOKEN_PRICES_CACHE_KEY}:${chain}`;
+        let tokenPrices: PrismaTokenCurrentPrice[] | null = this.cache.get(cacheKey);
         if (!tokenPrices) {
-            tokenPrices = await this.tokenPriceService.getCurrentTokenPrices([chain]);
-            this.cache.put(`${TOKEN_PRICES_CACHE_KEY}:${chain}`, tokenPrices, 30 * 1000);
+            tokenPrices = await this.singleFlight(cacheKey, async () => {
+                const prices = await this.tokenPriceService.getCurrentTokenPrices([chain]);
+                this.cache.put(cacheKey, prices, 30 * 1000);
+                return prices;
+            });
         }
         return tokenPrices;
     }

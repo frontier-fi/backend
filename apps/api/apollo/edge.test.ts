@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import config from '../../../config';
 import { schema } from '../gql/generated-schema-ast';
 import { ResolverContext } from '../gql/resolver-context';
-import { apolloEdgePlugin, CACHE_RULES, EdgePluginOptions, RATE_LIMIT_WINDOW_MS } from './edge';
+import { apolloEdgePlugin, CACHE_RULES, createApolloEdgePlugin, EdgePluginOptions, RATE_LIMIT_WINDOW_MS } from './edge';
 
 const QUOTE_ARGS = 'chain: SEPOLIA, tokenIn: "0x1", tokenOut: "0x2", swapType: EXACT_IN, swapAmount: "1"';
 
@@ -186,6 +186,145 @@ describe('apolloEdgePlugin', () => {
         currentTime += RATE_LIMIT_WINDOW_MS + 1;
         const afterReset = await run(`{ sorGetSwapPaths(${QUOTE_ARGS}) { returnAmount } }`, { headers: ipA });
         expect(afterReset.errors).toBeUndefined();
+
+        await server.stop();
+    });
+
+    it('deduplicates concurrent cold misses via single-flight and skips caching when leader fails', async () => {
+        let resolveQuery!: (val: number) => void;
+        let callCount = 0;
+        const poolGetPoolsCount = vi.fn(() => {
+            callCount += 1;
+            if (callCount === 1) {
+                return new Promise<number>((resolve) => {
+                    resolveQuery = resolve;
+                });
+            }
+            return callCount;
+        });
+
+        const { server, run } = await createTestServer({ Query: { poolGetPoolsCount } });
+
+        const pending = Array.from({ length: 20 }, () => run('{ poolGetPoolsCount }'));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(poolGetPoolsCount).toHaveBeenCalledTimes(1);
+
+        resolveQuery(42);
+        const results = await Promise.all(pending);
+        expect(poolGetPoolsCount).toHaveBeenCalledTimes(1);
+        expect(results.every((r) => r.data?.poolGetPoolsCount === 42)).toBe(true);
+        expect(results.filter((r) => r.headers.get('x-cache') === 'MISS')).toHaveLength(1);
+        expect(results.filter((r) => r.headers.get('x-cache') === 'HIT')).toHaveLength(19);
+        await server.stop();
+
+        // Failed leader does not hang or poison followers
+        let rejectLeader!: (err: Error) => void;
+        let failCalls = 0;
+        const failingResolver = vi.fn(() => {
+            failCalls += 1;
+            if (failCalls === 1) {
+                return new Promise<number>((_resolve, reject) => {
+                    rejectLeader = reject;
+                });
+            }
+            return 99;
+        });
+        const failServer = await createTestServer({ Query: { poolGetPoolsCount: failingResolver } });
+        const first = failServer.run('{ poolGetPoolsCount }');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const follower = failServer.run('{ poolGetPoolsCount }');
+
+        rejectLeader(new Error('boom'));
+        const [leaderRes, followerRes] = await Promise.all([first, follower]);
+        expect(leaderRes.errors).toBeDefined();
+        expect(followerRes.errors).toBeUndefined();
+        expect(followerRes.data).toEqual({ poolGetPoolsCount: 99 });
+        expect(failingResolver).toHaveBeenCalledTimes(2);
+        await failServer.server.stop();
+    });
+
+    it('prevents an in-flight pre-mutation query from repopulating the cleared cache', async () => {
+        let resolveQuery!: (val: number) => void;
+        let count = 0;
+        const poolGetPoolsCount = vi.fn(() => {
+            count += 1;
+            if (count === 1) {
+                return new Promise<number>((resolve) => {
+                    resolveQuery = resolve;
+                });
+            }
+            return 2;
+        });
+
+        const { server, run } = await createTestServer({
+            Query: { poolGetPoolsCount },
+            Mutation: { tokenSyncTokenDefinitions: () => 'ok' },
+        });
+
+        const inFlightQuery = run('{ poolGetPoolsCount }');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        const mutationRes = await run('mutation { tokenSyncTokenDefinitions }');
+        expect(mutationRes.errors).toBeUndefined();
+
+        resolveQuery(1);
+        const staleInFlightRes = await inFlightQuery;
+        expect(staleInFlightRes.data).toEqual({ poolGetPoolsCount: 1 });
+
+        const nextRes = await run('{ poolGetPoolsCount }');
+        expect(nextRes.data).toEqual({ poolGetPoolsCount: 2 });
+        expect(nextRes.headers.get('x-cache')).toBe('MISS');
+        expect(poolGetPoolsCount).toHaveBeenCalledTimes(2);
+
+        await server.stop();
+    });
+
+    it('evicts oldest entries when maxCacheBytes is exceeded and reports live stats', async () => {
+        const edge = createApolloEdgePlugin({ SOR_INSTANCE: false }, { maxCacheEntries: 100, maxCacheBytes: 75 })!;
+        let aCalls = 0;
+        let bCalls = 0;
+        const server = new ApolloServer<ResolverContext>({
+            typeDefs: schema,
+            resolvers: {
+                Query: {
+                    poolGetPoolsCount: () => ++aCalls,
+                    protocolMetricsAggregated: () => ({
+                        totalLiquidity: String(++bCalls).padStart(16, '0'),
+                        totalSwapVolume: '0',
+                        totalSwapFee: '0',
+                        poolCount: '1',
+                    }),
+                },
+            },
+            plugins: [edge.plugin],
+        });
+        await server.start();
+
+        const run = async (query: string) => {
+            const response = await server.executeOperation(
+                { query, http: { method: 'POST', headers: new HeaderMap(), search: '', body: {} } },
+                { contextValue: { adminApiKey: null, req: {} as ResolverContext['req'] } },
+            );
+            if (response.body.kind !== 'single') throw new Error('Expected single result');
+            return { headers: response.http.headers, ...response.body.singleResult };
+        };
+
+        await run('{ poolGetPoolsCount }');
+        expect(edge.getStats().responseCacheEntries).toBe(1);
+        expect(edge.getStats().responseCacheBytes).toBeGreaterThan(0);
+        expect(edge.getStats().rateLimitBuckets).toBe(1);
+        expect(edge.getStats().inFlightRequests).toBe(0);
+
+        // Second response (~66B) + first response (~23B) > 75B budget, so poolGetPoolsCount is evicted
+        const bigRes = await run('{ protocolMetricsAggregated(chains: [SEPOLIA]) { totalLiquidity } }');
+        expect(bigRes.errors).toBeUndefined();
+        expect(bigRes.headers.get('x-cache')).toBe('MISS');
+        expect(edge.getStats().responseCacheEntries).toBe(1);
+        expect(edge.getStats().responseCacheBytes).toBeLessThanOrEqual(75);
+
+        const evictedCheck = await run('{ poolGetPoolsCount }');
+        expect(evictedCheck.headers.get('x-cache')).toBe('MISS');
+        expect(aCalls).toBe(2);
 
         await server.stop();
     });
