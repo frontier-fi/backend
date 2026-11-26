@@ -3,6 +3,7 @@ import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@as-integrations/express5';
 import helmet from 'helmet';
 import * as http from 'http';
+import { DocumentNode } from 'graphql';
 import { env } from '../env';
 import { loadRestRoutes } from './rest-routes';
 import { corsMiddleware, jsonErrorHandler, lowerCaseMiddleware } from './middleware';
@@ -15,9 +16,16 @@ import { resolvers } from './gql/resolvers';
 import { ResolverContext, resolverContext } from './gql/resolver-context';
 import { apolloErrorLoggerPlugin } from './apollo/error-logger';
 import { apolloProtection } from './apollo/armor';
-import { apolloEdgePlugin } from './apollo/edge';
+import { createApolloEdgePlugin, EdgeCacheStats } from './apollo/edge';
+import { startMemoryLogging } from './memory-logger';
 import type { Stoppable } from '../shutdown';
 import { logger } from '../../modules/common/logger';
+import { BoundedLruCache } from '../../modules/common/bounded-cache';
+
+// Apollo defaults both caches to 30 MiB measured on JSON size; parsed ASTs use ~3-4x that on heap.
+const APOLLO_DOCUMENT_STORE_MAX_BYTES = 8 * 1024 * 1024;
+const APOLLO_CACHE_MAX_BYTES = 4 * 1024 * 1024;
+const APOLLO_MAX_CACHE_ENTRIES = 500;
 
 const configureHelmet = (app: express.Express) => {
     app.use(helmet.dnsPrefetchControl());
@@ -36,15 +44,23 @@ const configureMiddlewares = (app: express.Express) => {
     app.use(lowerCaseMiddleware);
 };
 
-const configureApolloServer = async (httpServer: http.Server, app: express.Express) => {
+const configureApolloServer = async (
+    httpServer: http.Server,
+    app: express.Express,
+): Promise<{
+    apollo: ApolloServer<ResolverContext>;
+    documentStore: BoundedLruCache<DocumentNode>;
+    apolloCache: BoundedLruCache<string>;
+    getEdgeStats?: () => EdgeCacheStats;
+}> => {
     const protection = apolloProtection();
     const plugins = [...protection.plugins, ApolloServerPluginDrainHttpServer({ httpServer }), apolloErrorLoggerPlugin];
 
     plugins.push(ApolloServerPluginLandingPageLocalDefault({ document: examplePoolsQuery }));
 
-    const edgePlugin = apolloEdgePlugin(env);
-    if (edgePlugin) {
-        plugins.push(edgePlugin);
+    const edge = createApolloEdgePlugin(env);
+    if (edge) {
+        plugins.push(edge.plugin);
     }
 
     if (process.env.APOLLO_SCHEMA_REPORTING === 'true') {
@@ -57,11 +73,21 @@ const configureApolloServer = async (httpServer: http.Server, app: express.Expre
         );
     }
 
+    const documentStore = new BoundedLruCache<DocumentNode>({
+        maxBytes: APOLLO_DOCUMENT_STORE_MAX_BYTES,
+        maxEntries: APOLLO_MAX_CACHE_ENTRIES,
+    });
+    const apolloCache = new BoundedLruCache<string>({
+        maxBytes: APOLLO_CACHE_MAX_BYTES,
+        maxEntries: APOLLO_MAX_CACHE_ENTRIES,
+    });
+
     const server = new ApolloServer<ResolverContext>({
         resolvers,
         typeDefs: schema,
         introspection: true,
-        cache: 'bounded',
+        cache: apolloCache,
+        documentStore,
         ...protection,
         plugins,
     });
@@ -76,7 +102,7 @@ const configureApolloServer = async (httpServer: http.Server, app: express.Expre
         }),
     );
 
-    return server;
+    return { apollo: server, documentStore, apolloCache, getEdgeStats: edge?.getStats };
 };
 
 export const startApiServer = async (): Promise<Stoppable> => {
@@ -88,7 +114,8 @@ export const startApiServer = async (): Promise<Stoppable> => {
 
     const httpServer = http.createServer(app);
 
-    const apollo = await configureApolloServer(httpServer, app);
+    const { apollo, documentStore, apolloCache, getEdgeStats } = await configureApolloServer(httpServer, app);
+    const stopMemoryLogging = startMemoryLogging({ documentStore, apolloCache, getEdgeStats });
 
     // Error handlers only see errors from routes registered before them.
     app.use(jsonErrorHandler);
@@ -97,5 +124,10 @@ export const startApiServer = async (): Promise<Stoppable> => {
     logger.info('API server listening', { port: env.PORT, url: `http://localhost:${env.PORT}/graphql` });
 
     // The drain plugin closes the HTTP server and lets requests in flight finish first.
-    return { stop: () => apollo.stop() };
+    return {
+        stop: async () => {
+            stopMemoryLogging();
+            await apollo.stop();
+        },
+    };
 };
