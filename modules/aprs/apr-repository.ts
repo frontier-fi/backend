@@ -109,20 +109,29 @@ export class AprRepository {
                     return true;
                 }
 
-                const changed =
+                const aprChanged =
                     Math.abs(existingItem.apr - item.apr) > 0.0001 || (existingItem.apr !== 0 && item.apr === 0);
+                const metadataChanged =
+                    existingItem.title !== item.title ||
+                    existingItem.rewardTokenAddress !== item.rewardTokenAddress ||
+                    existingItem.rewardTokenSymbol !== item.rewardTokenSymbol;
 
-                if (changed) {
+                if (aprChanged) {
                     changedPoolIds.add(item.poolId);
                 }
 
-                return changed;
+                return aprChanged || metadataChanged;
             })
             .map((item) =>
                 prisma.prismaPoolAprItem.upsert({
                     where: { id_chain: { id: item.id, chain: item.chain } },
                     create: item,
-                    update: { apr: item.apr },
+                    update: {
+                        apr: item.apr,
+                        title: item.title,
+                        rewardTokenAddress: item.rewardTokenAddress,
+                        rewardTokenSymbol: item.rewardTokenSymbol,
+                    },
                 }),
             );
 

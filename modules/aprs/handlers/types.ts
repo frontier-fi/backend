@@ -4,5 +4,4 @@ export interface AprHandlerConfigs {
     ybAprHandler?: YbAprConfig;
     merklAprHandler?: boolean;
     aaveRewardsAprHandler?: boolean;
-    morphoRewardsAprHandler?: boolean;
 }

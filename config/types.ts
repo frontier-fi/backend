@@ -25,6 +25,7 @@ export interface NetworkData {
     };
     rpcUrl: string;
     rpcMaxBlockRange: number;
+    maxRpcBackfillRange?: number;
     acceptableSGLag: number;
     coingecko: {
         nativeAssetId: string;

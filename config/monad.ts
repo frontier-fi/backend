@@ -28,7 +28,8 @@ export default <NetworkData>{
         excludedTokenAddresses: [],
     },
     rpcUrl: env.DRPC_API_KEY ? `https://lb.drpc.live/monad/${env.DRPC_API_KEY}` : 'https://monad.gateway.tenderly.co',
-    rpcMaxBlockRange: 10000,
+    rpcMaxBlockRange: 500,
+    maxRpcBackfillRange: 50000,
     acceptableSGLag: 150, // ~1min
     // Active addresses from frontier-fi/deployments addresses/_lookup.json. Mock contracts are omitted.
     contracts: {
@@ -87,16 +88,13 @@ export default <NetworkData>{
                     ],
                 },
                 {
-                    url: 'https://blue-api.morpho.org/graphql',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: `{ assetByAddress(address: "0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee", chainId: 1) { yield { apr } } }`,
-                    }),
+                    url: 'https://liquid-api.fly.dev/weeth/apy',
+                    scale: 100,
                     extractors: [
                         {
                             type: 'path',
                             token: '0xa3d68b74bf0528fdd07263c60d6488749044914b', // weETH
-                            path: '$.data.assetByAddress.yield.apr',
+                            path: '$.displayApy',
                         },
                     ],
                 },
@@ -278,55 +276,6 @@ export default <NetworkData>{
                             type: 'path',
                             token: '0x4fc5b9f8933597d3ecf84d0611687e1dc8dd576f',
                             path: '$.data.apr',
-                        },
-                    ],
-                },
-                {
-                    url: 'https://blue-api.morpho.org/graphql',
-                    body: JSON.stringify({
-                        query: `{
-                            vaults(first: 1000, where: { chainId_in: [143], apy_gte: 0.00001 }) {
-                                items {
-                                    address
-                                    state {
-                                        apy
-                                        fee
-                                        netApy
-                                    }
-                                }
-                            }
-                        }`,
-                    }),
-                    headers: { 'Content-Type': 'application/json' },
-                    extractors: [
-                        {
-                            type: 'enumerate',
-                            path: '$.data.vaults.items',
-                            entries: (vault: any): [string, number] => [
-                                vault.address.toLowerCase(),
-                                vault.state.apy * (1 - vault.state.fee),
-                            ],
-                        },
-                    ],
-                },
-                {
-                    url: 'https://blue-api.morpho.org/graphql',
-                    body: JSON.stringify({
-                        query: `{
-                            vaultV2s(first: 500, where: { chainId_in: [143], apy_gte: 0.00001 }) {
-                                items {
-                                    address
-                                    avgNetApy
-                                }
-                            }
-                        }`,
-                    }),
-                    headers: { 'Content-Type': 'application/json' },
-                    extractors: [
-                        {
-                            type: 'enumerate',
-                            path: '$.data.vaultV2s.items',
-                            entries: (vault: any): [string, number] => [vault.address.toLowerCase(), vault.avgNetApy],
                         },
                     ],
                 },

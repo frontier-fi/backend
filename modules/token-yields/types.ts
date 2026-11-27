@@ -19,7 +19,11 @@ export type TokenYieldHandler = (config?: any) => Promise<TokenApr[]>;
 
 type EntryExtractor =
     | { readonly type: 'path'; readonly token: string; readonly path: string }
-    | { readonly type: 'enumerate'; readonly path: string; readonly entries: (item: any) => [string, number] };
+    | {
+          readonly type: 'enumerate';
+          readonly path: string;
+          readonly entries: (item: any) => [string, number | null | undefined] | null;
+      };
 
 export interface RateProviderYieldConfig {
     chain: Chain;
