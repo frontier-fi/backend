@@ -278,59 +278,6 @@ export default <NetworkData>{
                         },
                     ],
                 },
-                {
-                    url: 'https://blue-api.morpho.org/graphql',
-                    body: JSON.stringify({
-                        query: `{
-                            vaults(first: 1000, where: { chainId_in: [143], apy_gte: 0.00001 }) {
-                                items {
-                                    address
-                                    state {
-                                        apy
-                                        fee
-                                        netApy
-                                    }
-                                }
-                            }
-                        }`,
-                    }),
-                    headers: { 'Content-Type': 'application/json' },
-                    extractors: [
-                        {
-                            type: 'enumerate',
-                            path: '$.data.vaults.items',
-                            entries: (vault: any): [string, number] => [
-                                vault.address.toLowerCase(),
-                                vault.state.apy * (1 - vault.state.fee),
-                            ],
-                        },
-                    ],
-                },
-                {
-                    url: 'https://blue-api.morpho.org/graphql',
-                    body: JSON.stringify({
-                        query: `{
-                            vaultV2s(first: 500, where: { chainId_in: [143], apy_gte: 0.00001 }) {
-                                items {
-                                    address
-                                    avgNetApy
-                                    netApy
-                                }
-                            }
-                        }`,
-                    }),
-                    headers: { 'Content-Type': 'application/json' },
-                    extractors: [
-                        {
-                            type: 'enumerate',
-                            path: '$.data.vaultV2s.items',
-                            entries: (vault: any): [string, number | null] => [
-                                vault.address.toLowerCase(),
-                                vault.avgNetApy ?? vault.netApy ?? null,
-                            ],
-                        },
-                    ],
-                },
             ],
             // Blueberry vault yield doesn't track any single Curvance market's supply APY
             // (blbAUSD's market reported 0% while the vault earned ~9%), so use realised rate growth.

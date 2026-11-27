@@ -50,7 +50,7 @@ describe('httpTokenYieldHandler', () => {
         }));
 
         const result = await httpTokenYieldHandler({
-            url: 'https://blue-api.morpho.org/graphql',
+            url: 'https://example.com/vaults',
             extractors: [
                 {
                     type: 'enumerate',
