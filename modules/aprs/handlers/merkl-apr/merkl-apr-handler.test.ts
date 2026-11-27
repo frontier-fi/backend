@@ -713,12 +713,12 @@ describe('MerklAprHandler', () => {
         expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('mainProtocolId=aave'))).toBe(false);
     });
 
-    it('requires Merkl linked-campaign evidence targeting the pool LPs before including Aave V4 Hub APRs', async () => {
+    it('prefers linked pool opportunities over Hub fallback and falls back to eligible Hub campaigns when no linked pool opportunity exists', async () => {
         fetchMock.mockImplementation((url: string) => {
             const urlStr = String(url);
             if (urlStr.includes('mainProtocolId=aave&chainId=1')) {
                 return json([
-                    // No linked campaigns (childCampaignIds: []) -> must be ignored without querying /linked
+                    // No linked campaigns (childCampaignIds: []) -> falls back to Hub APR (nativeApr stripped, scaled by token TVL share) without querying /linked
                     opportunity({
                         id: '17152770703637026650',
                         type: 'AAVE_V4_HUB_NET_LENDING',
@@ -731,6 +731,9 @@ describe('MerklAprHandler', () => {
                         totalApr: 5.285583423837524,
                         dailyRewards: 3570.98,
                         tvl: 106_719_329,
+                        rewardsRecord: {
+                            breakdowns: [{ token: { address: USDC, symbol: 'USDC' } }],
+                        },
                         campaigns: [
                             {
                                 id: '13470053144558108519',
@@ -745,6 +748,42 @@ describe('MerklAprHandler', () => {
                                         {
                                             hubAddress: CORE_HUB,
                                             lendingAssetIds: ['5'],
+                                            assets: [
+                                                { assetId: '5', underlyingToken: USDC },
+                                                { assetId: '4', underlyingToken: USDT },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    }),
+                    // Unlinked Hub campaign whose target APR exceeds realized gross APR -> capped to realized 1%
+                    opportunity({
+                        id: 'capped-net-lending',
+                        type: 'AAVE_V4_HUB_NET_LENDING',
+                        action: 'LEND',
+                        chainId: 1,
+                        identifier: '0x9999999999999999999999999999999999999999',
+                        explorerAddress: undefined,
+                        apr: 8,
+                        nativeApr: 4,
+                        totalApr: 8,
+                        dailyRewards: 100,
+                        tvl: 3_650_000,
+                        campaigns: [
+                            {
+                                id: 'capped-net-lending-campaign',
+                                childCampaignIds: [],
+                                rewardToken: { address: USDC, symbol: 'USDC' },
+                                params: {
+                                    whitelist: [],
+                                    hooks: [],
+                                    forwardingEnabled: true,
+                                    hubs: [
+                                        {
+                                            hubAddress: CORE_HUB,
+                                            lendingAssetIds: ['5'],
                                             assets: [{ assetId: '5', underlyingToken: USDC }],
                                         },
                                     ],
@@ -752,32 +791,7 @@ describe('MerklAprHandler', () => {
                             },
                         ],
                     }),
-                    // Has a linked campaign, but only to an unrelated spoke (not this pool)
-                    opportunity({
-                        id: 'unrelated-spoke-only',
-                        type: 'AAVE_V4_HUB_SUPPLY',
-                        action: 'LEND',
-                        chainId: 1,
-                        identifier: '0x6a383Fa486C260781756435C3D78083Eb9564506',
-                        explorerAddress: USDC,
-                        apr: 7,
-                        dailyRewards: 1000,
-                        campaigns: [
-                            {
-                                id: 'parent-unrelated-spoke',
-                                childCampaignIds: ['child-other-spoke'],
-                                rewardToken: { address: USDC, symbol: 'USDC' },
-                                params: {
-                                    whitelist: [],
-                                    hooks: [],
-                                    forwardingEnabled: true,
-                                    hubAddress: CORE_HUB,
-                                    underlyingToken: USDC,
-                                },
-                            },
-                        ],
-                    }),
-                    // Has a 2-hop linked path reaching the pool LPs (Hub -> Spoke -> Pool)
+                    // Has a 2-hop linked path reaching the pool LPs (Hub -> Spoke -> Pool) -> prefers linked pool APR and suppresses Hub fallback
                     opportunity({
                         id: 'forwarded-hub-opp',
                         type: 'AAVE_V4_HUB_NET_LENDING',
@@ -815,38 +829,6 @@ describe('MerklAprHandler', () => {
                         ],
                     }),
                 ]);
-            }
-            if (urlStr.includes('/v4/campaigns/parent-unrelated-spoke/linked?campaigns=true')) {
-                return json({
-                    self: 'parent-unrelated-spoke',
-                    nodes: [
-                        {
-                            campaignId: 'parent-unrelated-spoke',
-                            parentCampaignId: null,
-                            opportunity: { id: 'unrelated-spoke-only', chainId: 1, status: 'LIVE', apr: 7 },
-                        },
-                        {
-                            campaignId: 'child-other-spoke',
-                            parentCampaignId: 'parent-unrelated-spoke',
-                            opportunity: {
-                                id: 'other-spoke-opp',
-                                type: 'AAVE_V4_SPOKE_SUPPLY',
-                                chainId: 1,
-                                status: 'LIVE',
-                                identifier: '0x9999999999999999999999999999999999999999',
-                                explorerAddress: '0x9EbF0C19BF7dFE859820Cc09E846114b53814e52',
-                                apr: 4.27,
-                                dailyRewards: 500,
-                                campaigns: [
-                                    {
-                                        id: 'child-other-spoke',
-                                        params: { whitelist: [], blacklist: [], hooks: [] },
-                                    },
-                                ],
-                            },
-                        },
-                    ],
-                });
             }
             if (urlStr.includes('/v4/campaigns/parent-forwarded-to-pool/linked?campaigns=true')) {
                 return json({
@@ -955,7 +937,9 @@ describe('MerklAprHandler', () => {
             }),
         ]);
 
-        expect(items).toEqual([
+        expect(items).toHaveLength(3);
+        // Forwarded Hub campaign used its LIVE linked pool opportunity and did NOT emit forwarded-hub-opp
+        expect(items[0]).toEqual(
             expect.objectContaining({
                 id: 'pool-1-aave-v4-merkl-991234567890',
                 title: '0xFF-avUSD-waMonUSDC',
@@ -965,8 +949,32 @@ describe('MerklAprHandler', () => {
                 rewardTokenAddress: USDC,
                 rewardTokenSymbol: 'USDC',
             }),
-        ]);
-        // Campaign with childCampaignIds: [] was never queried on /linked
+        );
+        // Unlinked Hub campaign fell back to nativeApr-stripped Hub APR scaled by tokenShareOfPoolTvl (borrow-only USDT ignored)
+        expect(items[1]).toEqual(
+            expect.objectContaining({
+                id: 'pool-1-aave-v4-merkl-17152770703637026650',
+                title: 'waCoreUSDC',
+                chain: Chain.MAINNET,
+                poolId: 'pool-1',
+                rewardTokenAddress: USDC,
+                rewardTokenSymbol: 'USDC',
+            }),
+        );
+        expect(items[1].apr).toBeCloseTo(((5.285583423837524 - 4.07373595819466) / 100) * 0.5, 6);
+        // Unlinked Hub campaign capped by realized gross APR (1% * 0.5)
+        expect(items[2]).toEqual(
+            expect.objectContaining({
+                id: 'pool-1-aave-v4-merkl-capped-net-lending',
+                title: 'waCoreUSDC',
+                chain: Chain.MAINNET,
+                poolId: 'pool-1',
+                rewardTokenAddress: USDC,
+                rewardTokenSymbol: 'USDC',
+            }),
+        );
+        expect(items[2].apr).toBeCloseTo(0.01 * 0.5, 6);
+        // Campaigns with childCampaignIds: [] were never queried on /linked
         expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('13470053144558108519/linked'))).toBe(
             false,
         );
@@ -1610,7 +1618,7 @@ describe('MerklAprHandler', () => {
         );
     });
 
-    it('rejects live-shaped Base EQUITIES_HUB USDC and ineligible Aave V4 Hub campaigns without linked pool opportunities', async () => {
+    it('filters out ineligible Aave V4 Hub campaigns while falling back to unlinked Base EQUITIES_HUB USDC campaigns', async () => {
         const baseHubParam = {
             hubAddress: CORE_HUB,
             lendingAssetIds: ['5'],
@@ -1745,6 +1753,21 @@ describe('MerklAprHandler', () => {
                             },
                         ],
                     }),
+                    baseAaveV4Opp('zero-merkl-topup', {
+                        apr: 4,
+                        nativeApr: 4.5,
+                        totalApr: 4,
+                        campaigns: [
+                            {
+                                id: 'campaign-zero-merkl-topup',
+                                childCampaignIds: [],
+                                params: {
+                                    forwardingEnabled: true,
+                                    hubs: [baseHubParam],
+                                },
+                            },
+                        ],
+                    }),
                     baseAaveV4Opp('zero-linked-rewards', {
                         campaigns: [
                             {
@@ -1862,7 +1885,17 @@ describe('MerklAprHandler', () => {
                 ],
             }),
         ]);
-        expect(baseItems).toEqual([]);
+        expect(baseItems).toHaveLength(1);
+        expect(baseItems[0]).toEqual(
+            expect.objectContaining({
+                id: 'pool-1-aave-v4-merkl-1829790331693421025',
+                title: 'waEquitiesUSDC',
+                chain: Chain.BASE,
+                rewardTokenAddress: BASE_USDC,
+                rewardTokenSymbol: 'USDC',
+            }),
+        );
+        expect(baseItems[0].apr).toBeCloseTo(0.02077777, 6);
     });
 
     it('dynamically discovers newly added Aave V4 spokes on-chain and expires negative probe cache entries after TTL', async () => {

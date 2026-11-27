@@ -683,8 +683,11 @@ export class MerklAprHandler implements AprHandler {
     }
 
     /**
-     * Resolves Aave V4 Hub campaigns only when Merkl's linked-campaign graph confirms that rewards
-     * are actually forwarded to the pool's LPs as a LIVE linked descendant opportunity targeting the pool.
+     * Resolves Aave V4 Hub campaigns for pools holding Aave V4 tokenization spokes without direct token opportunities:
+     * 1. Prefers LIVE linked descendant opportunities targeting `pool.address` (via `/linked?campaigns=true`),
+     *    enforcing forwarding-chain restrictions and campaign-level APR breakdowns.
+     * 2. Falls back to eligible Hub campaigns scaled by `tokenShareOfPoolTvl` (matching Aave V3 aToken fallback)
+     *    when Merkl has not yet created a LIVE linked opportunity targeting `pool.address`.
      * Failures fetching Aave hub or linked campaigns are isolated to the affected pools rather than
      * stalling unrelated Frontier or direct-token Merkl APR updates.
      */
@@ -745,7 +748,20 @@ export class MerklAprHandler implements AprHandler {
             }
         >();
 
+        const hubFallbackCandidates: {
+            pool: PoolAPRData;
+            token: PoolAPRData['tokens'][number];
+            tokenAddress: string;
+            tokenShareOfPoolTvl: number;
+            opportunity: MerklOpportunity;
+        }[] = [];
+
         for (const pool of affectedPools) {
+            const tvl = pool.tokens.map((t) => t.balanceUSD).reduce((a, b) => a + b, 0);
+            if (tvl === 0) {
+                continue;
+            }
+
             for (const token of pool.tokens) {
                 if (!token.token.underlyingTokenAddress || (token.balanceUSD || 0) <= 0) {
                     continue;
@@ -758,6 +774,7 @@ export class MerklAprHandler implements AprHandler {
                 if (!mapping) {
                     continue;
                 }
+                const tokenShareOfPoolTvl = (token.balanceUSD || 0) / tvl;
 
                 for (const opportunity of aaveOpportunities) {
                     if (
@@ -768,49 +785,61 @@ export class MerklAprHandler implements AprHandler {
                         continue;
                     }
 
-                    for (const campaign of opportunity.campaigns ?? []) {
-                        if (!campaign.id) {
-                            continue;
-                        }
-                        // An explicitly empty childCampaignIds array means Merkl has no linked forwarding for this campaign.
-                        if (Array.isArray(campaign.childCampaignIds) && campaign.childCampaignIds.length === 0) {
-                            continue;
-                        }
-                        if (
-                            !this.isAaveV4CampaignEligible(
-                                opportunity.type,
-                                campaign.params,
-                                tokenAddress,
-                                mapping,
-                                pool.address,
-                                vaultAddress,
-                            )
-                        ) {
+                    const campaigns = opportunity.campaigns ?? [];
+                    if (campaigns.length === 0) {
+                        continue;
+                    }
+
+                    let allCampaignsEligible = true;
+                    for (const campaign of campaigns) {
+                        const eligible = this.isAaveV4CampaignEligible(
+                            opportunity.type,
+                            campaign.params,
+                            tokenAddress,
+                            mapping,
+                            pool.address,
+                            vaultAddress,
+                        );
+                        if (!eligible) {
+                            allCampaignsEligible = false;
                             continue;
                         }
 
-                        let entry = candidateCampaigns.get(campaign.id);
-                        if (!entry) {
-                            entry = {
-                                campaignId: campaign.id,
-                                parentOpportunity: opportunity,
-                                campaign,
-                                pools: new Map(),
-                            };
-                            candidateCampaigns.set(campaign.id, entry);
+                        // Query /linked only when the campaign has an id and is not already proven to have zero children.
+                        if (
+                            campaign.id &&
+                            !(Array.isArray(campaign.childCampaignIds) && campaign.childCampaignIds.length === 0)
+                        ) {
+                            let entry = candidateCampaigns.get(campaign.id);
+                            if (!entry) {
+                                entry = {
+                                    campaignId: campaign.id,
+                                    parentOpportunity: opportunity,
+                                    campaign,
+                                    pools: new Map(),
+                                };
+                                candidateCampaigns.set(campaign.id, entry);
+                            }
+                            entry.pools.set(pool.id, pool);
                         }
-                        entry.pools.set(pool.id, pool);
+                    }
+
+                    if (allCampaignsEligible) {
+                        hubFallbackCandidates.push({
+                            pool,
+                            token,
+                            tokenAddress,
+                            tokenShareOfPoolTvl,
+                            opportunity,
+                        });
                     }
                 }
             }
         }
 
-        if (candidateCampaigns.size === 0) {
-            return [];
-        }
-
         const entries = Array.from(candidateCampaigns.values());
         const linkedByCampaignId = new Map<string, MerklLinkedCampaignsResponse>();
+        const failedLinkedCampaignIds = new Set<string>();
 
         for (let i = 0; i < entries.length; i += TOKEN_BATCH_SIZE) {
             const batch = entries.slice(i, i + TOKEN_BATCH_SIZE);
@@ -822,6 +851,7 @@ export class MerklAprHandler implements AprHandler {
                 if (result.status === 'fulfilled') {
                     linkedByCampaignId.set(entry.campaignId, result.value);
                 } else {
+                    failedLinkedCampaignIds.add(entry.campaignId);
                     logger.error('Failed to fetch linked Merkl campaigns for Aave V4 Hub campaign', {
                         chain,
                         campaignId: entry.campaignId,
@@ -846,6 +876,10 @@ export class MerklAprHandler implements AprHandler {
             }
         >();
         const countedCampaignKeys = new Set<string>();
+        // Tracks (poolId:hubCampaignId) pairs that already have a LIVE linked pool opportunity targeting pool.address
+        // (whether eligible, already emitted by Frontier, or explicitly restricted), so Hub fallback never double-counts
+        // or bypasses linked-campaign restrictions.
+        const poolLinkedCampaignKeys = new Set<string>();
 
         for (const entry of entries) {
             const linkedResponse = linkedByCampaignId.get(entry.campaignId);
@@ -868,6 +902,9 @@ export class MerklAprHandler implements AprHandler {
                     if (!this.opportunityTargetsPool(linkedOpp, pool.address)) {
                         continue;
                     }
+
+                    poolLinkedCampaignKeys.add(`${pool.id}:${entry.campaignId}`);
+
                     if (!this.isLinkedCampaignChainEligible(descendantChain, pool.address, vaultAddress)) {
                         continue;
                     }
@@ -942,7 +979,41 @@ export class MerklAprHandler implements AprHandler {
             }
         }
 
-        return Array.from(linkedAprByItemId.values(), ({ item }) => item);
+        const hubFallbackAprs: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[] = [];
+        for (const { pool, token, tokenAddress, tokenShareOfPoolTvl, opportunity } of hubFallbackCandidates) {
+            if (opportunity.id && frontierOppIdsByPool.get(pool.id)?.has(opportunity.id)) {
+                continue;
+            }
+            const campaigns = opportunity.campaigns ?? [];
+            if (campaigns.some((c) => Boolean(c.id && failedLinkedCampaignIds.has(c.id)))) {
+                continue;
+            }
+            if (campaigns.some((c) => Boolean(c.id && poolLinkedCampaignKeys.has(`${pool.id}:${c.id}`)))) {
+                continue;
+            }
+
+            const effectiveApr = this.getEffectiveTokenOpportunityApr(opportunity);
+            if (!Number.isFinite(effectiveApr) || effectiveApr <= 0) {
+                continue;
+            }
+
+            const rewardToken = this.extractRewardToken(opportunity);
+
+            hubFallbackAprs.push({
+                id: opportunity.id
+                    ? `${aaveV4LinkedItemPrefix(pool.id)}${opportunity.id}`
+                    : `${aaveV4LinkedItemPrefix(pool.id)}${tokenAddress}`,
+                type: PrismaPoolAprType.MERKL,
+                title: token.token.symbol || token.address,
+                chain: chainIdToChain[opportunity.chainId],
+                poolId: pool.id,
+                apr: (effectiveApr / 100) * tokenShareOfPoolTvl,
+                rewardTokenAddress: rewardToken.address,
+                rewardTokenSymbol: rewardToken.symbol,
+            });
+        }
+
+        return [...Array.from(linkedAprByItemId.values(), ({ item }) => item), ...hubFallbackAprs];
     }
 
     /**
