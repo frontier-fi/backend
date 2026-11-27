@@ -162,6 +162,7 @@ export default <NetworkData>{
                                 items {
                                     address
                                     avgNetApy
+                                    netApy
                                 }
                             }
                         }`,
@@ -171,7 +172,10 @@ export default <NetworkData>{
                         {
                             type: 'enumerate',
                             path: '$.data.vaultV2s.items',
-                            entries: (vault: any): [string, number] => [vault.address.toLowerCase(), vault.avgNetApy],
+                            entries: (vault: any): [string, number | null] => [
+                                vault.address.toLowerCase(),
+                                vault.avgNetApy ?? vault.netApy ?? null,
+                            ],
                         },
                     ],
                 },

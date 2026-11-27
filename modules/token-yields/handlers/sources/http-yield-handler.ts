@@ -50,7 +50,12 @@ const extract = (json: unknown, config: TokenYieldHttpFetchConfig): [string, unk
         }
         if (ex.type === 'enumerate') {
             const values = JSONPath({ path: ex.path, json, wrap: false });
-            return Array.isArray(values) ? values.map(ex.entries) : [];
+            if (!Array.isArray(values)) {
+                return [];
+            }
+            return values
+                .map(ex.entries)
+                .filter((entry): entry is [string, number] => entry != null && entry[1] != null);
         }
         return [];
     });
