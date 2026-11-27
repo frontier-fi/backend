@@ -157,4 +157,105 @@ describe('getEvents', () => {
         expect(global.fetch).toHaveBeenCalledTimes(1);
         expect(sleep).not.toHaveBeenCalled();
     });
+
+    it('rejects malformed non-array RPC results such as result: null instead of returning an empty batch', async () => {
+        mockedFetch().mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: null })));
+
+        await expect(getEvents(100, 110, ['0x123'], ['0x456'], 'http://localhost', 50)).rejects.toThrow(
+            /Invalid non-array result/,
+        );
+
+        mockedFetch().mockResolvedValueOnce(
+            new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { unexpected: true } })),
+        );
+
+        await expect(getEvents(100, 110, ['0x123'], ['0x456'], 'http://localhost', 50)).rejects.toThrow(
+            /Invalid non-array result/,
+        );
+    });
+
+    it('bisects rather than retrying as head lag when error says fromBlock to toBlock exceeds maximum block range', async () => {
+        const sleep = vi.fn(async () => {});
+
+        mockedFetch().mockImplementation(async (_url, init) => {
+            const body = JSON.parse(String(init?.body));
+            const from = parseInt(body.params[0].fromBlock, 16);
+            const to = parseInt(body.params[0].toBlock, 16);
+
+            if (to - from + 1 > 250) {
+                return new Response(
+                    JSON.stringify({
+                        error: { code: -32602, message: 'fromBlock to toBlock exceeds maximum block range of 250' },
+                    }),
+                );
+            }
+            return new Response(JSON.stringify({ result: [{ address: `0x${from}` }] }));
+        });
+
+        const logs = await getEvents(1000, 1499, ['0x123'], ['0x456'], 'http://localhost', 500, undefined, 4000, {
+            sleep,
+        });
+
+        expect(sleep).not.toHaveBeenCalled();
+        expect(logs).toEqual([{ address: '0x1000' }, { address: '0x1250' }]);
+        expect(extractRangesFromFetchCalls()).toEqual([
+            [1000, 1499],
+            [1000, 1249],
+            [1250, 1499],
+        ]);
+    });
+
+    it('bounds chunk concurrency and applies exponential backoff with jitter on rate-limit retries', async () => {
+        let inFlight = 0;
+        let maxInFlight = 0;
+
+        mockedFetch().mockImplementation(async (_url, init) => {
+            const body = JSON.parse(String(init?.body));
+            const from = parseInt(body.params[0].fromBlock, 16);
+            inFlight++;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            inFlight--;
+            return new Response(JSON.stringify({ result: [{ address: `0x${from}` }] }));
+        });
+
+        // 20 chunks of 500 blocks each (10,000 blocks total); default concurrency cap is 5
+        const logs = await getEvents(0, 9999, ['0x123'], ['0x456'], 'http://localhost', 500);
+
+        expect(maxInFlight).toBeLessThanOrEqual(5);
+        expect(maxInFlight).toBeGreaterThan(1);
+        expect(logs).toHaveLength(20);
+        // Preserves chronological chunk ordering
+        expect(logs[0]).toEqual({ address: '0x0' });
+        expect(logs[19]).toEqual({ address: '0x9500' });
+
+        // Verify exponential backoff + jitter on 429 rate-limit retries
+        mockedFetch().mockReset();
+        const delays: number[] = [];
+        const sleep = vi.fn(async (ms: number) => {
+            delays.push(ms);
+        });
+        const randomValues = [0.2, 0.8];
+        let randomIdx = 0;
+
+        mockedFetch()
+            .mockResolvedValueOnce(
+                new Response(JSON.stringify({ error: { code: 429, message: 'rate limit exceeded' } }), { status: 429 }),
+            )
+            .mockResolvedValueOnce(
+                new Response(JSON.stringify({ error: { code: 429, message: 'rate limit exceeded' } }), { status: 429 }),
+            )
+            .mockResolvedValueOnce(new Response(JSON.stringify({ result: [{ address: '0xok' }] })));
+
+        const retried = await getEvents(0, 10, ['0x123'], ['0x456'], 'http://localhost', 50, undefined, 4000, {
+            maxRetries: 3,
+            retryDelayMs: 1000,
+            sleep,
+            random: () => randomValues[randomIdx++] ?? 0,
+        });
+
+        expect(retried).toEqual([{ address: '0xok' }]);
+        // attempt 0: 1000 + floor(250 * 0.2) = 1050; attempt 1: 2000 + floor(500 * 0.8) = 2400
+        expect(delays).toEqual([1050, 2400]);
+    });
 });

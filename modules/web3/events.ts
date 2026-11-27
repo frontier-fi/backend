@@ -14,13 +14,16 @@ export interface GetEventsOptions {
     retryDelayMs?: number;
     maxSplitDepth?: number;
     minSplitRange?: number;
+    maxConcurrency?: number;
     sleep?: (ms: number) => Promise<void>;
+    random?: () => number;
 }
 
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 const DEFAULT_MAX_SPLIT_DEPTH = 14;
 const DEFAULT_MIN_SPLIT_RANGE = 10;
+const DEFAULT_MAX_CONCURRENCY = 5;
 
 const NON_RETRYABLE_STATUS_CODES = new Set([401, 403, 404]);
 
@@ -28,7 +31,7 @@ const NON_RETRYABLE_PATTERN =
     /\b(unauthorized|forbidden|invalid api key|api key|malformed|invalid address|invalid topic|invalid hex|method not found|unsupported method)\b/i;
 
 const HEAD_SKEW_PATTERN =
-    /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest)|exceeds (the )?(current )?(head|latest)|ahead of (the )?(current )?(head|latest)|future block|(toblock|fromblock)[^\n]{0,40}(greater than|exceeds|after|beyond|latest|head|current)|requested block[^\n]{0,40}(not found|unavailable|future))/i;
+    /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest|chain ?tip|tip)|exceeds (the )?(current )?(head|latest|chain ?tip|tip)|ahead of (the )?(current )?(head|latest|chain ?tip|tip)|future block|\b(toblock|fromblock)\b[^\n]{0,40}(?:\b(?:greater than|exceeds|after|beyond|ahead of)\b|>)[^\n]{0,30}\b(latest|head|current(?: block| head| tip)?|chain ?tip|last accepted)\b|requested block[^\n]{0,40}(not found|unavailable|future))/i;
 
 const RANGE_LIMIT_PATTERN =
     /(block range|max(imum)?\s+range|block window|range (is )?too (wide|large)|too many blocks|limited to\b|exceeds? max|exceeded max|more than \d+ (results|logs|blocks)|too many results|log response size|response size exceeded)/i;
@@ -58,6 +61,16 @@ class RpcLogsError extends Error {
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const computeRetryDelayMs = (baseDelayMs: number, attempt: number, random: () => number): number => {
+    if (baseDelayMs <= 0) {
+        return 0;
+    }
+    const exponential = baseDelayMs * 2 ** attempt;
+    // Add 0–25% jitter so concurrent rate-limited workers do not retry in lockstep.
+    const jitter = Math.floor(exponential * 0.25 * Math.min(1, Math.max(0, random())));
+    return exponential + jitter;
+};
 
 const parseRpcCode = (code: unknown): number | undefined => {
     if (typeof code === 'number' && Number.isFinite(code)) {
@@ -119,7 +132,9 @@ export const getEvents = async (
     const retryDelayMs = options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     const maxSplitDepth = options?.maxSplitDepth ?? DEFAULT_MAX_SPLIT_DEPTH;
     const minSplitRange = options?.minSplitRange ?? DEFAULT_MIN_SPLIT_RANGE;
+    const maxConcurrency = Math.max(1, Math.floor(options?.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY));
     const sleep = options?.sleep ?? defaultSleep;
+    const random = options?.random ?? Math.random;
 
     const fetchChunk = async (
         from: number,
@@ -203,16 +218,18 @@ export const getEvents = async (
                 // Handle missing block / head skew in the RPC logs by retrying with bounded retries
                 if (HEAD_SKEW_PATTERN.test(message)) {
                     if (attempt < maxRetries) {
+                        const delayMs = computeRetryDelayMs(retryDelayMs, attempt, random);
                         // rpcUrl carries the RPC API key, so it stays out of the log.
                         logger.warn('Retrying getEvents after transient missing block', {
                             fromBlock: from,
                             toBlock: to,
                             attempt: attempt + 1,
                             maxRetries,
+                            delayMs,
                             rpcCode: code,
                         });
-                        if (retryDelayMs > 0) {
-                            await sleep(retryDelayMs);
+                        if (delayMs > 0) {
+                            await sleep(delayMs);
                         }
                         continue;
                     }
@@ -222,8 +239,9 @@ export const getEvents = async (
                 // Alchemy / tenderly / gateway.fm rate limit
                 if (status === 429 || RATE_LIMIT_PATTERN.test(message)) {
                     if (attempt < maxRetries) {
-                        if (retryDelayMs > 0) {
-                            await sleep(retryDelayMs);
+                        const delayMs = computeRetryDelayMs(retryDelayMs, attempt, random);
+                        if (delayMs > 0) {
+                            await sleep(delayMs);
                         }
                         continue;
                     }
@@ -254,16 +272,18 @@ export const getEvents = async (
                 }
 
                 if (isAmbiguousInvalidParams && attempt < maxRetries) {
+                    const delayMs = computeRetryDelayMs(retryDelayMs, attempt, random);
                     logger.warn('Retrying getEvents after transient -32602 RPC error', {
                         fromBlock: from,
                         toBlock: to,
                         blocks: blockSpan,
                         attempt: attempt + 1,
                         maxRetries,
+                        delayMs,
                         rpcCode: code,
                     });
-                    if (retryDelayMs > 0) {
-                        await sleep(retryDelayMs);
+                    if (delayMs > 0) {
+                        await sleep(delayMs);
                     }
                     continue;
                 }
@@ -273,22 +293,52 @@ export const getEvents = async (
         }
     };
 
-    const promises: Promise<DecodedEventLog[]>[] = [];
+    const tasks: Array<{ from: number; to: number; addressChunk: string[] }> = [];
 
     for (let from = fromBlock; from <= toBlock;) {
         const to = Math.min(from + effectiveMaxBlockRange - 1, toBlock);
         const addressChunks = chunk(addresses, effectiveMaxAddresses);
 
         for (const addressChunk of addressChunks) {
-            promises.push(fetchChunk(from, to, addressChunk, 0));
+            tasks.push({ from, to, addressChunk });
         }
 
         from = to + 1;
     }
 
-    return Promise.all(promises)
-        .then((res) => res.flat().filter((log) => log))
-        .then((logs) => (iEvents ? decodeLogs(logs, iEvents) : logs));
+    const results: DecodedEventLog[][] = new Array(tasks.length);
+    let nextTaskIndex = 0;
+    let firstError: unknown;
+    let hasError = false;
+
+    const workerCount = Math.min(maxConcurrency, tasks.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (!hasError) {
+            const taskIndex = nextTaskIndex++;
+            if (taskIndex >= tasks.length) {
+                return;
+            }
+            const task = tasks[taskIndex];
+            try {
+                results[taskIndex] = await fetchChunk(task.from, task.to, task.addressChunk, 0);
+            } catch (err) {
+                if (!hasError) {
+                    hasError = true;
+                    firstError = err;
+                }
+                return;
+            }
+        }
+    });
+
+    await Promise.all(workers);
+
+    if (hasError) {
+        throw firstError;
+    }
+
+    const logs = results.flat().filter((log) => log);
+    return iEvents ? decodeLogs(logs, iEvents) : logs;
 };
 
 const fetchLogs = async (
@@ -366,7 +416,11 @@ const fetchLogs = async (
         });
     }
 
-    return Array.isArray(response.result) ? response.result : [];
+    if (!Array.isArray(response.result)) {
+        throw new RpcLogsError(`Invalid non-array result in eth_getLogs response (${typeof response.result})`);
+    }
+
+    return response.result;
 };
 
 const decodeLogs = (logs: DecodedEventLog[], iEvents: Interface): DecodedEventLog[] => {

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HttpRequestError, InvalidParamsRpcError, RpcRequestError } from 'viem';
+import { createPublicClient, http, HttpRequestError, InvalidParamsRpcError, RpcRequestError } from 'viem';
 import { formatLogLine } from '../../common/logger';
 import { ViemClient } from '../types';
+import { createHttpStatusPreservingOnFetchResponse } from '../viem-client';
 import { getChangedPoolsV3 } from './get-changed-pools';
 
 const VAULT_ADDRESS = '0xFF00009C1A83Ec25434522ef355b99e9a70000FF';
@@ -251,6 +252,68 @@ describe('getChangedPoolsV3', () => {
             }),
         ).rejects.toThrow(/code=-32602.*invalid address format/);
         expect(getLogsMalformed).toHaveBeenCalledTimes(1);
+        expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it('bisects rather than retrying when error says fromBlock to toBlock exceeds maximum block range', async () => {
+        const sleep = vi.fn(async () => {});
+        const queriedRanges: Array<[bigint, bigint]> = [];
+
+        const getLogs = vi
+            .fn()
+            .mockImplementation(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+                queriedRanges.push([fromBlock, toBlock]);
+                if (toBlock - fromBlock + 1n > 250n) {
+                    throw makeViemInvalidParamsError(
+                        'fromBlock to toBlock exceeds maximum block range of 250',
+                        fromBlock,
+                        toBlock,
+                    );
+                }
+                return [];
+            });
+
+        await expect(
+            getChangedPoolsV3(VAULT_ADDRESS, { getLogs } as unknown as ViemClient, 1000n, 1499n, { sleep }),
+        ).resolves.toEqual([]);
+
+        expect(sleep).not.toHaveBeenCalled();
+        expect(queriedRanges).toEqual([
+            [1000n, 1499n],
+            [1000n, 1249n],
+            [1250n, 1499n],
+        ]);
+    });
+
+    it('preserves HTTP 403 status at the viem transport boundary even when body is a generic -32602 JSON-RPC error', async () => {
+        const sleep = vi.fn(async () => {});
+        const fetchFn = vi.fn(async () => {
+            return new Response(
+                JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 1,
+                    error: { code: -32602, message: 'Invalid params' },
+                }),
+                {
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            );
+        });
+
+        const url = 'https://lb.drpc.live/monad/test';
+        const client = createPublicClient({
+            transport: http(url, {
+                fetchFn,
+                onFetchResponse: createHttpStatusPreservingOnFetchResponse(url),
+            }),
+        }) as unknown as ViemClient;
+
+        await expect(getChangedPoolsV3(VAULT_ADDRESS, client, 1000n, 1499n, { sleep })).rejects.toThrow(
+            /code=-32602, status=403.*Invalid params/,
+        );
+        expect(fetchFn).toHaveBeenCalledTimes(1);
         expect(sleep).not.toHaveBeenCalled();
     });
 });
