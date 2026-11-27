@@ -71,9 +71,19 @@ export interface AaveAddressBookEntry {
     CHAIN_ID: number;
 }
 
+export interface AaveV4AddressBookEntry {
+    readonly CHAIN_ID: number;
+    readonly HUBS: Readonly<Record<string, string>>;
+    readonly TOKENIZATION_SPOKES?: Readonly<Record<string, string>>;
+    readonly ASSETS?: Readonly<Record<string, { readonly UNDERLYING: string }>>;
+}
+
 export interface TokenYieldConfig {
     aave?: {
         markets: AaveAddressBookEntry[];
+    };
+    aaveV4?: {
+        markets: AaveV4AddressBookEntry[];
     };
     euler?: {
         url: string;

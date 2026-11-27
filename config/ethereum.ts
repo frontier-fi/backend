@@ -1,4 +1,9 @@
-import { AaveV3Ethereum, AaveV3EthereumLido } from '@aave-dao/aave-address-book';
+import {
+    AaveV3Ethereum,
+    AaveV3EthereumLido,
+    AaveV4Ethereum,
+    AaveV4EthereumSentoraCurated,
+} from '@aave-dao/aave-address-book';
 import { env } from '../apps/env';
 import { NetworkData } from './types';
 import { activeChainWorkerJobsGeneric, activeChainWorkerJobsV3 } from './worker-jobs';
@@ -66,6 +71,9 @@ export default <NetworkData>{
         ybAprHandler: {
             aave: {
                 markets: [AaveV3Ethereum, AaveV3EthereumLido],
+            },
+            aaveV4: {
+                markets: [AaveV4Ethereum, AaveV4EthereumSentoraCurated],
             },
             http: [
                 {
