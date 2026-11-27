@@ -109,7 +109,12 @@ describe('AprManager', () => {
         expect(mockPrisma.prismaPoolAprItem.upsert).toHaveBeenCalledWith({
             where: { id_chain: { id: 'pool-1-yb-keep', chain: Chain.MONAD } },
             create: updatedYb,
-            update: { apr: 0.02 },
+            update: {
+                apr: 0.02,
+                title: updatedYb.title,
+                rewardTokenAddress: updatedYb.rewardTokenAddress,
+                rewardTokenSymbol: updatedYb.rewardTokenSymbol,
+            },
         });
         expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
     });
@@ -181,6 +186,46 @@ describe('AprManager', () => {
         expect(mockPrisma.prismaPoolAprItem.findMany).not.toHaveBeenCalled();
         expect(mockPrisma.prismaPoolAprItem.deleteMany).not.toHaveBeenCalled();
         expect(mockBulkExecute).not.toHaveBeenCalled();
+    });
+
+    it('upserts metadata changes even when APR is unchanged without recalculating pool total APR', async () => {
+        const existingMerkl = aprItem({
+            id: 'pool-1-merkl-123',
+            title: 'Old Title',
+            rewardTokenSymbol: null,
+            apr: 0.02,
+        });
+        mockPrisma.prismaPoolAprItem.findMany.mockResolvedValue([existingMerkl]);
+
+        const updatedMerkl = aprItem({
+            id: 'pool-1-merkl-123',
+            title: 'waMonUSDC',
+            rewardTokenAddress: '0x561ad6156d0106e7a59ee788759df7b7ec679bd0',
+            rewardTokenSymbol: 'WMON',
+            apr: 0.02,
+        });
+        const merklHandler: AprHandler = {
+            getAprServiceName: () => 'MerklAprHandler',
+            getAprTypes: () => [PrismaPoolAprType.MERKL],
+            calculateAprForPools: vi.fn().mockResolvedValue([updatedMerkl]),
+        };
+
+        const manager = new AprManager(new AprRepository(), [merklHandler]);
+        const changedPools = await manager.updateAprs(Chain.MONAD);
+
+        expect(changedPools).toEqual([]);
+        expect(mockPrisma.prismaPoolAprItem.upsert).toHaveBeenCalledWith({
+            where: { id_chain: { id: 'pool-1-merkl-123', chain: Chain.MONAD } },
+            create: updatedMerkl,
+            update: {
+                apr: 0.02,
+                title: 'waMonUSDC',
+                rewardTokenAddress: '0x561ad6156d0106e7a59ee788759df7b7ec679bd0',
+                rewardTokenSymbol: 'WMON',
+            },
+        });
+        expect(mockBulkExecute).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
     });
 });
 

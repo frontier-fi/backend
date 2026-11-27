@@ -68,22 +68,32 @@ vi.mock('../../../../config', () => ({
 }));
 
 type Opportunity = {
+    id?: string;
+    type?: string;
     chainId: number;
     identifier: string;
     dailyRewards: number;
+    tvl?: number;
     explorerAddress: string;
     apr: number;
-    campaigns?: { params?: { whitelist?: string[] } }[];
+    rewardsRecord?: { breakdowns?: { token?: { address?: string; symbol?: string } }[] };
+    campaigns?: { rewardToken?: { address?: string; symbol?: string }; params?: { whitelist?: string[] } }[];
 };
 
 function opportunity(overrides: Partial<Opportunity> = {}): Opportunity {
     return {
+        id: '3250124745872902091',
         chainId: 11155111,
         identifier: POOL,
         dailyRewards: 1,
         explorerAddress: POOL,
         apr: 10,
-        campaigns: [{ params: { whitelist: [] } }],
+        campaigns: [
+            {
+                rewardToken: { address: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', symbol: 'WMON' },
+                params: { whitelist: [] },
+            },
+        ],
         ...overrides,
     };
 }
@@ -92,12 +102,13 @@ function pool(overrides: Record<string, unknown> = {}): PoolAPRData {
     return {
         id: 'pool-1',
         address: POOL,
+        symbol: '0xFF-avUSD-waMonUSDC',
         chain: Chain.SEPOLIA,
         tokens: [
             {
                 address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
                 balanceUSD: 100,
-                token: { underlyingTokenAddress: null },
+                token: { symbol: 'avUSD', underlyingTokenAddress: null },
             },
         ],
         dynamicData: { totalLiquidity: 100 },
@@ -132,7 +143,7 @@ describe('MerklAprHandler', () => {
         expect(handler.getAprTypes()).toEqual([PrismaPoolAprType.MERKL]);
     });
 
-    it('turns a live pool opportunity into an APR fraction and sends the API key', async () => {
+    it('turns a live pool opportunity into an APR fraction with opportunity id, pool symbol, reward token, and sends the API key', async () => {
         env.MERKL_API_KEY = 'merkl-test-key';
         fetchMock.mockImplementation((url: string) => {
             if (String(url).includes('mainProtocolId=frontier')) return json([opportunity({ apr: 12.5 })]);
@@ -143,12 +154,14 @@ describe('MerklAprHandler', () => {
 
         expect(items).toEqual([
             expect.objectContaining({
-                id: 'pool-1-merkl',
+                id: 'pool-1-merkl-3250124745872902091',
                 type: PrismaPoolAprType.MERKL,
-                title: 'Merkl Rewards',
+                title: '0xFF-avUSD-waMonUSDC',
                 chain: Chain.SEPOLIA,
                 poolId: 'pool-1',
                 apr: 0.125,
+                rewardTokenAddress: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a',
+                rewardTokenSymbol: 'WMON',
             }),
         ]);
         expect(fetchMock).toHaveBeenCalledWith(
@@ -163,10 +176,10 @@ describe('MerklAprHandler', () => {
         fetchMock.mockImplementation((url: string) => {
             if (!String(url).includes('mainProtocolId=frontier')) return json([]);
             return json([
-                opportunity({ campaigns: [{ params: { whitelist: ['0xabc'] } }] }),
-                opportunity({ chainId: 1, identifier: POOL }),
-                opportunity({ identifier: '0xcccccccccccccccccccccccccccccccccccccccc' }),
-                opportunity({ apr: 5, campaigns: [{ params: {} }] }),
+                opportunity({ id: '1', campaigns: [{ params: { whitelist: ['0xabc'] } }] }),
+                opportunity({ id: '2', chainId: 1, identifier: POOL }),
+                opportunity({ id: '3', identifier: '0xcccccccccccccccccccccccccccccccccccccccc' }),
+                opportunity({ id: '4', apr: 5, campaigns: [{ params: {} }] }),
             ]);
         });
 
@@ -179,18 +192,39 @@ describe('MerklAprHandler', () => {
             }),
         ]);
 
-        expect(items).toEqual([expect.objectContaining({ poolId: 'pool-1', apr: 0.05 })]);
+        expect(items).toEqual([expect.objectContaining({ id: 'pool-1-merkl-4', poolId: 'pool-1', apr: 0.05 })]);
         expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ headers: {} }));
     });
 
-    it('sums pool and token opportunities that land on the same pool and scopes token lookups by chainId', async () => {
+    it('emits separate APR items for pool and direct wrapped-token opportunities without falling back to the Aave aToken', async () => {
         fetchMock.mockImplementation((url: string) => {
-            if (String(url).includes('mainProtocolId=frontier')) return json([opportunity({ apr: 10 })]);
+            const urlStr = String(url);
+            if (urlStr.includes('mainProtocolId=frontier')) {
+                return json([opportunity({ id: '3250124745872902091', apr: 10 })]);
+            }
+            if (urlStr.includes(`explorerAddress=${WRAPPER}`)) {
+                return json([
+                    opportunity({
+                        id: '9212343318075137075',
+                        explorerAddress: WRAPPER,
+                        identifier: WRAPPER,
+                        apr: 1.08,
+                        campaigns: [
+                            {
+                                rewardToken: { address: '0x561Ad6156D0106E7a59EE788759dF7B7Ec679BD0', symbol: 'WMON' },
+                                params: { whitelist: [] },
+                            },
+                        ],
+                    }),
+                ]);
+            }
+            // Should never be queried because WRAPPER already had a direct live opportunity
             return json([
                 opportunity({
+                    id: '16304919407637138722',
+                    type: 'AAVE_NET_LENDING',
                     explorerAddress: A_TOKEN,
-                    apr: 20,
-                    campaigns: [{ params: { whitelist: ['ignored-for-token-opportunities'] } }],
+                    apr: 5.4,
                 }),
             ]);
         });
@@ -201,33 +235,125 @@ describe('MerklAprHandler', () => {
                     {
                         address: WRAPPER,
                         balanceUSD: 25,
-                        token: { underlyingTokenAddress: '0xunderlying' },
+                        token: { symbol: 'waMonUSDC', underlyingTokenAddress: '0xunderlying' },
                     },
                     {
                         address: STATA,
                         balanceUSD: 75,
-                        token: { underlyingTokenAddress: null },
+                        token: { symbol: 'avUSD', underlyingTokenAddress: null },
                     },
                 ],
             }),
         ]);
 
-        // Pool APR 10% plus the wrapper's 20% scaled by its 25/100 share of TVL.
+        expect(items).toHaveLength(2);
+        expect(items[0]).toEqual(
+            expect.objectContaining({
+                id: 'pool-1-merkl-3250124745872902091',
+                title: '0xFF-avUSD-waMonUSDC',
+                apr: 0.1,
+                rewardTokenSymbol: 'WMON',
+            }),
+        );
+        expect(items[1]).toEqual(
+            expect.objectContaining({
+                id: 'pool-1-merkl-9212343318075137075',
+                title: 'waMonUSDC',
+                rewardTokenSymbol: 'WMON',
+            }),
+        );
+        expect(items[1].apr).toBeCloseTo(0.0108 * 0.25);
+        expect(String(fetchMock.mock.calls[1][0])).toContain(
+            `campaigns=true&chainId=11155111&explorerAddress=${WRAPPER}`,
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('falls back to Aave aToken when wrapper has no direct opportunity and caps AAVE_NET_LENDING APR by realized gross APR', async () => {
+        fetchMock.mockImplementation((url: string) => {
+            const urlStr = String(url);
+            if (urlStr.includes('mainProtocolId=frontier')) return json([]);
+            if (urlStr.includes(`explorerAddress=${WRAPPER}`)) return json([]);
+            if (urlStr.includes(`explorerAddress=${A_TOKEN}`)) {
+                return json([
+                    opportunity({
+                        id: '16304919407637138722',
+                        type: 'AAVE_NET_LENDING',
+                        explorerAddress: A_TOKEN,
+                        apr: 5.4,
+                        dailyRewards: 2480.77,
+                        tvl: 84_370_801,
+                    }),
+                ]);
+            }
+            return json([]);
+        });
+
+        const items = await handler.calculateAprForPools([
+            pool({
+                tokens: [
+                    {
+                        address: WRAPPER,
+                        balanceUSD: 50,
+                        token: { symbol: 'waMonUSDC', underlyingTokenAddress: '0xunderlying' },
+                    },
+                    {
+                        address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                        balanceUSD: 50,
+                        token: { symbol: 'avUSD', underlyingTokenAddress: null },
+                    },
+                ],
+            }),
+        ]);
+
+        const expectedRealizedApr = ((2480.77 * 365) / 84_370_801) * 0.5;
         expect(items).toHaveLength(1);
-        expect(items[0].apr).toBeCloseTo(0.1 + 0.2 * 0.25);
-        expect(String(fetchMock.mock.calls[1][0])).toContain(`chainId=11155111&explorerAddress=${A_TOKEN}`);
-        expect(String(fetchMock.mock.calls[1][0])).not.toContain(WRAPPER);
+        expect(items[0]).toEqual(
+            expect.objectContaining({
+                id: 'pool-1-merkl-16304919407637138722',
+                title: 'waMonUSDC',
+            }),
+        );
+        expect(items[0].apr).toBeCloseTo(expectedRealizedApr, 6);
+    });
+
+    it('filters out whitelisted token opportunities', async () => {
+        fetchMock.mockImplementation((url: string) => {
+            if (String(url).includes('mainProtocolId=frontier')) return json([]);
+            return json([
+                opportunity({
+                    id: '999',
+                    explorerAddress: WRAPPER,
+                    apr: 20,
+                    campaigns: [{ params: { whitelist: ['0xonly-me'] } }],
+                }),
+            ]);
+        });
+
+        const items = await handler.calculateAprForPools([
+            pool({
+                tokens: [
+                    {
+                        address: WRAPPER,
+                        balanceUSD: 100,
+                        token: { symbol: 'waMonUSDC', underlyingTokenAddress: '0xunderlying' },
+                    },
+                ],
+            }),
+        ]);
+
+        expect(items).toEqual([]);
     });
 
     it('asks Merkl once per underlying token in batches of 4 and skips trailing batch sleep', async () => {
         const sleepMock = vi.fn().mockResolvedValue(undefined);
         const pacedHandler = new MerklAprHandler({ sleep: sleepMock, batchDelayMs: 300 });
         const tokens = Array.from({ length: 11 }, (_, index) => {
-            const address = `0x${(index + 1).toString(16).padStart(40, '0')}`;
+            const address = `0x${(index + 10).toString(16).padStart(40, '0')}`;
             return {
                 address,
                 balanceUSD: 1,
-                token: { underlyingTokenAddress: '0xunderlying' },
+                token: { symbol: `T${index}`, underlyingTokenAddress: '0xunderlying' },
             };
         });
         fetchMock.mockImplementation(() => json([]));
@@ -244,18 +370,18 @@ describe('MerklAprHandler', () => {
 
     it('paginates through opportunities when a page returns 100 items and stops on a short page', async () => {
         const fullPage = Array.from({ length: 100 }, (_, i) =>
-            opportunity({ identifier: `0x${i.toString(16).padStart(40, '0')}`, apr: 1 }),
+            opportunity({ id: `page0-${i}`, identifier: `0x${i.toString(16).padStart(40, '0')}`, apr: 1 }),
         );
         fetchMock.mockImplementation((url: string) => {
             const urlStr = String(url);
             if (urlStr.includes('page=0')) return json(fullPage);
-            if (urlStr.includes('page=1')) return json([opportunity({ apr: 15 })]);
+            if (urlStr.includes('page=1')) return json([opportunity({ id: 'page1-0', apr: 15 })]);
             return json([]);
         });
 
         const items = await handler.calculateAprForPools([pool()]);
 
-        expect(items).toEqual([expect.objectContaining({ poolId: 'pool-1', apr: 0.15 })]);
+        expect(items).toEqual([expect.objectContaining({ id: 'pool-1-merkl-page1-0', poolId: 'pool-1', apr: 0.15 })]);
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(String(fetchMock.mock.calls[0][0])).toContain('page=0&items=100');
         expect(String(fetchMock.mock.calls[1][0])).toContain('page=1&items=100');
@@ -372,11 +498,14 @@ describe('MerklAprHandler', () => {
         expect(sleepMock).not.toHaveBeenCalled();
     });
 
-    it('maps wrappers across all configured Aave markets on the same chain', async () => {
+    it('maps wrappers across all configured Aave markets on the same chain when wrapper has no direct opportunity', async () => {
         fetchMock.mockImplementation((url: string) => {
-            if (String(url).includes('mainProtocolId=frontier')) return json([]);
+            const urlStr = String(url);
+            if (urlStr.includes('mainProtocolId=frontier')) return json([]);
+            if (urlStr.includes(`explorerAddress=${SECOND_MARKET_WRAPPER}`)) return json([]);
             return json([
                 opportunity({
+                    id: 'second-market-opp',
                     explorerAddress: SECOND_MARKET_A_TOKEN,
                     apr: 8,
                     campaigns: [{ params: { whitelist: [] } }],
@@ -390,15 +519,22 @@ describe('MerklAprHandler', () => {
                     {
                         address: SECOND_MARKET_WRAPPER,
                         balanceUSD: 100,
-                        token: { underlyingTokenAddress: '0xunderlying' },
+                        token: { symbol: 'waWETH', underlyingTokenAddress: '0xunderlying' },
                     },
                 ],
             }),
         ]);
 
-        expect(items).toEqual([expect.objectContaining({ poolId: 'pool-1', apr: 0.08 })]);
-        expect(String(fetchMock.mock.calls[1][0])).toContain(SECOND_MARKET_A_TOKEN);
-        expect(String(fetchMock.mock.calls[1][0])).not.toContain(SECOND_MARKET_WRAPPER);
+        expect(items).toEqual([
+            expect.objectContaining({
+                id: 'pool-1-merkl-second-market-opp',
+                title: 'waWETH',
+                poolId: 'pool-1',
+                apr: 0.08,
+            }),
+        ]);
+        expect(String(fetchMock.mock.calls[1][0])).toContain(SECOND_MARKET_WRAPPER);
+        expect(String(fetchMock.mock.calls[2][0])).toContain(SECOND_MARKET_A_TOKEN);
     });
 
     it('rejects an empty pool list', async () => {
