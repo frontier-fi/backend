@@ -34,7 +34,7 @@ const HEAD_SKEW_PATTERN =
     /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest|chain ?tip|tip)|exceeds (the )?(current )?(head|latest|chain ?tip|tip)|ahead of (the )?(current )?(head|latest|chain ?tip|tip)|future block|\b(toblock|fromblock)\b[^\n]{0,40}(?:\b(?:greater than|exceeds|after|beyond|ahead of)\b|>)[^\n]{0,30}\b(latest|head|current (?:block|head|tip|height)|chain ?tip|last accepted)\b|requested block[^\n]{0,40}(not found|unavailable|future))/i;
 
 const RANGE_LIMIT_PATTERN =
-    /(block range|max(imum)?\s+range|block window|range (is )?too (wide|large)|too many blocks|limited to\b|exceeds? max|exceeded max|more than \d+ (results|logs|blocks)|too many results|log response size|response size exceeded)/i;
+    /(max(imum)?\s+(block\s+)?(range|window)|block\s+(range|window)\s+(limit|size|exceeded|exceeds|is\s+too|too\s+(wide|large|big)|must\s+be|cannot\s+exceed)|range\s+(is\s+)?too\s+(wide|large|big)|too\s+many\s+(blocks|results|logs)|limited\s+to\b|exceeds?\s+(the\s+)?(current\s+)?max(imum)?|exceeded\s+(the\s+)?(current\s+)?max(imum)?|more\s+than\s+\d+\s+(results|logs|blocks)|query\s+returned\s+more\s+than|log\s+response\s+size|response\s+size\s+exceeded)/i;
 
 const RATE_LIMIT_PATTERN =
     /(Your app has exceeded its compute units per second capacity|rate limit exceeded|Total number of requests exceeded|too many requests)/i;
@@ -238,27 +238,22 @@ export const getEvents = async (
                     return results;
                 }
 
-                // Block range limit (checked before head skew so range errors mentioning "current" still bisect)
-                const isRangeLimit = code === -32005 || RANGE_LIMIT_PATTERN.test(message);
-                if (isRangeLimit) {
-                    if (to > from && splitDepth < maxSplitDepth) {
-                        const logFn = splitDepth === 0 ? logger.warn : logger.debug;
-                        logFn('Bisecting getEvents block range after RPC error', {
-                            fromBlock: from,
-                            toBlock: to,
-                            blocks: blockSpan,
-                            splitDepth,
-                            rpcCode: code,
-                        });
-                        const mid = Math.floor((from + to) / 2);
-                        const left = await fetchChunk(from, mid, addressChunk, splitDepth + 1, signal);
-                        const right = await fetchChunk(mid + 1, to, addressChunk, splitDepth + 1, signal);
-                        return [...left, ...right];
+                // Alchemy / tenderly / gateway.fm / dRPC rate limit (checked before generic -32005 range fallback
+                // so throttled requests back off instead of splitting into more traffic)
+                if (status === 429 || RATE_LIMIT_PATTERN.test(message)) {
+                    if (attempt < maxRetries) {
+                        const delayMs = computeRetryDelayMs(retryDelayMs, attempt, random);
+                        if (delayMs > 0) {
+                            await sleep(delayMs, signal);
+                        }
+                        continue;
                     }
                     throw wrapLeafError(e);
                 }
 
                 // Handle missing block / head skew in the RPC logs by retrying with bounded retries
+                // (checked before generic code-based fallbacks so messages like "block range extends beyond current head"
+                // retry the same range instead of splitting)
                 if (HEAD_SKEW_PATTERN.test(message)) {
                     if (attempt < maxRetries) {
                         const delayMs = computeRetryDelayMs(retryDelayMs, attempt, random);
@@ -279,14 +274,22 @@ export const getEvents = async (
                     throw wrapLeafError(e);
                 }
 
-                // Alchemy / tenderly / gateway.fm rate limit
-                if (status === 429 || RATE_LIMIT_PATTERN.test(message)) {
-                    if (attempt < maxRetries) {
-                        const delayMs = computeRetryDelayMs(retryDelayMs, attempt, random);
-                        if (delayMs > 0) {
-                            await sleep(delayMs, signal);
-                        }
-                        continue;
+                // Explicit block range / result cap or generic -32005 limit fallback
+                const isRangeLimit = RANGE_LIMIT_PATTERN.test(message) || code === -32005;
+                if (isRangeLimit) {
+                    if (to > from && splitDepth < maxSplitDepth) {
+                        const logFn = splitDepth === 0 ? logger.warn : logger.debug;
+                        logFn('Bisecting getEvents block range after RPC error', {
+                            fromBlock: from,
+                            toBlock: to,
+                            blocks: blockSpan,
+                            splitDepth,
+                            rpcCode: code,
+                        });
+                        const mid = Math.floor((from + to) / 2);
+                        const left = await fetchChunk(from, mid, addressChunk, splitDepth + 1, signal);
+                        const right = await fetchChunk(mid + 1, to, addressChunk, splitDepth + 1, signal);
+                        return [...left, ...right];
                     }
                     throw wrapLeafError(e);
                 }

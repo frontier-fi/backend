@@ -255,7 +255,39 @@ describe('getChangedPoolsV3', () => {
         expect(sleep).not.toHaveBeenCalled();
     });
 
-    it('bisects rather than retrying when error says fromBlock to toBlock exceeds current maximum block range', async () => {
+    it('retries [1, 500] after sleeping when -32602 says block range extends beyond current head', async () => {
+        let slept = false;
+        const sleep = vi.fn(async () => {
+            slept = true;
+        });
+        const queriedRanges: Array<[bigint, bigint]> = [];
+
+        const getLogs = vi
+            .fn()
+            .mockImplementation(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+                queriedRanges.push([fromBlock, toBlock]);
+                if (!slept) {
+                    throw makeViemInvalidParamsError('block range extends beyond current head', fromBlock, toBlock);
+                }
+                return [{ args: { pool: '0xEEE0000000000000000000000000000000000005' } }];
+            });
+
+        await expect(
+            getChangedPoolsV3(VAULT_ADDRESS, { getLogs } as unknown as ViemClient, 1n, 500n, {
+                maxRetries: 2,
+                retryDelayMs: 100,
+                sleep,
+            }),
+        ).resolves.toEqual(['0xeee0000000000000000000000000000000000005']);
+
+        expect(sleep).toHaveBeenCalledTimes(1);
+        expect(queriedRanges).toEqual([
+            [1n, 500n],
+            [1n, 500n],
+        ]);
+    });
+
+    it('bisects [1, 500] into [1, 250] and [251, 500] without sleeping when -32602 says exceeds current maximum block range of 250', async () => {
         const sleep = vi.fn(async () => {});
         const queriedRanges: Array<[bigint, bigint]> = [];
 
@@ -264,56 +296,70 @@ describe('getChangedPoolsV3', () => {
             .mockImplementation(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
                 queriedRanges.push([fromBlock, toBlock]);
                 if (toBlock - fromBlock + 1n > 250n) {
-                    throw makeViemInvalidParamsError(
-                        'fromBlock to toBlock exceeds current maximum block range of 250',
-                        fromBlock,
-                        toBlock,
-                    );
+                    throw makeViemInvalidParamsError('exceeds current maximum block range of 250', fromBlock, toBlock);
                 }
                 return [];
             });
 
         await expect(
-            getChangedPoolsV3(VAULT_ADDRESS, { getLogs } as unknown as ViemClient, 1000n, 1499n, { sleep }),
+            getChangedPoolsV3(VAULT_ADDRESS, { getLogs } as unknown as ViemClient, 1n, 500n, { sleep }),
         ).resolves.toEqual([]);
 
         expect(sleep).not.toHaveBeenCalled();
         expect(queriedRanges).toEqual([
-            [1000n, 1499n],
-            [1000n, 1249n],
-            [1250n, 1499n],
+            [1n, 500n],
+            [1n, 250n],
+            [251n, 500n],
         ]);
     });
 
-    it('preserves HTTP 403 status and avoids transport retries even when body carries -32602, -32603, -32005, or plain text', async () => {
+    it('preserves HTTP 403 status and avoids transport retries across valid JSON-RPC, plain text, and malformed JSON bodies', async () => {
         const sleep = vi.fn(async () => {});
         const url = 'https://lb.drpc.live/monad/test';
 
-        for (const [label, body, expectedPattern] of [
+        for (const [label, contentType, body, statusText, expectedPattern] of [
             [
                 '-32602',
+                'application/json',
                 JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32602, message: 'Invalid params' } }),
+                'Forbidden',
                 /code=-32602, status=403.*Invalid params/,
             ],
             [
                 '-32603',
+                'application/json',
                 JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'Internal error' } }),
+                'Forbidden',
                 /code=-32603, status=403.*Internal error/,
             ],
             [
                 '-32005',
+                'application/json',
                 JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'Limit exceeded' } }),
+                'Forbidden',
                 /code=-32005, status=403.*Limit exceeded/,
             ],
-            ['plain text', 'Forbidden', /status=403.*Forbidden/],
+            ['plain text', 'text/plain', 'Forbidden', 'Forbidden', /status=403.*Forbidden/],
+            [
+                'HTML body with application/json header',
+                'application/json',
+                '<html><body>403 Forbidden</body></html>',
+                'Forbidden',
+                /status=403.*Forbidden/,
+            ],
+            [
+                'truncated JSON with application/json header and empty statusText',
+                'application/json',
+                '{"jsonrpc":"2.0","error":{"code":-32602',
+                '',
+                /status=403.*HTTP 403/,
+            ],
         ] as const) {
             const fetchFn = vi.fn(async () => {
                 return new Response(body, {
                     status: 403,
-                    statusText: 'Forbidden',
-                    headers: {
-                        'Content-Type': label === 'plain text' ? 'text/plain' : 'application/json',
-                    },
+                    statusText,
+                    headers: { 'Content-Type': contentType },
                 });
             });
 

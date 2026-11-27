@@ -174,7 +174,65 @@ describe('getEvents', () => {
         );
     });
 
-    it('bisects rather than retrying as head lag when error says fromBlock to toBlock exceeds current maximum block range', async () => {
+    it('backs off and retries [1, 500] on HTTP 429 with -32005 and rate limit exceeded instead of splitting', async () => {
+        let slept = false;
+        const sleep = vi.fn(async () => {
+            slept = true;
+        });
+
+        mockedFetch().mockImplementation(async () => {
+            if (!slept) {
+                return new Response(JSON.stringify({ error: { code: -32005, message: 'rate limit exceeded' } }), {
+                    status: 429,
+                });
+            }
+            return new Response(JSON.stringify({ result: [{ address: '0xratelimitok' }] }));
+        });
+
+        const logs = await getEvents(1, 500, ['0x123'], ['0x456'], 'http://localhost', 500, undefined, 4000, {
+            maxRetries: 2,
+            retryDelayMs: 100,
+            sleep,
+        });
+
+        expect(sleep).toHaveBeenCalledTimes(1);
+        expect(logs).toEqual([{ address: '0xratelimitok' }]);
+        expect(extractRangesFromFetchCalls()).toEqual([
+            [1, 500],
+            [1, 500],
+        ]);
+    });
+
+    it('backs off and retries [1, 500] on -32602 with block range extends beyond current head instead of splitting', async () => {
+        let slept = false;
+        const sleep = vi.fn(async () => {
+            slept = true;
+        });
+
+        mockedFetch().mockImplementation(async () => {
+            if (!slept) {
+                return new Response(
+                    JSON.stringify({ error: { code: -32602, message: 'block range extends beyond current head' } }),
+                );
+            }
+            return new Response(JSON.stringify({ result: [{ address: '0xheadok' }] }));
+        });
+
+        const logs = await getEvents(1, 500, ['0x123'], ['0x456'], 'http://localhost', 500, undefined, 4000, {
+            maxRetries: 2,
+            retryDelayMs: 100,
+            sleep,
+        });
+
+        expect(sleep).toHaveBeenCalledTimes(1);
+        expect(logs).toEqual([{ address: '0xheadok' }]);
+        expect(extractRangesFromFetchCalls()).toEqual([
+            [1, 500],
+            [1, 500],
+        ]);
+    });
+
+    it('bisects [1, 500] into [1, 250] and [251, 500] without sleeping when -32602 says exceeds current maximum block range of 250', async () => {
         const sleep = vi.fn(async () => {});
 
         mockedFetch().mockImplementation(async (_url, init) => {
@@ -187,7 +245,7 @@ describe('getEvents', () => {
                     JSON.stringify({
                         error: {
                             code: -32602,
-                            message: 'fromBlock to toBlock exceeds current maximum block range of 250',
+                            message: 'exceeds current maximum block range of 250',
                         },
                     }),
                 );
@@ -195,16 +253,16 @@ describe('getEvents', () => {
             return new Response(JSON.stringify({ result: [{ address: `0x${from}` }] }));
         });
 
-        const logs = await getEvents(1000, 1499, ['0x123'], ['0x456'], 'http://localhost', 500, undefined, 4000, {
+        const logs = await getEvents(1, 500, ['0x123'], ['0x456'], 'http://localhost', 500, undefined, 4000, {
             sleep,
         });
 
         expect(sleep).not.toHaveBeenCalled();
-        expect(logs).toEqual([{ address: '0x1000' }, { address: '0x1250' }]);
+        expect(logs).toEqual([{ address: '0x1' }, { address: '0x251' }]);
         expect(extractRangesFromFetchCalls()).toEqual([
-            [1000, 1499],
-            [1000, 1249],
-            [1250, 1499],
+            [1, 500],
+            [1, 250],
+            [251, 500],
         ]);
     });
 

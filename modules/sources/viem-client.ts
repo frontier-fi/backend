@@ -25,10 +25,12 @@ const RETRYABLE_RPC_CODES = new Set([-1, -32005, -32603, 429, -32007]);
 const RETRYABLE_HTTP_STATUS_CODES = new Set([408, 413, 429, 500, 502, 503, 504]);
 
 /**
- * Preserves non-retryable HTTP statuses (401/403/404) when an RPC endpoint returns
- * a valid JSON-RPC error payload. Viem's http() transport otherwise returns the parsed
- * JSON-RPC error object and drops response.status, causing downstream error handlers to
- * misclassify e.g. HTTP 403 + -32602/-32603/-32005 as a retryable/splittable RPC error.
+ * Preserves non-retryable HTTP statuses (401/403/404) at the transport boundary.
+ * Viem's http() transport otherwise drops response.status when a non-OK response
+ * contains a valid JSON-RPC error object, or throws a JSON parse error before attaching
+ * response.status when a non-OK response claims Content-Type: application/json with a
+ * malformed/HTML body. Always throw a status-bearing HttpRequestError on 401/403/404,
+ * enriched with the parsed RPC code and message when available.
  */
 export const createHttpStatusPreservingOnFetchResponse = (fallbackUrl?: string) => {
     return async (response: Response) => {
@@ -40,31 +42,43 @@ export const createHttpStatusPreservingOnFetchResponse = (fallbackUrl?: string) 
         try {
             bodyText = await response.clone().text();
         } catch {
-            return;
+            // Unreadable body — still throw a status-bearing HttpRequestError below.
         }
 
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(bodyText);
-        } catch {
-            return;
+        let rpcCode: number | undefined;
+        let rpcMessage: string | undefined;
+
+        if (bodyText.trim()) {
+            try {
+                const parsed: unknown = JSON.parse(bodyText);
+                const rpcError =
+                    parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed
+                        ? (parsed as { error?: { code?: unknown; message?: unknown } }).error
+                        : undefined;
+                if (typeof rpcError?.code === 'number') {
+                    rpcCode = rpcError.code;
+                }
+                if (typeof rpcError?.message === 'string' && rpcError.message.trim()) {
+                    rpcMessage = rpcError.message.trim();
+                }
+            } catch {
+                // Invalid JSON (e.g. HTML error page or truncated JSON with application/json header).
+            }
         }
 
-        const rpcError =
-            parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed
-                ? (parsed as { error?: { code?: unknown; message?: unknown } }).error
-                : undefined;
+        const fallbackDiagnostic = response.statusText?.trim() || `HTTP ${response.status}`;
+        const httpError = new HttpRequestError({
+            url: response.url || fallbackUrl || '',
+            status: response.status,
+            headers: response.headers,
+            details: rpcMessage || fallbackDiagnostic,
+        }) as HttpRequestError & { code?: number };
 
-        if (typeof rpcError?.code === 'number' && typeof rpcError?.message === 'string') {
-            const httpError = new HttpRequestError({
-                url: response.url || fallbackUrl || '',
-                status: response.status,
-                headers: response.headers,
-                details: rpcError.message || response.statusText,
-            }) as HttpRequestError & { code?: number };
-            httpError.code = rpcError.code;
-            throw httpError;
+        if (rpcCode !== undefined) {
+            httpError.code = rpcCode;
         }
+
+        throw httpError;
     };
 };
 

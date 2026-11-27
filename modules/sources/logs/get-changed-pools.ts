@@ -32,8 +32,11 @@ const NON_RETRYABLE_PATTERN =
 const HEAD_SKEW_PATTERN =
     /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest|chain ?tip|tip)|exceeds (the )?(current )?(head|latest|chain ?tip|tip)|ahead of (the )?(current )?(head|latest|chain ?tip|tip)|future block|\b(toblock|fromblock)\b[^\n]{0,40}(?:\b(?:greater than|exceeds|after|beyond|ahead of)\b|>)[^\n]{0,30}\b(latest|head|current (?:block|head|tip|height)|chain ?tip|last accepted)\b|requested block[^\n]{0,40}(not found|unavailable|future))/i;
 
+const RATE_LIMIT_PATTERN =
+    /(Your app has exceeded its compute units per second capacity|rate limit exceeded|Total number of requests exceeded|too many requests)/i;
+
 const RANGE_LIMIT_PATTERN =
-    /(block range|max(imum)?\s+range|block window|range (is )?too (wide|large)|too many blocks|limited to\b|exceeds? max|exceeded max|more than \d+ (results|logs|blocks)|query returned more than|too many results|log response size|response size exceeded)/i;
+    /(max(imum)?\s+(block\s+)?(range|window)|block\s+(range|window)\s+(limit|size|exceeded|exceeds|is\s+too|too\s+(wide|large|big)|must\s+be|cannot\s+exceed)|range\s+(is\s+)?too\s+(wide|large|big)|too\s+many\s+(blocks|results|logs)|limited\s+to\b|exceeds?\s+(the\s+)?(current\s+)?max(imum)?|exceeded\s+(the\s+)?(current\s+)?max(imum)?|more\s+than\s+\d+\s+(results|logs|blocks)|query\s+returned\s+more\s+than|log\s+response\s+size|response\s+size\s+exceeded)/i;
 
 export interface GetChangedPoolsV3Options {
     /** Maximum retries for transient head-skew or small-range -32602 errors. Defaults to 3. */
@@ -149,7 +152,7 @@ const buildDiagnosticError = (err: unknown, info: RpcErrorInfo, fromBlock: bigin
     return wrapped;
 };
 
-type ErrorAction = 'non-retryable' | 'head-skew' | 'range-limit' | 'ambiguous-invalid-params';
+type ErrorAction = 'non-retryable' | 'rate-limit' | 'head-skew' | 'range-limit' | 'ambiguous-invalid-params';
 
 const classifyRpcError = (info: RpcErrorInfo): ErrorAction => {
     const diagnosticText = [info.details, info.shortMessage].filter(Boolean).join(' ');
@@ -160,11 +163,14 @@ const classifyRpcError = (info: RpcErrorInfo): ErrorAction => {
     if (diagnosticText && NON_RETRYABLE_PATTERN.test(diagnosticText)) {
         return 'non-retryable';
     }
-    if (info.code === -32005 || (diagnosticText && RANGE_LIMIT_PATTERN.test(diagnosticText))) {
-        return 'range-limit';
+    if (info.status === 429 || (diagnosticText && RATE_LIMIT_PATTERN.test(diagnosticText))) {
+        return 'rate-limit';
     }
     if (diagnosticText && HEAD_SKEW_PATTERN.test(diagnosticText)) {
         return 'head-skew';
+    }
+    if ((diagnosticText && RANGE_LIMIT_PATTERN.test(diagnosticText)) || info.code === -32005) {
+        return 'range-limit';
     }
     if (info.code === -32602) {
         return 'ambiguous-invalid-params';
@@ -257,7 +263,8 @@ export const getChangedPoolsV3 = async (
 
                 const shouldRetry =
                     attempt < maxRetries &&
-                    (action === 'head-skew' ||
+                    (action === 'rate-limit' ||
+                        action === 'head-skew' ||
                         (action === 'ambiguous-invalid-params' && (blockSpan <= minSplitRange || start === end)));
 
                 if (shouldRetry) {
