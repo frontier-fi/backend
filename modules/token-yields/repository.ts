@@ -41,4 +41,18 @@ export class TokenYieldRepository {
             true,
         );
     }
+
+    /**
+     * Delete token yields for a chain that haven't been refreshed since `olderThan`
+     */
+    async deleteStaleTokenYields(chain: Chain, olderThan: Date): Promise<number> {
+        const result = await prisma.prismaTokenYield.deleteMany({
+            where: {
+                chain,
+                updatedAt: { lt: olderThan },
+            },
+        });
+
+        return result.count;
+    }
 }

@@ -27,7 +27,7 @@ export const syncIncentivizedCategory = async (chain: Chain) => {
     });
 
     const incentivizedIds = incentivizedPoolIds.map(({ id }) => id);
-    const rewardPoolIds = poolsWithReward.map(({ poolId }) => poolId);
+    const rewardPoolIds = Array.from(new Set(poolsWithReward.map(({ poolId }) => poolId)));
 
     const idsToAdd = rewardPoolIds.filter((id) => !incentivizedIds.includes(id));
     const idsToRemove = incentivizedIds.filter((id) => !rewardPoolIds.includes(id));
