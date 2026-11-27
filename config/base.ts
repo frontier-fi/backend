@@ -67,16 +67,13 @@ export default <NetworkData>{
             },
             http: [
                 {
-                    url: 'https://blue-api.morpho.org/graphql',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: `{ assetByAddress(address: "0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee", chainId: 1) { yield { apr } } }`,
-                    }),
+                    url: 'https://liquid-api.fly.dev/weeth/apy',
+                    scale: 100,
                     extractors: [
                         {
                             type: 'path',
                             token: '0x04c0599ae5a44757c0af6f9ec3b93da8976c150a', // weETH
-                            path: '$.data.assetByAddress.yield.apr',
+                            path: '$.displayApy',
                         },
                     ],
                 },
