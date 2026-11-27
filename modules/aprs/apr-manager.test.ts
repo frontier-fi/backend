@@ -227,6 +227,131 @@ describe('AprManager', () => {
         expect(mockBulkExecute).toHaveBeenCalledTimes(1);
         expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
     });
+
+    it('preserves only matching item prefixes for partially failed pools while pruning expired Frontier rows on the same pool', async () => {
+        mockPrisma.prismaPool.findMany.mockResolvedValue([
+            { id: 'pool-1', chain: Chain.MAINNET },
+            { id: 'pool-2', chain: Chain.MAINNET },
+        ]);
+        mockPrisma.prismaPoolDynamicData.findMany.mockResolvedValue([
+            { id: 'pool-1', totalLiquidity: 100 },
+            { id: 'pool-2', totalLiquidity: 100 },
+        ]);
+
+        const existingPool1Aave = aprItem({
+            id: 'pool-1-aave-v4-merkl-999',
+            chain: Chain.MAINNET,
+            poolId: 'pool-1',
+            apr: 0.02,
+        });
+        const existingPool1AaveSupersededByFrontier = aprItem({
+            id: 'pool-1-aave-v4-merkl-frontier',
+            chain: Chain.MAINNET,
+            poolId: 'pool-1',
+            apr: 0.04,
+        });
+        const existingPool1FrontierEnded = aprItem({
+            id: 'pool-1-merkl-frontier-ended',
+            chain: Chain.MAINNET,
+            poolId: 'pool-1',
+            apr: 0.03,
+        });
+        const existingPool1Frontier = aprItem({
+            id: 'pool-1-merkl-frontier',
+            chain: Chain.MAINNET,
+            poolId: 'pool-1',
+            apr: 0.04,
+        });
+        const existingPool1YbStale = aprItem({
+            id: 'pool-1-yb-stale',
+            type: PrismaPoolAprType.IB_YIELD,
+            chain: Chain.MAINNET,
+            poolId: 'pool-1',
+            apr: 0.01,
+        });
+        const existingPool2Stale = aprItem({
+            id: 'pool-2-merkl-stale',
+            chain: Chain.MAINNET,
+            poolId: 'pool-2',
+            apr: 0.03,
+        });
+        mockPrisma.prismaPoolAprItem.findMany.mockResolvedValue([
+            existingPool1Aave,
+            existingPool1AaveSupersededByFrontier,
+            existingPool1FrontierEnded,
+            existingPool1Frontier,
+            existingPool1YbStale,
+            existingPool2Stale,
+        ]);
+
+        const updatedPool1Frontier = aprItem({
+            id: 'pool-1-merkl-frontier',
+            chain: Chain.MAINNET,
+            poolId: 'pool-1',
+            apr: 0.06,
+        });
+        const newPool2Merkl = aprItem({
+            id: 'pool-2-merkl-new',
+            chain: Chain.MAINNET,
+            poolId: 'pool-2',
+            apr: 0.05,
+        });
+
+        const partialMerklHandler: AprHandler = {
+            getAprServiceName: () => 'MerklAprHandler',
+            getAprTypes: () => [PrismaPoolAprType.MERKL],
+            calculateAprForPools: vi.fn().mockResolvedValue([updatedPool1Frontier, newPool2Merkl]),
+            calculateAprForPoolsWithFailures: vi.fn().mockResolvedValue({
+                items: [updatedPool1Frontier, newPool2Merkl],
+                preserveItems: [
+                    {
+                        poolId: 'pool-1',
+                        idPrefix: 'pool-1-aave-v4-merkl-',
+                        excludeIds: new Set(['pool-1-aave-v4-merkl-frontier']),
+                    },
+                ],
+            }),
+        };
+        const succeedingYbHandler: AprHandler = {
+            getAprServiceName: () => 'YbTokensAprHandler',
+            getAprTypes: () => [PrismaPoolAprType.IB_YIELD],
+            calculateAprForPools: vi.fn().mockResolvedValue([]),
+        };
+
+        const manager = new AprManager(new AprRepository(), [partialMerklHandler, succeedingYbHandler]);
+        const changedPools = await manager.updateAprs(Chain.MAINNET);
+
+        expect(changedPools).toEqual(expect.arrayContaining(['pool-1', 'pool-2']));
+        expect(changedPools).toHaveLength(2);
+        // pool-1's unrelated Aave V4 row is preserved, while the Frontier-superseded Aave V4 row, expired Frontier row, stale IB_YIELD, and pool-2's stale row are pruned.
+        expect(mockPrisma.prismaPoolAprItem.deleteMany).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.prismaPoolAprItem.deleteMany).toHaveBeenCalledWith({
+            where: {
+                id: {
+                    in: [
+                        'pool-1-aave-v4-merkl-frontier',
+                        'pool-1-merkl-frontier-ended',
+                        'pool-1-yb-stale',
+                        'pool-2-merkl-stale',
+                    ],
+                },
+                chain: Chain.MAINNET,
+            },
+        });
+        expect(mockPrisma.prismaPoolAprItem.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { id_chain: { id: 'pool-1-merkl-frontier', chain: Chain.MAINNET } },
+                create: updatedPool1Frontier,
+            }),
+        );
+        expect(mockPrisma.prismaPoolAprItem.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { id_chain: { id: 'pool-2-merkl-new', chain: Chain.MAINNET } },
+                create: newPool2Merkl,
+            }),
+        );
+        expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
+    });
 });
 
 void (0 as unknown as PoolAPRData);

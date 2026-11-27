@@ -1,6 +1,7 @@
 import { Prisma, Chain, PrismaPoolAprItem, PrismaPoolAprType } from '@prisma/client';
 import { prisma } from '../../prisma/prisma-client';
 import { prismaBulkExecuteOperations } from '../../prisma/prisma-util';
+import type { AprPreservationRule } from './types';
 import _ from 'lodash';
 
 const aprsInclude = Prisma.validator<Prisma.PrismaPoolDefaultArgs>()({
@@ -59,7 +60,10 @@ export class AprRepository {
         chain: Chain,
         newAprItems: Omit<PrismaPoolAprItem, 'createdAt' | 'updatedAt'>[],
         poolIds?: string[],
-        options?: { preserveTypes?: ReadonlySet<PrismaPoolAprType> },
+        options?: {
+            preserveTypes?: ReadonlySet<PrismaPoolAprType>;
+            preserveItemsByType?: ReadonlyMap<PrismaPoolAprType, readonly AprPreservationRule[]>;
+        },
     ): Promise<string[]> {
         const changedPoolIds = new Set<string>();
 
@@ -72,12 +76,31 @@ export class AprRepository {
         });
 
         const preserveTypes = options?.preserveTypes;
+        const preserveItemsByType = options?.preserveItemsByType;
 
-        // Remove items that are not in newAprItems anymore, unless their handler failed
+        const isPreserved = (existingItem: PrismaPoolAprItem): boolean => {
+            if (!existingItem.type) {
+                return false;
+            }
+            if (preserveTypes?.has(existingItem.type)) {
+                return true;
+            }
+            const rules = preserveItemsByType?.get(existingItem.type);
+            if (!rules || rules.length === 0) {
+                return false;
+            }
+            return rules.some(
+                (rule) =>
+                    rule.poolId === existingItem.poolId &&
+                    (!rule.idPrefix || existingItem.id.startsWith(rule.idPrefix)) &&
+                    !rule.excludeIds?.has(existingItem.id),
+            );
+        };
+
+        // Remove items that are not in newAprItems anymore, unless preserved due to a failure
         const itemsToRemove = existingItems.filter(
             (existingItem) =>
-                !(existingItem.type && preserveTypes?.has(existingItem.type)) &&
-                !newAprItems.some((newAprItem) => newAprItem.id === existingItem.id),
+                !isPreserved(existingItem) && !newAprItems.some((newAprItem) => newAprItem.id === existingItem.id),
         );
 
         if (itemsToRemove.length > 0) {
