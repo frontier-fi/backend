@@ -28,7 +28,8 @@ export default <NetworkData>{
         excludedTokenAddresses: [],
     },
     rpcUrl: env.DRPC_API_KEY ? `https://lb.drpc.live/monad/${env.DRPC_API_KEY}` : 'https://monad.gateway.tenderly.co',
-    rpcMaxBlockRange: 10000,
+    rpcMaxBlockRange: 500,
+    maxRpcBackfillRange: 50000,
     acceptableSGLag: 150, // ~1min
     // Active addresses from frontier-fi/deployments addresses/_lookup.json. Mock contracts are omitted.
     contracts: {

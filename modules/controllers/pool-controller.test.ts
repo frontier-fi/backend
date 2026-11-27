@@ -24,11 +24,13 @@ const {
     mockUpdateAprs,
     mockSyncTags,
     mockViemClient,
+    mockSubgraphLastSyncedBlock,
     pendingResync,
     rpcHead,
     subgraphHead,
 } = vi.hoisted(() => {
     const rpcHead = 1_000_000;
+    const subgraphHead = rpcHead - 100;
     return {
         mockPoolFindMany: vi.fn(),
         mockGetLastSyncedBlock: vi.fn(),
@@ -53,11 +55,12 @@ const {
         mockUpdateAprs: vi.fn(),
         mockSyncTags: vi.fn(),
         mockViemClient: { getBlockNumber: async () => BigInt(rpcHead) },
+        mockSubgraphLastSyncedBlock: vi.fn(async () => subgraphHead),
         // Stands in for the pendingResync column, which outlives a worker restart.
         pendingResync: new Set<string>(),
         rpcHead,
         // Further behind than Base's acceptableSGLag, so syncPoolsV3 takes the RPC path.
-        subgraphHead: rpcHead - 100,
+        subgraphHead,
     };
 });
 
@@ -93,8 +96,8 @@ vi.mock('../sources/viem-client', () => ({
 }));
 
 vi.mock('../sources/subgraphs', () => ({
-    getVaultSubgraphClient: () => ({ lastSyncedBlock: async () => subgraphHead }),
-    getPoolsSubgraphClient: () => ({ lastSyncedBlock: async () => subgraphHead }),
+    getVaultSubgraphClient: () => ({ lastSyncedBlock: mockSubgraphLastSyncedBlock }),
+    getPoolsSubgraphClient: () => ({ lastSyncedBlock: mockSubgraphLastSyncedBlock }),
     getV3JoinedSubgraphClient: () => ({ getAllInitializedPools: mockGetAllInitializedPools }),
 }));
 
@@ -144,6 +147,7 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         pendingResync.clear();
+        mockSubgraphLastSyncedBlock.mockResolvedValue(subgraphHead);
         mockSyncPools.mockImplementation(async (pools: { id: string }[]) => pools.map((pool) => pool.id));
     });
 
@@ -180,6 +184,36 @@ describe('PoolController.syncPoolsV3 on the RPC path', () => {
             BigInt(rpcHead),
         );
         expect(mockUpsertLastSyncedBlock).toHaveBeenCalledWith('BASE', 'POOLS_V3', rpcHead);
+    });
+
+    it('chunks multi-batch RPC log scans into exact inclusive windows without off-by-one widths or gaps', async () => {
+        // Monad: rpcMaxBlockRange = 500, acceptableSGLag = 150
+        mockSubgraphLastSyncedBlock.mockResolvedValue(rpcHead - 200);
+        mockGetLastSyncedBlock.mockResolvedValue(rpcHead - 1000);
+        mockGetChangedPoolsV3
+            .mockResolvedValueOnce(['0xpoola'])
+            .mockResolvedValueOnce(['0xpoolb'])
+            .mockResolvedValueOnce(['0xpoola']);
+        mockPoolFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: '0xpoola' }, { id: '0xpoolb' }]);
+
+        const ids = await PoolController().syncPoolsV3('MONAD');
+
+        expect(mockGetChangedPoolsV3.mock.calls.map(([, , from, to]) => [from, to])).toEqual([
+            [BigInt(rpcHead - 1000), BigInt(rpcHead - 501)],
+            [BigInt(rpcHead - 500), BigInt(rpcHead - 1)],
+            [BigInt(rpcHead), BigInt(rpcHead)],
+        ]);
+        expect(ids).toEqual(['0xpoola', '0xpoolb']);
+    });
+
+    it('skips getChangedPoolsV3 when checkpoint is already at latestBlock', async () => {
+        mockGetLastSyncedBlock.mockResolvedValue(rpcHead);
+        mockPoolFindMany.mockResolvedValueOnce([]);
+
+        const ids = await PoolController().syncPoolsV3('BASE');
+
+        expect(mockGetChangedPoolsV3).not.toHaveBeenCalled();
+        expect(ids).toEqual([]);
     });
 
     it('retries pools it could not update on a later run, across a restart, while advancing the checkpoint', async () => {
@@ -954,6 +988,67 @@ describe('PoolController.addPoolsV3 bootstrap sequence', () => {
                 step: 'sync-bpt-balances',
                 poolIds: [poolId],
                 error: expect.stringContaining('exceeds RPC catch-up limit'),
+            }),
+        ]);
+
+        stderr.mockRestore();
+    });
+
+    it('uses Monad maxRpcBackfillRange (50,000) for addPoolsV3 BPT catch-up even with smaller rpcMaxBlockRange', async () => {
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        const tokenA = '0x1111111111111111111111111111111111111111';
+        const mockPool = [
+            {
+                id: poolId,
+                blockNumber: String(rpcHead - 10_000),
+                tokens: [{ address: tokenA, token: { isErc4626: false } }],
+            },
+        ];
+        const mockInsert = [
+            {
+                tokens: [
+                    { address: tokenA, decimals: 18, name: 'Token A', symbol: 'TKA' },
+                    { address: poolId, decimals: 18, name: 'Plain Pool', symbol: 'PLAIN' },
+                ],
+            },
+        ];
+
+        // 10,000-block lag exceeds 5 * 500 (2,500) but is well within Monad's decoupled maxRpcBackfillRange (50,000).
+        mockGetAllInitializedPools.mockResolvedValue(mockPool);
+        mockAddPoolsV3.mockResolvedValue(mockInsert);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValueOnce(rpcHead - 10_000);
+        mockSyncBptBalancesFromRpc.mockResolvedValueOnce(10_000);
+
+        await expect(PoolController().addPoolsV3('MONAD')).resolves.toEqual([poolId]);
+
+        expect(mockSyncBptBalancesFromRpc).toHaveBeenCalledTimes(1);
+        expect(mockSyncBptBalancesFromRpc).toHaveBeenCalledWith(
+            [poolId],
+            mockViemClient,
+            'MONAD',
+            undefined,
+            rpcHead - 10_000,
+        );
+
+        // Lag exceeding Monad's 50,000-block maxRpcBackfillRange still aborts unbounded RPC backfill.
+        vi.clearAllMocks();
+        stderr.mockClear();
+        mockPoolFindMany.mockResolvedValue([]);
+        mockGetLastSyncedBlock.mockResolvedValue(100);
+        mockGetAllInitializedPools.mockResolvedValue(mockPool);
+        mockAddPoolsV3.mockResolvedValue(mockInsert);
+        mockSyncBptBalancesFromSubgraph.mockResolvedValueOnce(rpcHead - 60_000);
+
+        await expect(PoolController().addPoolsV3('MONAD')).resolves.toEqual([poolId]);
+
+        expect(mockSyncBptBalancesFromRpc).not.toHaveBeenCalled();
+        expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+            expect.objectContaining({
+                level: 'error',
+                message: 'Pool init enrichment step failed',
+                chain: 'MONAD',
+                step: 'sync-bpt-balances',
+                error: expect.stringContaining('exceeds RPC catch-up limit (50000)'),
             }),
         ]);
 
