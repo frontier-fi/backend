@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createPublicClient, http, HttpRequestError, InvalidParamsRpcError, RpcRequestError } from 'viem';
+import { createPublicClient, HttpRequestError, InvalidParamsRpcError, RpcRequestError } from 'viem';
 import { formatLogLine } from '../../common/logger';
 import { ViemClient } from '../types';
-import { createHttpStatusPreservingOnFetchResponse } from '../viem-client';
+import { createRpcHttpTransport } from '../viem-client';
 import { getChangedPoolsV3 } from './get-changed-pools';
 
 const VAULT_ADDRESS = '0xFF00009C1A83Ec25434522ef355b99e9a70000FF';
@@ -255,7 +255,7 @@ describe('getChangedPoolsV3', () => {
         expect(sleep).not.toHaveBeenCalled();
     });
 
-    it('bisects rather than retrying when error says fromBlock to toBlock exceeds maximum block range', async () => {
+    it('bisects rather than retrying when error says fromBlock to toBlock exceeds current maximum block range', async () => {
         const sleep = vi.fn(async () => {});
         const queriedRanges: Array<[bigint, bigint]> = [];
 
@@ -265,7 +265,7 @@ describe('getChangedPoolsV3', () => {
                 queriedRanges.push([fromBlock, toBlock]);
                 if (toBlock - fromBlock + 1n > 250n) {
                     throw makeViemInvalidParamsError(
-                        'fromBlock to toBlock exceeds maximum block range of 250',
+                        'fromBlock to toBlock exceeds current maximum block range of 250',
                         fromBlock,
                         toBlock,
                     );
@@ -285,35 +285,69 @@ describe('getChangedPoolsV3', () => {
         ]);
     });
 
-    it('preserves HTTP 403 status at the viem transport boundary even when body is a generic -32602 JSON-RPC error', async () => {
+    it('preserves HTTP 403 status and avoids transport retries even when body carries -32602, -32603, -32005, or plain text', async () => {
         const sleep = vi.fn(async () => {});
-        const fetchFn = vi.fn(async () => {
-            return new Response(
-                JSON.stringify({
-                    jsonrpc: '2.0',
-                    id: 1,
-                    error: { code: -32602, message: 'Invalid params' },
-                }),
-                {
+        const url = 'https://lb.drpc.live/monad/test';
+
+        for (const [label, body, expectedPattern] of [
+            [
+                '-32602',
+                JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32602, message: 'Invalid params' } }),
+                /code=-32602, status=403.*Invalid params/,
+            ],
+            [
+                '-32603',
+                JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'Internal error' } }),
+                /code=-32603, status=403.*Internal error/,
+            ],
+            [
+                '-32005',
+                JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'Limit exceeded' } }),
+                /code=-32005, status=403.*Limit exceeded/,
+            ],
+            ['plain text', 'Forbidden', /status=403.*Forbidden/],
+        ] as const) {
+            const fetchFn = vi.fn(async () => {
+                return new Response(body, {
                     status: 403,
                     statusText: 'Forbidden',
-                    headers: { 'Content-Type': 'application/json' },
-                },
-            );
-        });
+                    headers: {
+                        'Content-Type': label === 'plain text' ? 'text/plain' : 'application/json',
+                    },
+                });
+            });
 
+            const client = createPublicClient({
+                transport: createRpcHttpTransport(url, { fetchFn, retryDelay: 1 }),
+            }) as unknown as ViemClient;
+
+            await expect(getChangedPoolsV3(VAULT_ADDRESS, client, 1000n, 1499n, { sleep })).rejects.toThrow(
+                expectedPattern,
+            );
+            expect(fetchFn, `HTTP 403 (${label}) must fail in 1 transport attempt`).toHaveBeenCalledTimes(1);
+            expect(sleep).not.toHaveBeenCalled();
+        }
+    });
+
+    it('still retries transient HTTP 503 responses at the transport boundary', async () => {
         const url = 'https://lb.drpc.live/monad/test';
+        const fetchFn = vi
+            .fn()
+            .mockResolvedValueOnce(
+                new Response('Service Unavailable', { status: 503, statusText: 'Service Unavailable' }),
+            )
+            .mockResolvedValueOnce(
+                new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: [] }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                }),
+            );
+
         const client = createPublicClient({
-            transport: http(url, {
-                fetchFn,
-                onFetchResponse: createHttpStatusPreservingOnFetchResponse(url),
-            }),
+            transport: createRpcHttpTransport(url, { fetchFn, retryDelay: 1 }),
         }) as unknown as ViemClient;
 
-        await expect(getChangedPoolsV3(VAULT_ADDRESS, client, 1000n, 1499n, { sleep })).rejects.toThrow(
-            /code=-32602, status=403.*Invalid params/,
-        );
-        expect(fetchFn).toHaveBeenCalledTimes(1);
-        expect(sleep).not.toHaveBeenCalled();
+        await expect(getChangedPoolsV3(VAULT_ADDRESS, client, 1000n, 1010n)).resolves.toEqual([]);
+        expect(fetchFn).toHaveBeenCalledTimes(2);
     });
 });

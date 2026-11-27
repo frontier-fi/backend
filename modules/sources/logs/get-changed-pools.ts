@@ -30,7 +30,7 @@ const NON_RETRYABLE_PATTERN =
     /\b(unauthorized|forbidden|invalid api key|api key|malformed|invalid address|invalid topic|invalid hex|method not found|unsupported method)\b/i;
 
 const HEAD_SKEW_PATTERN =
-    /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest|chain ?tip|tip)|exceeds (the )?(current )?(head|latest|chain ?tip|tip)|ahead of (the )?(current )?(head|latest|chain ?tip|tip)|future block|\b(toblock|fromblock)\b[^\n]{0,40}(?:\b(?:greater than|exceeds|after|beyond|ahead of)\b|>)[^\n]{0,30}\b(latest|head|current(?: block| head| tip)?|chain ?tip|last accepted)\b|requested block[^\n]{0,40}(not found|unavailable|future))/i;
+    /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest|chain ?tip|tip)|exceeds (the )?(current )?(head|latest|chain ?tip|tip)|ahead of (the )?(current )?(head|latest|chain ?tip|tip)|future block|\b(toblock|fromblock)\b[^\n]{0,40}(?:\b(?:greater than|exceeds|after|beyond|ahead of)\b|>)[^\n]{0,30}\b(latest|head|current (?:block|head|tip|height)|chain ?tip|last accepted)\b|requested block[^\n]{0,40}(not found|unavailable|future))/i;
 
 const RANGE_LIMIT_PATTERN =
     /(block range|max(imum)?\s+range|block window|range (is )?too (wide|large)|too many blocks|limited to\b|exceeds? max|exceeded max|more than \d+ (results|logs|blocks)|query returned more than|too many results|log response size|response size exceeded)/i;
@@ -160,11 +160,11 @@ const classifyRpcError = (info: RpcErrorInfo): ErrorAction => {
     if (diagnosticText && NON_RETRYABLE_PATTERN.test(diagnosticText)) {
         return 'non-retryable';
     }
-    if (diagnosticText && HEAD_SKEW_PATTERN.test(diagnosticText)) {
-        return 'head-skew';
-    }
     if (info.code === -32005 || (diagnosticText && RANGE_LIMIT_PATTERN.test(diagnosticText))) {
         return 'range-limit';
+    }
+    if (diagnosticText && HEAD_SKEW_PATTERN.test(diagnosticText)) {
+        return 'head-skew';
     }
     if (info.code === -32602) {
         return 'ambiguous-invalid-params';

@@ -174,7 +174,7 @@ describe('getEvents', () => {
         );
     });
 
-    it('bisects rather than retrying as head lag when error says fromBlock to toBlock exceeds maximum block range', async () => {
+    it('bisects rather than retrying as head lag when error says fromBlock to toBlock exceeds current maximum block range', async () => {
         const sleep = vi.fn(async () => {});
 
         mockedFetch().mockImplementation(async (_url, init) => {
@@ -185,7 +185,10 @@ describe('getEvents', () => {
             if (to - from + 1 > 250) {
                 return new Response(
                     JSON.stringify({
-                        error: { code: -32602, message: 'fromBlock to toBlock exceeds maximum block range of 250' },
+                        error: {
+                            code: -32602,
+                            message: 'fromBlock to toBlock exceeds current maximum block range of 250',
+                        },
                     }),
                 );
             }
@@ -203,6 +206,32 @@ describe('getEvents', () => {
             [1000, 1249],
             [1250, 1499],
         ]);
+    });
+
+    it('rejects promptly and aborts remaining in-flight requests when one chunk hits a fatal error', async () => {
+        let stalledSignal: AbortSignal | undefined;
+
+        mockedFetch().mockImplementation((_url, init) => {
+            const body = JSON.parse(String(init?.body));
+            const from = parseInt(body.params[0].fromBlock, 16);
+
+            if (from === 0) {
+                stalledSignal = init?.signal ?? undefined;
+                // Intentionally never resolves unless aborted (and even if ignored, Promise.all rejects immediately)
+                return new Promise<Response>(() => {});
+            }
+
+            return Promise.resolve(new Response('Forbidden', { status: 403, statusText: 'Forbidden' }));
+        });
+
+        await expect(
+            getEvents(0, 999, ['0x123'], ['0x456'], 'http://localhost', 500, undefined, 4000, {
+                maxConcurrency: 2,
+            }),
+        ).rejects.toThrow(/HTTP 403 Forbidden.*status=403/);
+
+        expect(stalledSignal).toBeDefined();
+        expect(stalledSignal?.aborted).toBe(true);
     });
 
     it('bounds chunk concurrency and applies exponential backoff with jitter on rate-limit retries', async () => {

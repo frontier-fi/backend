@@ -31,7 +31,7 @@ const NON_RETRYABLE_PATTERN =
     /\b(unauthorized|forbidden|invalid api key|api key|malformed|invalid address|invalid topic|invalid hex|method not found|unsupported method)\b/i;
 
 const HEAD_SKEW_PATTERN =
-    /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest|chain ?tip|tip)|exceeds (the )?(current )?(head|latest|chain ?tip|tip)|ahead of (the )?(current )?(head|latest|chain ?tip|tip)|future block|\b(toblock|fromblock)\b[^\n]{0,40}(?:\b(?:greater than|exceeds|after|beyond|ahead of)\b|>)[^\n]{0,30}\b(latest|head|current(?: block| head| tip)?|chain ?tip|last accepted)\b|requested block[^\n]{0,40}(not found|unavailable|future))/i;
+    /(unknown block|after last accepted block|block not found|header not found|beyond (the )?(current )?(head|latest|chain ?tip|tip)|exceeds (the )?(current )?(head|latest|chain ?tip|tip)|ahead of (the )?(current )?(head|latest|chain ?tip|tip)|future block|\b(toblock|fromblock)\b[^\n]{0,40}(?:\b(?:greater than|exceeds|after|beyond|ahead of)\b|>)[^\n]{0,30}\b(latest|head|current (?:block|head|tip|height)|chain ?tip|last accepted)\b|requested block[^\n]{0,40}(not found|unavailable|future))/i;
 
 const RANGE_LIMIT_PATTERN =
     /(block range|max(imum)?\s+range|block window|range (is )?too (wide|large)|too many blocks|limited to\b|exceeds? max|exceeded max|more than \d+ (results|logs|blocks)|too many results|log response size|response size exceeded)/i;
@@ -60,7 +60,22 @@ class RpcLogsError extends Error {
     }
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const defaultSleep = (ms: number, signal?: AbortSignal) =>
+    new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+            return;
+        }
+        const onAbort = () => {
+            clearTimeout(timer);
+            reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+        };
+        const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
 
 const computeRetryDelayMs = (baseDelayMs: number, attempt: number, random: () => number): number => {
     if (baseDelayMs <= 0) {
@@ -133,7 +148,8 @@ export const getEvents = async (
     const maxSplitDepth = options?.maxSplitDepth ?? DEFAULT_MAX_SPLIT_DEPTH;
     const minSplitRange = options?.minSplitRange ?? DEFAULT_MIN_SPLIT_RANGE;
     const maxConcurrency = Math.max(1, Math.floor(options?.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY));
-    const sleep = options?.sleep ?? defaultSleep;
+    const customSleep = options?.sleep;
+    const sleep = (ms: number, signal?: AbortSignal) => (customSleep ? customSleep(ms) : defaultSleep(ms, signal));
     const random = options?.random ?? Math.random;
 
     const fetchChunk = async (
@@ -141,13 +157,20 @@ export const getEvents = async (
         to: number,
         addressChunk: string[],
         splitDepth: number,
+        signal: AbortSignal,
     ): Promise<DecodedEventLog[]> => {
         const blockSpan = to - from + 1;
 
         for (let attempt = 0; ; attempt++) {
+            if (signal.aborted) {
+                throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+            }
             try {
-                return await fetchLogs(from, to, addressChunk, topics, rpcUrl);
+                return await fetchLogs(from, to, addressChunk, topics, rpcUrl, signal);
             } catch (e: unknown) {
+                if (signal.aborted) {
+                    throw e;
+                }
                 const { code, status, message } = extractErrorDetails(e);
 
                 const wrapLeafError = (err: unknown): unknown => {
@@ -190,7 +213,7 @@ export const getEvents = async (
                     const results: DecodedEventLog[] = [];
                     for (let start = from; start <= to;) {
                         const end = Math.min(start + suggestedRange - 1, to);
-                        const chunkLogs = await fetchChunk(start, end, addressChunk, splitDepth + 1);
+                        const chunkLogs = await fetchChunk(start, end, addressChunk, splitDepth + 1, signal);
                         results.push(...chunkLogs);
                         start = end + 1;
                     }
@@ -204,15 +227,35 @@ export const getEvents = async (
                     splitDepth < maxSplitDepth
                 ) {
                     if (retryDelayMs > 0) {
-                        await sleep(retryDelayMs);
+                        await sleep(retryDelayMs, signal);
                     }
                     const halfAddresses = Math.max(1, Math.floor(addressChunk.length / 2));
                     const subChunks = chunk(addressChunk, halfAddresses);
                     const results: DecodedEventLog[] = [];
                     for (const subChunk of subChunks) {
-                        results.push(...(await fetchChunk(from, to, subChunk, splitDepth + 1)));
+                        results.push(...(await fetchChunk(from, to, subChunk, splitDepth + 1, signal)));
                     }
                     return results;
+                }
+
+                // Block range limit (checked before head skew so range errors mentioning "current" still bisect)
+                const isRangeLimit = code === -32005 || RANGE_LIMIT_PATTERN.test(message);
+                if (isRangeLimit) {
+                    if (to > from && splitDepth < maxSplitDepth) {
+                        const logFn = splitDepth === 0 ? logger.warn : logger.debug;
+                        logFn('Bisecting getEvents block range after RPC error', {
+                            fromBlock: from,
+                            toBlock: to,
+                            blocks: blockSpan,
+                            splitDepth,
+                            rpcCode: code,
+                        });
+                        const mid = Math.floor((from + to) / 2);
+                        const left = await fetchChunk(from, mid, addressChunk, splitDepth + 1, signal);
+                        const right = await fetchChunk(mid + 1, to, addressChunk, splitDepth + 1, signal);
+                        return [...left, ...right];
+                    }
+                    throw wrapLeafError(e);
                 }
 
                 // Handle missing block / head skew in the RPC logs by retrying with bounded retries
@@ -229,7 +272,7 @@ export const getEvents = async (
                             rpcCode: code,
                         });
                         if (delayMs > 0) {
-                            await sleep(delayMs);
+                            await sleep(delayMs, signal);
                         }
                         continue;
                     }
@@ -241,22 +284,16 @@ export const getEvents = async (
                     if (attempt < maxRetries) {
                         const delayMs = computeRetryDelayMs(retryDelayMs, attempt, random);
                         if (delayMs > 0) {
-                            await sleep(delayMs);
+                            await sleep(delayMs, signal);
                         }
                         continue;
                     }
                     throw wrapLeafError(e);
                 }
 
-                // Block range limit or ambiguous -32602
-                const isRangeLimit = code === -32005 || RANGE_LIMIT_PATTERN.test(message);
+                // Ambiguous -32602
                 const isAmbiguousInvalidParams = code === -32602;
-
-                if (
-                    to > from &&
-                    splitDepth < maxSplitDepth &&
-                    (isRangeLimit || (isAmbiguousInvalidParams && blockSpan > minSplitRange))
-                ) {
+                if (isAmbiguousInvalidParams && to > from && splitDepth < maxSplitDepth && blockSpan > minSplitRange) {
                     const logFn = splitDepth === 0 ? logger.warn : logger.debug;
                     logFn('Bisecting getEvents block range after RPC error', {
                         fromBlock: from,
@@ -266,8 +303,8 @@ export const getEvents = async (
                         rpcCode: code,
                     });
                     const mid = Math.floor((from + to) / 2);
-                    const left = await fetchChunk(from, mid, addressChunk, splitDepth + 1);
-                    const right = await fetchChunk(mid + 1, to, addressChunk, splitDepth + 1);
+                    const left = await fetchChunk(from, mid, addressChunk, splitDepth + 1, signal);
+                    const right = await fetchChunk(mid + 1, to, addressChunk, splitDepth + 1, signal);
                     return [...left, ...right];
                 }
 
@@ -283,7 +320,7 @@ export const getEvents = async (
                         rpcCode: code,
                     });
                     if (delayMs > 0) {
-                        await sleep(delayMs);
+                        await sleep(delayMs, signal);
                     }
                     continue;
                 }
@@ -307,35 +344,29 @@ export const getEvents = async (
     }
 
     const results: DecodedEventLog[][] = new Array(tasks.length);
+    const abortController = new AbortController();
     let nextTaskIndex = 0;
-    let firstError: unknown;
-    let hasError = false;
 
     const workerCount = Math.min(maxConcurrency, tasks.length);
     const workers = Array.from({ length: workerCount }, async () => {
-        while (!hasError) {
+        while (!abortController.signal.aborted) {
             const taskIndex = nextTaskIndex++;
             if (taskIndex >= tasks.length) {
                 return;
             }
             const task = tasks[taskIndex];
             try {
-                results[taskIndex] = await fetchChunk(task.from, task.to, task.addressChunk, 0);
+                results[taskIndex] = await fetchChunk(task.from, task.to, task.addressChunk, 0, abortController.signal);
             } catch (err) {
-                if (!hasError) {
-                    hasError = true;
-                    firstError = err;
+                if (!abortController.signal.aborted) {
+                    abortController.abort(err);
                 }
-                return;
+                throw err;
             }
         }
     });
 
     await Promise.all(workers);
-
-    if (hasError) {
-        throw firstError;
-    }
 
     const logs = results.flat().filter((log) => log);
     return iEvents ? decodeLogs(logs, iEvents) : logs;
@@ -347,6 +378,7 @@ const fetchLogs = async (
     addresses: string[],
     topics: string[],
     rpcUrl: string,
+    signal?: AbortSignal,
 ): Promise<DecodedEventLog[]> => {
     // Fetch logs with a raw json request until we support Viem or Ethers6
     const payload = {
@@ -369,6 +401,7 @@ const fetchLogs = async (
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        signal,
     });
 
     let response:
