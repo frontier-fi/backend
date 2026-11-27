@@ -214,7 +214,7 @@ export function PoolController(tracer?: any) {
             };
 
             await runInitStep('sync-bpt-balances', async () => {
-                const maxRpcBackfillRange = 5 * network.rpcMaxBlockRange;
+                const maxRpcBackfillRange = network.maxRpcBackfillRange ?? 5 * network.rpcMaxBlockRange;
                 let subgraphEndBlock: number;
                 try {
                     subgraphEndBlock = await syncBptBalancesFromSubgraph(newPoolIds, vaultSubgraphClient, chain);
@@ -447,17 +447,21 @@ export function PoolController(tracer?: any) {
                 ).map(({ id }) => id.toLowerCase());
             } else {
                 const rpcMaxBlockRange = config[chain].rpcMaxBlockRange;
-                const range = Number(latestBlock) - fromBlock;
-                const numBatches = Math.ceil(range / rpcMaxBlockRange);
-
+                const toBlock = Number(latestBlock);
                 const allChangedPools = new Set<string>();
 
-                for (let i = 0; i < numBatches; i++) {
-                    const from = fromBlock + (i > 0 ? 1 : 0) + i * rpcMaxBlockRange;
-                    const to = Math.min(fromBlock + (i + 1) * rpcMaxBlockRange, Number(latestBlock));
-
-                    const changedPools = await getChangedPoolsV3(vaultAddress, viemClient, BigInt(from), BigInt(to));
-                    changedPools.forEach((pool) => allChangedPools.add(pool));
+                if (fromBlock < toBlock) {
+                    for (let from = fromBlock; from <= toBlock;) {
+                        const to = Math.min(from + rpcMaxBlockRange - 1, toBlock);
+                        const changedPools = await getChangedPoolsV3(
+                            vaultAddress,
+                            viemClient,
+                            BigInt(from),
+                            BigInt(to),
+                        );
+                        changedPools.forEach((pool) => allChangedPools.add(pool));
+                        from = to + 1;
+                    }
                 }
 
                 changedIds = Array.from(allChangedPools).map((pool) => pool.toLowerCase());
