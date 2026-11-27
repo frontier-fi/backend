@@ -5,6 +5,7 @@ import { logger } from '../../common/logger';
 
 const sourceToHandler = {
     aave: sources.aaveOnchainHandler,
+    aaveV4: sources.aaveV4OnchainHandler,
     avalon: sources.avalonYieldHandler,
     euler: sources.eulerYieldHandler,
     teth: sources.treehouseYieldHandler,
